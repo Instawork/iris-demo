@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CrUber
 
-## Getting Started
+CrUber is an interactive staffing VMS demo for the Compass program. It gives Compass, location buyers, and staffing suppliers the same six-page workspace with persona-specific data and actions:
 
-First, run the development server:
+- Dashboard
+- Shifts
+- Supplier Rates
+- Professionals
+- Invoices
+- Uploads
+
+The demo covers the complete workflow from supplier onboarding and rate uploads through shift fulfillment, hours approval, generated invoices, and anomaly review.
+
+## Run locally
+
+Requires Node 22.
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:4848>. Set `PORT` to use another port.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verify
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run check
+npm audit --omit=dev
+```
 
-## Learn More
+## Production
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm ci
+npm run build
+PORT=3000 npm start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The server binds to `0.0.0.0` so the same command works on Replit.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Demo behavior
 
-## Deploy on Vercel
+- All data is fictional and generated in the browser.
+- State is stored in local storage; no database or credentials are required.
+- Each browser receives its own independent copy of the demo.
+- Use **Reset demo data** in the account menu to restore the seeded story.
+- Upload parsing and suggested fixes run locally. Uploaded files are not sent to a server.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Replit configuration is committed in `.replit`. Publishing uses a deterministic clean install and production build:
+
+```bash
+npm ci
+npm run build
+```
+
+The health endpoint is available at `/api/health`.

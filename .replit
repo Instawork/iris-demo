@@ -1,0 +1,35 @@
+run = "npm run dev"
+entrypoint = "app/(app)/page.tsx"
+hidden = [".next", "node_modules"]
+modules = ["nodejs-22"]
+
+[nix]
+channel = "stable-25_05"
+
+[env]
+PORT = "3000"
+
+[deployment]
+build = ["sh", "-c", "npm ci && npm run build"]
+run = ["sh", "-c", "npm start"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "sequential"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 3000
+
+[workflows.workflow.metadata]
+outputType = "webview"
