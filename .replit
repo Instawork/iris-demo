@@ -1,4 +1,4 @@
-run = "npm run dev"
+run = "npm install && npm run dev"
 entrypoint = "app/(app)/page.tsx"
 hidden = [".next", "node_modules"]
 modules = ["nodejs-22"]
@@ -28,7 +28,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "npm install && npm run dev"
 waitForPort = 3000
 
 [workflows.workflow.metadata]
