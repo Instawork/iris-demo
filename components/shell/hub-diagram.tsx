@@ -21,8 +21,8 @@ function Node({
   side: "left" | "right"
 }) {
   return (
-    <div className={cn("flex items-center gap-2.5", side === "left" && "flex-row-reverse text-right")}>
-      <div ref={nodeRef} className="relative z-10 rounded-[10px] bg-card p-0.5 ring-1 ring-border">
+    <div className={cn("flex max-w-full min-w-0 items-center gap-2.5", side === "left" && "flex-row-reverse text-right")}>
+      <div ref={nodeRef} className="relative z-10 shrink-0 rounded-[10px] bg-card p-0.5 ring-1 ring-border">
         {children}
       </div>
       <div className="flex min-w-0 flex-col">
@@ -72,11 +72,11 @@ export function HubDiagram({ className }: { className?: string }) {
   }, [])
 
   return (
-    <div ref={container} className={cn("relative grid grid-cols-[1fr_auto_1fr] items-center gap-8 px-2 py-4", className)}>
+    <div ref={container} className={cn("relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-2 py-4 sm:gap-8", className)}>
       <svg className="pointer-events-none absolute inset-0 size-full" fill="none" aria-hidden>
         {paths.map((d, i) => d && <path key={i} d={d} stroke="var(--border-strong)" strokeWidth={1.25} />)}
       </svg>
-      <div className="flex flex-col items-end gap-5">
+      <div className="flex min-w-0 flex-col items-end gap-5">
         <Node nodeRef={levy} label={wsLevy.name} sub="Buyer" side="left">
           <WorkspaceAvatar ws={wsLevy} size="md" />
         </Node>
@@ -93,7 +93,7 @@ export function HubDiagram({ className }: { className?: string }) {
         </div>
         <span className="text-caption-1 font-semibold">CrUber</span>
       </div>
-      <div className="flex flex-col items-start gap-4">
+      <div className="flex min-w-0 flex-col items-start gap-4">
         {(
           [
             ["instawork", instawork],

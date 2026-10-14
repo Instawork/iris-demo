@@ -43,7 +43,7 @@ export function WelcomeDialog() {
   const copy = COPY[ws.kind]
   return (
     <Dialog open={!seen} onOpenChange={(o) => (!o ? mark(ws.kind) : undefined)}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
+      <DialogContent className="grid-cols-1 gap-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
         <div className="border-b border-border bg-page-faded/60 px-4 pt-2">
           <HubDiagram className="py-6" />
         </div>
