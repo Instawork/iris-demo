@@ -516,6 +516,22 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
         cta: "Review",
       })
     }
+    const safetyExceptions = data.pros.filter((p) => {
+      const summary = summaryOf(p)
+      return summary === "action_needed" || summary === "onboarding"
+    })
+    if (safetyExceptions.length) {
+      todos.push({
+        id: "safety",
+        title: `${plural(safetyExceptions.length, "professional")} requiring safety review`,
+        description: "Background checks, I-9s, orientation and role-specific documents that are pending, missing or expired.",
+        count: safetyExceptions.length,
+        href: "/professionals?filter=not_compliant",
+        tone: "warning",
+        icon: "shield",
+        cta: "Review workers",
+      })
+    }
   }
   return todos
 }

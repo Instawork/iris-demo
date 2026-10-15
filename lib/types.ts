@@ -168,6 +168,8 @@ export interface ShiftGroup {
   supplierId: string
   /** Suppliers the shift was sent to: the buyer's approved suppliers when it was posted. */
   supplierIds: string[]
+  /** Ordered supplier release plan. supplierIds contains the entries already released. */
+  supplierReleases?: { supplierId: string; releasedAt: string }[]
   billRate: number
   proRate: number
   markupPct: number

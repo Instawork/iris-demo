@@ -25,6 +25,7 @@ export function StatCard({
   trend,
   href,
   footer,
+  tone = "neutral",
 }: {
   label: string
   info?: React.ReactNode
@@ -36,6 +37,7 @@ export function StatCard({
   trend?: StatTrend
   href?: string
   footer?: React.ReactNode
+  tone?: "neutral" | "brand" | "positive" | "warning"
 }) {
   const good = trend ? (trend.goodWhen === "up" ? trend.delta >= 0 : trend.delta <= 0) : true
   const TrendIcon = trend && trend.delta >= 0 ? ArrowUpRight : ArrowDownRight
@@ -43,10 +45,20 @@ export function StatCard({
   const body = (
     <div
       className={cn(
-        "group relative flex h-full flex-col gap-1.5 rounded-xl border border-border bg-card p-4 shadow-raised transition-colors duration-100",
+        "group relative flex h-full flex-col gap-1.5 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-raised transition-colors duration-100",
         href && "hover:border-border-strong",
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-x-0 top-0 h-0.5",
+          tone === "brand" && "bg-brand-strong",
+          tone === "positive" && "bg-positive",
+          tone === "warning" && "bg-warning",
+          tone === "neutral" && "bg-border-strong",
+        )}
+      />
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5 text-body-3 text-faded">
           <span className="truncate">{label}</span>

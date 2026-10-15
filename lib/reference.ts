@@ -6,7 +6,7 @@ export const PROGRAM = {
   maxMarkupPct: 45,
   paymentTermsDays: 15,
   dueSoonDays: 7,
-  cascadeHoursBefore: 24,
+  cascadeHoursBefore: 4,
 }
 
 export const CITIES: City[] = [

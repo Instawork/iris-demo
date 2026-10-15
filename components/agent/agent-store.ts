@@ -1,0 +1,50 @@
+"use client"
+
+import { create } from "zustand"
+
+import type { BookingInput } from "@/lib/store"
+import type { UploadType } from "@/lib/types"
+
+export type AgentAction =
+  | { label: string; kind: "link"; href: string }
+  | { label: string; kind: "template"; type: UploadType }
+  | { label: string; kind: "upload"; type?: UploadType }
+  | { label: string; kind: "review"; type: UploadType; fileName: string; csv: string }
+  | { label: string; kind: "create-shift"; input: BookingInput }
+
+export interface AgentMessage {
+  id: number
+  from: "agent" | "user"
+  text: string
+  actions?: AgentAction[]
+  fileName?: string
+}
+
+export const NO_MESSAGES: AgentMessage[] = []
+
+interface AgentState {
+  nextId: number
+  threads: Record<string, AgentMessage[]>
+  push: (workspaceId: string, message: Omit<AgentMessage, "id">) => void
+  clear: (workspaceId: string) => void
+  dropActions: (workspaceId: string, messageId: number) => void
+}
+
+/** One conversation per workspace, shared by Home and the Agent Chat sheet so a thread follows you between them. */
+export const useAgentThreads = create<AgentState>()((set) => ({
+  nextId: 1,
+  threads: {},
+  push: (workspaceId, message) =>
+    set((state) => ({
+      nextId: state.nextId + 1,
+      threads: { ...state.threads, [workspaceId]: [...(state.threads[workspaceId] ?? []), { ...message, id: state.nextId }] },
+    })),
+  clear: (workspaceId) => set((state) => ({ threads: { ...state.threads, [workspaceId]: [] } })),
+  dropActions: (workspaceId, messageId) =>
+    set((state) => ({
+      threads: {
+        ...state.threads,
+        [workspaceId]: (state.threads[workspaceId] ?? []).map((m) => (m.id === messageId ? { ...m, actions: undefined } : m)),
+      },
+    })),
+}))

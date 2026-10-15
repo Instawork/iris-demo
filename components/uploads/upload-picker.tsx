@@ -10,6 +10,7 @@ import { SyncedBadge } from "@/components/common/synced-badge"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { UPLOAD_SPECS, downloadCsv, isSynced, sampleName, specsFor, templateCsv, templateName } from "@/lib/csv"
+import { isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
 import type { UploadType, Workspace } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -59,15 +60,19 @@ export function UploadPicker({
 
   const choose = async (f?: File) => {
     if (!f) return
-    if (!f.name.toLowerCase().endsWith(".csv") && f.type !== "text/csv") {
-      toast.error("That's not a CSV file", { description: "Export your spreadsheet as .csv and try again." })
+    if (!isSpreadsheetFile(f)) {
+      toast.error("That's not a spreadsheet", { description: "Choose a CSV or Excel (.xlsx) file." })
       return
     }
     if (f.size > 2_000_000) {
       toast.error("File is too large", { description: "Keep uploads under 2 MB, about 20,000 rows." })
       return
     }
-    setFile({ name: f.name, csv: await f.text(), sample: false })
+    try {
+      setFile({ name: f.name, csv: await spreadsheetToCsv(f), sample: false })
+    } catch (error) {
+      toast.error(`Couldn't read ${f.name}`, { description: error instanceof Error ? error.message : "Try exporting the sheet as CSV." })
+    }
   }
 
   const trySample = () => {
@@ -150,7 +155,7 @@ export function UploadPicker({
           <Button className="ml-auto h-9 gap-1.5 rounded-lg px-4 text-body-3 font-semibold" disabled={!file} onClick={upload}>
             <Upload className="size-4" /> Upload
           </Button>
-          <input ref={inputRef} type="file" accept=".csv,text/csv" tabIndex={-1} className="sr-only" onChange={(e) => void choose(e.target.files?.[0])} />
+          <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" tabIndex={-1} className="sr-only" onChange={(e) => void choose(e.target.files?.[0])} />
         </div>
       )}
     </div>

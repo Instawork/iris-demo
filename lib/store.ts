@@ -88,6 +88,7 @@ interface StoreState {
   cancelGroup: (groupId: string) => void
   setHeadcount: (groupId: string, headcount: number) => void
   setSupplierApproval: (buyerId: string, supplierId: string, approved: boolean) => void
+  moveSupplierPriority: (buyerId: string, supplierId: string, direction: -1 | 1) => void
   assignPros: (groupId: string, proIds: string[]) => number
   releasePro: (groupId: string, slotId: string) => void
   markNoShow: (groupId: string, slotId: string) => void
@@ -159,10 +160,20 @@ export const joinNames = (names: string[]) =>
 /** The buyer's approved suppliers that can staff this role in the city, in program order. Their rate cards price the shift. */
 export function notifiedSuppliers(data: DemoData, buyerId: string, cityId: string, positionId: string) {
   const approved = data.approvals[buyerId] ?? []
-  return SUPPLIERS.filter((s) => approved.includes(s.id) && s.cityIds.includes(cityId)).flatMap((s) => {
+  return approved.flatMap((id) => {
+    const s = SUPPLIERS.find((candidate) => candidate.id === id)
+    if (!s || !s.cityIds.includes(cityId)) return []
     const card = data.rateCards.find((c) => c.supplierId === s.id && c.cityId === cityId && c.positionId === positionId && c.status === "active")
     return card ? [{ supplier: s, card }] : []
   })
+}
+
+export function supplierReleasePlan(supplierIds: string[], createdAt: string) {
+  const start = new Date(createdAt).getTime()
+  return supplierIds.map((supplierId, index) => ({
+    supplierId,
+    releasedAt: new Date(start + index * PROGRAM.cascadeHoursBefore * 60 * 60 * 1000).toISOString(),
+  }))
 }
 
 /** One invoice per supplier for a batch of approved hours, priced at the hours, tips and bill rate on each timesheet. */
@@ -287,8 +298,17 @@ export const useStore = create<StoreState>()(
           const completions: string[] = []
           let next = data
           for (const g of live) {
-            const current = next.groups.find((x) => x.id === g.id)
+            let current = next.groups.find((x) => x.id === g.id)
             if (!current?.liveFill) continue
+            if (current.supplierReleases?.length) {
+              const released = current.supplierReleases.filter((release) => release.releasedAt <= nowISO()).map((release) => release.supplierId)
+              if (released.some((id) => !current!.supplierIds.includes(id))) {
+                current = { ...current, supplierIds: released }
+                next = merge(next, { groups: next.groups.map((item) => (item.id === current!.id ? current! : item)) })
+              }
+            }
+            if (!current.liveFill) continue
+            const fillStartedAt = current.liveFill.startedAt
             const pace = bestPace(current.supplierIds)
             const filled = filledCount(current)
             const cap = Math.max(1, Math.floor(current.slots.length * pace.cap))
@@ -325,7 +345,7 @@ export const useStore = create<StoreState>()(
               const proSupplier = new Map(next.pros.map((p) => [p.id, p.supplierId]))
               const fillers = [...new Set(slots.map((s) => (s.proId ? proSupplier.get(s.proId) : undefined)).filter(Boolean) as string[])]
               const who = joinNames(fillers.map((id) => supplier(id).shortName))
-              const secs = Math.max(1, Math.round((Date.now() - new Date(current.liveFill.startedAt).getTime()) / 1000))
+              const secs = Math.max(1, Math.round((Date.now() - new Date(fillStartedAt).getTime()) / 1000))
               const text =
                 nowFilled >= current.slots.length
                   ? `${who} filled all ${current.slots.length} ${position(current.positionId).name} spots at ${location(current.locationId).name}`
@@ -361,6 +381,7 @@ export const useStore = create<StoreState>()(
             const groups: ShiftGroup[] = input.dates.map((date) => {
               const code = `SG-${sg++}`
               ids.push(code.toLowerCase())
+              const ordered = notified.map((n) => n.card.supplierId)
               return {
                 id: code.toLowerCase(),
                 code,
@@ -374,7 +395,8 @@ export const useStore = create<StoreState>()(
                 end: input.end,
                 breakMins: input.breakMins,
                 supplierId: card.supplierId,
-                supplierIds: notified.map((n) => n.card.supplierId),
+                supplierIds: ordered.slice(0, 1),
+                supplierReleases: supplierReleasePlan(ordered, created),
                 billRate: card.billRate,
                 proRate: card.proRate,
                 markupPct: card.markupPct,
@@ -391,7 +413,7 @@ export const useStore = create<StoreState>()(
             return [
               { groups: [...groups, ...data.groups], counters: { sg } },
               event(data, {
-                text: `${actor(wsId)} posted ${input.headcount * input.dates.length} ${position(input.positionId).name} spots at ${loc.name} and notified ${joinNames(notified.map((n) => supplier(n.card.supplierId).shortName))}`,
+                text: `${actor(wsId)} posted ${input.headcount * input.dates.length} ${position(input.positionId).name} spots at ${loc.name}. ${supplier(notified[0].card.supplierId).shortName} received them first`,
                 actor: actor(wsId),
                 tone: "primary",
                 buyerId: loc.buyerId,
@@ -440,7 +462,7 @@ export const useStore = create<StoreState>()(
           commit((data, wsId) => {
             const current = data.approvals[buyerId] ?? []
             if (approved === current.includes(supplierId)) return undefined
-            const nextIds = approved ? SUPPLIERS.map((x) => x.id).filter((id) => id === supplierId || current.includes(id)) : current.filter((id) => id !== supplierId)
+            const nextIds = approved ? [...current, supplierId] : current.filter((id) => id !== supplierId)
             return [
               { approvals: { ...data.approvals, [buyerId]: nextIds } },
               event(data, {
@@ -451,6 +473,16 @@ export const useStore = create<StoreState>()(
                 supplierId,
               }),
             ]
+          }),
+
+        moveSupplierPriority: (buyerId, supplierId, direction) =>
+          commit((data) => {
+            const current = [...(data.approvals[buyerId] ?? [])]
+            const index = current.indexOf(supplierId)
+            const target = index + direction
+            if (index < 0 || target < 0 || target >= current.length) return undefined
+            ;[current[index], current[target]] = [current[target], current[index]]
+            return { approvals: { ...data.approvals, [buyerId]: current } }
           }),
 
         assignPros: (groupId, proIds) => {

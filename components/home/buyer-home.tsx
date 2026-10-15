@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowDownRight, ArrowUpRight, BellRing, Download, Scale } from "lucide-react"
+import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, BellRing, Download, Scale } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -21,7 +21,7 @@ import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { addDaysISO, formatDateShort, todayISO } from "@/lib/dates"
 import { money, moneyWhole, pct } from "@/lib/format"
 import { avgBillRate, metricsFor, spendSummaryFor, todosFor, type SpendSlice } from "@/lib/metrics"
-import { SUPPLIERS, location, locationsFor, position, supplier } from "@/lib/reference"
+import { PROGRAM, SUPPLIERS, location, locationsFor, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -194,6 +194,7 @@ function SpendSection() {
 interface SupplierRow {
   id: string
   approved: boolean
+  priority?: number
   spend: number
   billRate: number
   fillRate: number
@@ -206,6 +207,7 @@ function MySuppliers() {
   const data = useData()
   const { ws } = useWorkspace()
   const setApproval = useStore((s) => s.setSupplierApproval)
+  const movePriority = useStore((s) => s.moveSupplierPriority)
   const [profile, setProfile] = useState<string>()
   const buyerId = ws.buyerId!
   const cityIds = useMemo(() => [...new Set(locationsFor(buyerId).map((l) => l.cityId))], [buyerId])
@@ -222,6 +224,7 @@ function MySuppliers() {
         return {
           id: s.id,
           approved: approved.includes(s.id),
+          priority: approved.includes(s.id) ? approved.indexOf(s.id) + 1 : undefined,
           spend,
           billRate: avgBillRate(data, s.id, cityIds),
           fillRate: m.fillRate,
@@ -230,7 +233,7 @@ function MySuppliers() {
           worked: m.slotsFilled > 0,
         }
       })
-      .sort((a, b) => b.spend - a.spend)
+      .sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER) || b.spend - a.spend)
   }, [data, buyerId, cityIds])
 
   const toggle = (id: string, on: boolean) => {
@@ -252,6 +255,39 @@ function MySuppliers() {
           <Checkbox checked={r.approved} onCheckedChange={(v) => toggle(r.id, v === true)} aria-label={`Approve ${supplier(r.id).shortName}`} />
         </span>
       ),
+    },
+    {
+      id: "priority",
+      header: "Release",
+      info: `Approved suppliers receive new shifts in this order, ${PROGRAM.cascadeHoursBefore} hours apart until the shift fills.`,
+      className: "w-28",
+      sortValue: (r) => r.priority ?? Number.MAX_SAFE_INTEGER,
+      cell: (r) =>
+        r.priority ? (
+          <span className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+            <span className="w-5 text-center font-semibold tabular">{r.priority}</span>
+            <button
+              type="button"
+              className="rounded-md p-1 text-faded hover:bg-muted hover:text-foreground disabled:opacity-30"
+              disabled={r.priority === 1}
+              onClick={() => movePriority(buyerId, r.id, -1)}
+              aria-label={`Move ${supplier(r.id).shortName} earlier`}
+            >
+              <ArrowUp className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-1 text-faded hover:bg-muted hover:text-foreground disabled:opacity-30"
+              disabled={r.priority === (data.approvals[buyerId] ?? []).length}
+              onClick={() => movePriority(buyerId, r.id, 1)}
+              aria-label={`Move ${supplier(r.id).shortName} later`}
+            >
+              <ArrowDown className="size-3.5" />
+            </button>
+          </span>
+        ) : (
+          <span className="text-faded">--</span>
+        ),
     },
     {
       id: "supplier",
@@ -313,7 +349,7 @@ function MySuppliers() {
       <Surface elevated className="overflow-hidden">
         <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={(r) => setProfile(r.id)} />
         <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-caption-1 text-faded">
-          <BellRing className="size-3.5" /> Checked suppliers are notified when you post a shift.
+          <BellRing className="size-3.5" /> Approved suppliers receive new shifts in priority order, {PROGRAM.cascadeHoursBefore} hours apart until the shift fills.
         </div>
       </Surface>
       <SupplierProfileDialog supplierId={profile} onOpenChange={(open) => !open && setProfile(undefined)} />

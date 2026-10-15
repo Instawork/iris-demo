@@ -107,6 +107,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const pos = position(group.positionId)
   const loc = location(group.locationId)
   const sent = joinNames(group.supplierIds.map((id) => supplier(id).shortName))
+  const supplierReleases =
+    group.supplierReleases ?? group.supplierIds.map((supplierId) => ({ supplierId, releasedAt: group.createdAt }))
   const phase = groupPhase(group)
   const filled = filledCount(group)
   const total = group.slots.length
@@ -457,20 +459,24 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <Surface elevated>
             <SurfaceHeader
               title="Suppliers"
-              info="The approved suppliers this shift was sent to. Each Pro is billed at their own supplier's rate."
-              description={`${group.supplierIds.length} notified`}
+              info="Approved suppliers receive this shift in priority order until it fills. Each Pro is billed at their own supplier's rate."
+              description={`${group.supplierIds.length} of ${supplierReleases.length} released`}
             />
             <ul className="flex flex-col px-3 pt-2 pb-2">
-              {group.supplierIds.map((id) => {
+              {supplierReleases.map(({ supplierId: id, releasedAt }, index) => {
                 const s = supplier(id)
                 const card = data.rateCards.find((c) => c.supplierId === id && c.cityId === loc.cityId && c.positionId === group.positionId && c.status === "active")
                 const filledBy = group.slots.filter((slot) => slot.proId && data.pros.find((p) => p.id === slot.proId)?.supplierId === id).length
+                const released = group.supplierIds.includes(id)
                 return (
                   <li key={id} className="flex items-center gap-3 rounded-lg px-2 py-2.5">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold tabular">{index + 1}</span>
                     <SupplierLogo supplierId={id} size="md" />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-body-3 font-semibold">{s.shortName}</span>
-                      <span className="text-caption-1 text-faded">{filledBy ? `${filledBy} of ${total} spots filled` : "No Pros yet"}</span>
+                      <span className="text-caption-1 text-faded">
+                        {released ? (filledBy ? `${filledBy} of ${total} spots filled` : "Released · no Pros yet") : `Scheduled ${formatTimestamp(releasedAt)}`}
+                      </span>
                     </span>
                     {card && <span className="text-body-3 font-medium tabular">{money(card.billRate)}/hr</span>}
                   </li>

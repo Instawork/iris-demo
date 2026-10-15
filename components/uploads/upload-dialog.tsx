@@ -15,18 +15,22 @@ import { cn } from "@/lib/utils"
 export function UploadDialog() {
   const open = useUi((s) => s.uploadOpen)
   const preset = useUi((s) => s.uploadType)
+  const pending = useUi((s) => s.pendingUpload)
+  const clearPending = useUi((s) => s.clearPendingUpload)
   const close = useUi((s) => s.closeUpload)
   const { ws } = useWorkspace()
   const flow = useUploadFlow()
   const [type, setType] = useState<UploadType>(() => defaultUploadType(ws, preset))
   const [session, setSession] = useState<ReviewSession>()
-  const [shown, setShown] = useState(open)
-  if (open !== shown) {
-    setShown(open)
-    if (open) {
-      setType(defaultUploadType(ws, preset))
-      setSession(undefined)
-    }
+
+  const prepare = () => {
+    setType(pending?.type ?? defaultUploadType(ws, preset))
+    setSession(undefined)
+    if (!pending) return
+    const result = flow.submit(pending.type, pending.fileName, pending.csv)
+    clearPending()
+    if (result.status === "review") setSession(result.session)
+    if (result.status === "failed") close()
   }
 
   const dismiss = () => {
@@ -42,13 +46,13 @@ export function UploadDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && dismiss()}>
-      <DialogContent className={cn("max-h-[92svh] gap-0 overflow-hidden p-0", session ? "sm:max-w-4xl" : "sm:max-w-2xl")}>
+      <DialogContent onOpenAutoFocus={prepare} className={cn("max-h-[92svh] gap-0 overflow-hidden p-0", session ? "sm:max-w-4xl" : "sm:max-w-2xl")}>
         {session ? (
           <ReviewFixes key={`${session.id}-${session.round}`} session={session} onChange={setSession} onDone={close} />
         ) : (
           <>
             <div className="flex flex-col gap-1 border-b border-border px-6 pt-5 pr-12 pb-4">
-              <DialogTitle className="text-featured-3 font-bold">Upload a CSV</DialogTitle>
+              <DialogTitle className="text-featured-3 font-bold">Upload a spreadsheet</DialogTitle>
               <DialogDescription className="text-body-3 text-faded">Every row is checked, and you approve any fixes before anything is saved.</DialogDescription>
             </div>
             <UploadPicker type={type} onTypeChange={setType} onUpload={upload} className="m-6" />

@@ -5,6 +5,13 @@ import { persist } from "zustand/middleware"
 
 import type { PersonaKind, UploadType } from "@/lib/types"
 
+export interface PendingUpload {
+  id: string
+  type: UploadType
+  fileName: string
+  csv: string
+}
+
 interface UiState {
   sidebarCollapsed: boolean
   mobileNavOpen: boolean
@@ -12,8 +19,10 @@ interface UiState {
   helpOpen: boolean
   helpTopic?: string
   helpSession: number
+  agentOpen: boolean
   uploadOpen: boolean
   uploadType?: UploadType
+  pendingUpload?: PendingUpload
   welcomeSeen: Partial<Record<PersonaKind, boolean>>
   shiftsView: "list" | "calendar"
   toggleSidebar: () => void
@@ -22,7 +31,10 @@ interface UiState {
   togglePalette: () => void
   openHelp: (topic?: string) => void
   closeHelp: () => void
+  setAgentOpen: (open: boolean) => void
   openUpload: (type?: UploadType) => void
+  stageUpload: (upload: PendingUpload) => void
+  clearPendingUpload: () => void
   closeUpload: () => void
   markWelcome: (kind: PersonaKind) => void
   resetWelcome: () => void
@@ -37,6 +49,7 @@ export const useUi = create<UiState>()(
       paletteOpen: false,
       helpOpen: false,
       helpSession: 0,
+      agentOpen: false,
       uploadOpen: false,
       welcomeSeen: {},
       shiftsView: "list",
@@ -46,8 +59,16 @@ export const useUi = create<UiState>()(
       togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
       openHelp: (topic) => set((s) => ({ helpOpen: true, helpTopic: topic, helpSession: s.helpSession + 1 })),
       closeHelp: () => set({ helpOpen: false }),
-      openUpload: (type) => set({ uploadOpen: true, uploadType: type }),
-      closeUpload: () => set({ uploadOpen: false }),
+      setAgentOpen: (open) => set({ agentOpen: open }),
+      openUpload: (type) =>
+        set((state) => ({
+          uploadOpen: true,
+          uploadType: type,
+          pendingUpload: type && state.pendingUpload?.type === type ? state.pendingUpload : undefined,
+        })),
+      stageUpload: (upload) => set({ pendingUpload: upload }),
+      clearPendingUpload: () => set({ pendingUpload: undefined }),
+      closeUpload: () => set({ uploadOpen: false, pendingUpload: undefined }),
       markWelcome: (kind) => set((s) => ({ welcomeSeen: { ...s.welcomeSeen, [kind]: true } })),
       resetWelcome: () => set({ welcomeSeen: {} }),
       setShiftsView: (view) => set({ shiftsView: view }),

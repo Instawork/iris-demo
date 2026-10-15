@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
+import { AgentChat } from "@/components/agent/agent-chat"
 import { Logo } from "@/components/brand/logo"
 import { CommandPalette } from "@/components/shell/command-palette"
 import { HelpDialog } from "@/components/shell/help-dialog"
@@ -76,8 +77,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         useUi.getState().togglePalette()
         return
       }
-      const target = e.target as HTMLElement | null
-      if (target && (target.closest("input, textarea, select, [contenteditable=true]") || e.metaKey || e.ctrlKey || e.altKey)) return
+      const target = e.target
+      if ((target instanceof Element && target.closest("input, textarea, select, [contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === "?") {
         e.preventDefault()
         useUi.getState().openHelp()
@@ -107,15 +108,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="absolute -top-24 -right-24 size-72 rounded-full bg-brand/20 blur-3xl dark:bg-brand/10" />
           </div>
           <Topbar scrolled={scrolled} />
-          <main
-            ref={mainRef}
-            onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
-            className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
-          >
-            <div key={workspaceId} className="mx-auto w-full max-w-[1320px] px-5 pt-2 pb-16 sm:px-8">
+          {pathname === "/" ? (
+            <main key={workspaceId} className="flex min-h-0 flex-1 flex-col">
               {children}
-            </div>
-          </main>
+            </main>
+          ) : (
+            <main
+              ref={mainRef}
+              onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
+              className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
+            >
+              <div key={workspaceId} className="mx-auto w-full max-w-[1320px] px-5 pt-2 pb-16 sm:px-8">
+                {children}
+              </div>
+            </main>
+          )}
         </div>
       </div>
       <MobileNav />
@@ -123,6 +130,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <UploadDialog />
       <CommandPalette />
       <WelcomeDialog />
+      <AgentChat />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { billFrom, markupFrom, money, plural, round2 } from "@/lib/format"
 import { groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
-import { notifiedSuppliers, type Patch } from "@/lib/store"
+import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/store"
 import type {
   BusinessActivity,
   ComplianceItem,
@@ -738,7 +738,11 @@ function planShifts(rows: Row[], ctx: Ctx): Planned {
                 end: d.end,
                 breakMins: d.breakMins,
                 supplierId: card.supplierId,
-                supplierIds: notified.map((x) => x.card.supplierId),
+                supplierIds: [card.supplierId],
+                supplierReleases: supplierReleasePlan(
+                  notified.map((x) => x.card.supplierId),
+                  created,
+                ),
                 billRate: card.billRate,
                 proRate: card.proRate,
                 markupPct: card.markupPct,

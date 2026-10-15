@@ -73,7 +73,7 @@ export function useUploadFlow() {
     })
   }
 
-  /** Saves a clean file at once and records one that can't be read. Anything else comes back to review. */
+  /** Plans a readable file for explicit approval and records one that can't be read. */
   const submit = (type: UploadType, fileName: string, csv: string): SubmitResult => {
     const { data, commitUpload } = useStore.getState()
     const plan = planImport(type, csv, data, ws)
@@ -92,12 +92,7 @@ export function useUploadFlow() {
       return { status: "failed" }
     }
     if (!plan.errorCount) {
-      commitUpload(
-        { ...base(type, fileName), status: "completed", totalRows: plan.rows.length, successRows: plan.okCount, errorRows: 0, issues: notes(plan).slice(0, 250), summary: plan.summary, csv: kept(csv) },
-        plan.apply,
-      )
-      announce(type, fileName, plan.summary)
-      return { status: "saved" }
+      return { status: "review", session: session(type, fileName, csv, plan, plan.rows.length) }
     }
     return { status: "review", session: session(type, fileName, csv, plan, plan.rows.length) }
   }

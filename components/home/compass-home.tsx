@@ -1,29 +1,39 @@
 "use client"
 
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, Download } from "lucide-react"
+import { AlertTriangle, ArrowRight, Download, ShieldCheck } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { Tip } from "@/components/common/info-tip"
 import { SectionTitle } from "@/components/common/page-header"
+import { StatCard } from "@/components/common/stat-card"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
-import { Greeting, TodoSection } from "@/components/home/shared"
+import { FillTrendChart, SpendChart } from "@/components/home/charts"
+import { TodoSection } from "@/components/home/shared"
 import { SupplierProfileDialog } from "@/components/home/supplier-profile-dialog"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData, useWorkspace } from "@/hooks/use-app"
+import { summaryOf } from "@/lib/compliance"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { addDaysISO, todayISO } from "@/lib/dates"
 import { moneyWhole, pct } from "@/lib/format"
 import {
+  amountAtRisk,
+  fillFor,
+  fillTrendFor,
+  formatTimeToFill,
   invoiceBenchmark,
   invoiceTotal,
   locationRanking,
   metricsFor,
   needsReview,
+  spendBetween,
+  spendFor,
   supplierScore,
   todosFor,
   type LocationRank,
@@ -44,14 +54,46 @@ export function CompassHome() {
   const data = useData()
   const { ws } = useWorkspace()
   const todos = useMemo(() => todosFor(data, ws), [data, ws])
-  const locations = useMemo(() => locationRanking(data, "all"), [data])
+  const [operatorId, setOperatorId] = useState("all")
+  const scope = useMemo(
+    () => (operatorId === "all" ? { kind: "compass" as const } : { kind: "buyer" as const, buyerId: operatorId }),
+    [operatorId],
+  )
+  const allLocations = useMemo(() => locationRanking(data, "all"), [data])
+  const locations = useMemo(
+    () => (operatorId === "all" ? allLocations : allLocations.filter((row) => row.buyerId === operatorId)),
+    [allLocations, operatorId],
+  )
+  const program = useMemo(() => {
+    const today = todayISO()
+    const currentFrom = addDaysISO(today, -27)
+    const priorFrom = addDaysISO(today, -55)
+    const priorTo = addDaysISO(today, -28)
+    const flagged = data.invoices.filter((invoice) => needsReview(data, invoice) && (operatorId === "all" || invoice.buyerId === operatorId))
+    const safety = data.pros.map(summaryOf)
+    const exceptions = safety.filter((summary) => summary === "action_needed" || summary === "onboarding").length
+    const fill = fillFor(data, scope)
+    const spend = spendBetween(data, scope, currentFrom, today)
+    const priorSpend = spendBetween(data, scope, priorFrom, priorTo)
+    return {
+      spend,
+      priorSpend,
+      fill,
+      flagged: flagged.length,
+      risk: flagged.reduce((sum, invoice) => sum + amountAtRisk(data, invoice), 0),
+      ready: data.pros.length - exceptions,
+      exceptions,
+    }
+  }, [data, operatorId, scope])
+  const spendTrend = useMemo(() => spendFor(data, scope), [data, scope])
+  const fillTrend = useMemo(() => fillTrendFor(data, scope), [data, scope])
   const suppliers = useMemo<SupplierRank[]>(
     () =>
       SUPPLIERS.map((s) => {
-        const m = metricsFor(data, s.id)
+        const m = metricsFor(data, s.id, operatorId === "all" ? undefined : operatorId)
         return { id: s.id, m, score: supplierScore(m) }
       }).sort((a, b) => b.score - a.score),
-    [data],
+    [data, operatorId],
   )
   const [profile, setProfile] = useState<string>()
   const [drill, setDrill] = useState<string>()
@@ -60,11 +102,11 @@ export function CompassHome() {
     { id: "rank", header: "#", className: "w-10", cell: (r) => <span className="text-faded tabular">{locations.indexOf(r) + 1}</span> },
     {
       id: "location",
-      header: "Location",
+      header: "Buyer / location",
       cell: (r) => (
         <span className="flex min-w-0 flex-col">
-          <span className="truncate font-medium">{location(r.locationId).name}</span>
-          <span className="truncate text-caption-1 text-faded">{buyer(r.buyerId).name}</span>
+          <span className="truncate font-medium">{buyer(r.buyerId).name}</span>
+          <span className="truncate text-caption-1 text-faded">{location(r.locationId).name}</span>
         </span>
       ),
     },
@@ -79,7 +121,7 @@ export function CompassHome() {
     },
     {
       id: "flags",
-      header: "",
+      header: "Signals",
       className: "w-24",
       cell: (r) => (
         <span className="flex items-center justify-end gap-1.5">
@@ -166,39 +208,113 @@ export function CompassHome() {
 
   return (
     <>
-      <Greeting subtitle={`Compass program · ${BUYERS.length} buyers · ${LOCATIONS.length} locations · ${SUPPLIERS.length} suppliers`} />
+      <header className="flex flex-col gap-1 rounded-xl border border-border bg-card px-5 py-5 sm:px-6">
+        <span className="text-caption-1 font-medium text-faded">COMPASS MANAGEMENT</span>
+        <h1 className="text-featured-1 font-semibold">Program scorecard</h1>
+        <p className="text-body-3 text-faded">
+          Cost visibility and workforce safety across {BUYERS.length} buyers, {LOCATIONS.length} locations and {SUPPLIERS.length} suppliers.
+        </p>
+      </header>
+
       <TodoSection todos={todos} />
+
+      <Surface className="flex flex-wrap items-end gap-4 p-4">
+        <label className="flex min-w-56 flex-col gap-1.5">
+          <span className="text-caption-1 font-medium text-faded">Operator</span>
+          <Select value={operatorId} onValueChange={setOperatorId}>
+            <SelectTrigger className="w-full bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Compass operators</SelectItem>
+              {BUYERS.map((item) => (
+                <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <div className="flex flex-col gap-1">
+          <span className="text-caption-1 font-medium text-faded">Reporting period</span>
+          <span className="flex h-8 items-center rounded-lg border border-border bg-page-faded px-3 text-body-3 font-medium">Last 28 days vs. prior 28 days</span>
+        </div>
+        <p className="ml-auto text-caption-1 text-faded">Updated from shifts, approved hours, rates and invoices in this demo.</p>
+      </Surface>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Labor spend"
+          value={program.spend}
+          prefix="$"
+          tone="brand"
+          sub="Worked hours and tips"
+          trend={program.priorSpend ? { delta: (program.spend / program.priorSpend - 1) * 100, label: "vs. prior 28 days", goodWhen: "down" } : undefined}
+        />
+        <StatCard label="Fill rate" value={program.fill.fillRate * 100} suffix="%" decimals={1} tone="positive" sub={`${program.fill.filled.toLocaleString()} of ${program.fill.slots.toLocaleString()} spots filled`} />
+        <StatCard label="Median time to fill" value={program.fill.hoursToFill} suffix="hrs" decimals={1} tone="neutral" sub={formatTimeToFill(program.fill.hoursToFill)} />
+        <StatCard label="No-show rate" value={program.fill.noShowRate * 100} suffix="%" decimals={1} tone={program.fill.noShowRate > 0.04 ? "warning" : "positive"} sub="Of filled spots" />
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="flex min-w-0 flex-col gap-3">
-          <SectionTitle
-            title="Buyer spend ranking"
-            description="Last 28 days"
-            info="Every location ranked by labor spend. The alert marks a location whose last week ran far above its normal week."
-            actions={
-              <Button variant="ghost" size="sm" className="text-faded" onClick={downloadLocations}>
-                <Download /> Download
-              </Button>
-            }
-          />
-          <Surface elevated className="overflow-hidden">
-            <DataTable rows={locations} columns={locationColumns} getRowId={(r) => r.locationId} onRowClick={(r) => setDrill(r.locationId)} />
-          </Surface>
-        </section>
-        <section className="flex min-w-0 flex-col gap-3">
-          <SectionTitle
-            title="Supplier ranking"
-            description="Last 28 days"
-            info="Every supplier ranked by score across all buyers."
-            actions={
-              <Button variant="ghost" size="sm" className="text-faded" onClick={downloadSuppliers}>
-                <Download /> Download
-              </Button>
-            }
-          />
-          <Surface elevated className="overflow-hidden">
-            <DataTable rows={suppliers} columns={supplierColumns} getRowId={(r) => r.id} onRowClick={(r) => setProfile(r.id)} />
-          </Surface>
-        </section>
+        <Surface className="overflow-hidden">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-featured-3 font-semibold">Spend by week</h2>
+            <p className="text-caption-1 text-faded">Supplier mix for the selected operator</p>
+          </div>
+          <div className="px-3 pt-2 pb-4"><SpendChart data={spendTrend} height={230} /></div>
+        </Surface>
+        <Surface className="overflow-hidden">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-featured-3 font-semibold">Fill and reliability</h2>
+            <p className="text-caption-1 text-faded">Weekly fill and no-show rates</p>
+          </div>
+          <div className="px-3 pt-2 pb-4"><FillTrendChart data={fillTrend} height={230} color="var(--brand-strong)" /></div>
+        </Surface>
+      </div>
+
+      <Surface className="flex flex-wrap items-center gap-4 p-4">
+        <span className="flex size-9 items-center justify-center rounded-lg bg-tint-faded text-faded ring-1 ring-border ring-inset">
+          <ShieldCheck className="size-4" />
+        </span>
+        <div className="min-w-52 flex-1">
+          <h2 className="text-body-3 font-semibold">{program.ready} workers ready · {program.exceptions} safety exceptions</h2>
+          <p className="text-caption-1 text-faded">Background checks, I-9s, orientation and required certifications remain a placement gate.</p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/professionals">View worker verification</Link>
+        </Button>
+      </Surface>
+
+      <div className="flex flex-col gap-6">
+          <section className="flex min-w-0 flex-col gap-3">
+            <SectionTitle
+              title="Buyer and operator spend"
+              description="Last 28 days"
+              info="Every operator location ranked by labor spend. Signals flag abnormal spend and invoices priced above comparable suppliers."
+              actions={
+                <Button variant="ghost" size="sm" className="text-faded" onClick={downloadLocations}>
+                  <Download /> Download
+                </Button>
+              }
+            />
+            <Surface className="overflow-hidden">
+              <DataTable rows={locations} columns={locationColumns} getRowId={(r) => r.locationId} onRowClick={(r) => setDrill(r.locationId)} />
+            </Surface>
+          </section>
+          <section className="flex min-w-0 flex-col gap-3">
+            <SectionTitle
+              title="Supplier performance"
+              description="Across all buyers · last 28 days"
+              info="Suppliers ranked by fill, no-shows, compliance and time to fill."
+              actions={
+                <Button variant="ghost" size="sm" className="text-faded" onClick={downloadSuppliers}>
+                  <Download /> Download
+                </Button>
+              }
+            />
+            <Surface className="overflow-hidden">
+              <DataTable rows={suppliers} columns={supplierColumns} getRowId={(r) => r.id} onRowClick={(r) => setProfile(r.id)} />
+            </Surface>
+          </section>
       </div>
       <SupplierProfileDialog supplierId={profile} onOpenChange={(open) => !open && setProfile(undefined)} />
       <LocationDialog rank={locations.find((l) => l.locationId === drill)} onOpenChange={(open) => !open && setDrill(undefined)} />

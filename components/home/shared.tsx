@@ -50,13 +50,13 @@ export function TodoSection({ todos, title = "Needs your attention" }: { todos: 
         }
       />
       {todos.length ? (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-raised">
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
           {todos.map((t) => (
             <TodoRow key={t.id} todo={t} />
           ))}
         </ul>
       ) : (
-        <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3.5 text-body-3 text-faded shadow-raised">
+        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3.5 text-body-3 text-faded">
           <CheckCircle2 className="size-4 text-positive" />
           You&apos;re all caught up.
         </div>

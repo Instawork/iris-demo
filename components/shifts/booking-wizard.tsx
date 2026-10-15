@@ -32,7 +32,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { addDaysISO, formatClock, formatDateShort, formatDay, paidHours, parseDate, toISODate, todayISO } from "@/lib/dates"
 import { money, pct, round2 } from "@/lib/format"
 import { formatTimeToFill, metricsFor, type SupplierMetrics } from "@/lib/metrics"
-import { POSITIONS, city, location, locationsFor, position } from "@/lib/reference"
+import { POSITIONS, PROGRAM, city, location, locationsFor, position } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
 import type { RateCard, Supplier } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -142,7 +142,10 @@ export function BookingWizard() {
       tips: draft.tips,
     })
     toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
-      description: `Sent to ${joinNames(quotes.map((q) => q.supplier.shortName))}. Watch Pros confirm as they accept.`,
+      description:
+        quotes.length === 1
+          ? `Sent to ${quotes[0].supplier.shortName}. Watch Pros confirm as they accept.`
+          : `Sent to ${quotes[0].supplier.shortName} first. ${joinNames(quotes.slice(1).map((q) => q.supplier.shortName))} follow every ${PROGRAM.cascadeHoursBefore} hours if spots remain.`,
     })
     router.push(ids.length === 1 ? `/shifts/${ids[0]}` : "/shifts")
   }
@@ -218,7 +221,7 @@ export function BookingWizard() {
                 {quotes.length ? (minTotal === maxTotal ? money(minTotal) : `${money(minTotal)} – ${money(maxTotal)}`) : "No suppliers"}
               </span>
               <span className="text-caption-1 text-faded">
-                {quotes.length ? `Sent to ${quotes.length} approved supplier${quotes.length === 1 ? "" : "s"}` : "Approve a supplier for this role first"}
+                {quotes.length ? `${quotes.length} approved supplier${quotes.length === 1 ? "" : "s"} in release order` : "Approve a supplier for this role first"}
               </span>
             </div>
           </Surface>
@@ -478,18 +481,19 @@ function ReviewStep({ draft, quotes, spots }: { draft: Draft; quotes: Quote[]; s
       </dl>
       <div className="flex flex-col gap-2">
         <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
-          Sent to your approved suppliers
-          <InfoTip>Every supplier you approved on your Dashboard that staffs this role in {city(loc.cityId).name}. Each Pro is billed at their supplier&apos;s rate.</InfoTip>
+          Supplier release order
+          <InfoTip>Suppliers you approved for this role receive the shift in Dashboard priority order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Each Pro is billed at their supplier&apos;s rate.</InfoTip>
         </h3>
         {quotes.length ? (
           <ul className="divide-y divide-border rounded-lg border border-border">
-            {quotes.map((q) => (
+            {quotes.map((q, index) => (
               <li key={q.supplier.id} className="flex items-center gap-3 px-4 py-3">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-caption-1 font-bold tabular">{index + 1}</span>
                 <SupplierLogo supplierId={q.supplier.id} size="md" />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
                   <span className="truncate text-caption-1 text-faded">
-                    {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill at your locations` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
+                    {index ? `Releases ${index * PROGRAM.cascadeHoursBefore}h after posting` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
                   </span>
                 </span>
                 <span className="flex flex-col items-end">
