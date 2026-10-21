@@ -38,7 +38,7 @@ import type { PersonaKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const EASE = [0.22, 1, 0.36, 1] as const
-const COMPOSER_ID = "home-composer"
+export const COMPOSER_ID = "home-composer"
 
 const NUMBER_WORDS = ["Nothing", "One thing", "Two things", "Three things", "Four things", "Five things", "Six things"]
 
@@ -48,9 +48,9 @@ const greetingWord = () => {
 }
 
 const SCOPE_LINE: Record<PersonaKind, string> = {
-  buyer: "CrUber checked your shifts, hours and invoices.",
-  supplier: "CrUber checked your shifts, Pros and rate cards.",
-  compass: "CrUber checked spend, invoices and Pro safety across the program.",
+  buyer: "Iris checked your shifts, hours and invoices.",
+  supplier: "Iris checked your shifts, Pros and rate cards.",
+  compass: "Iris checked spend, invoices and Pro safety across the program.",
 }
 
 const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIcon }[]> = {
@@ -101,7 +101,7 @@ function Placeholder({ examples }: { examples: string[] }) {
   return (
     <>
       <span className="shrink-0">
-        Tell CrUber what to do<span className="hidden sm:inline">, like&nbsp;</span>
+        Tell Iris what to do<span className="hidden sm:inline">, like&nbsp;</span>
         <span className="sm:hidden">…</span>
       </span>
       <AnimatePresence mode="wait" initial={false}>
@@ -120,7 +120,7 @@ function Placeholder({ examples }: { examples: string[] }) {
   )
 }
 
-/** Past weeks in solid bars, the week CrUber expects in hatched brand bars. */
+/** Past weeks in solid bars, the week Iris expects in hatched brand bars. */
 function Pattern({ bars }: { bars: NonNullable<Prediction["bars"]> }) {
   const max = Math.max(1, ...bars.map((b) => b.value))
   const past = bars.filter((b) => !b.predicted).map((b) => b.value)
@@ -251,15 +251,15 @@ function Briefing({ onDraft }: { onDraft: (p: Prediction) => void }) {
         ) : (
           <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-4 py-3.5 text-sm text-muted-foreground">
             <CheckCircle2 className="size-4 text-positive" aria-hidden />
-            You&apos;re all caught up. CrUber brings you the next one as soon as it lands.
+            You&apos;re all caught up. Iris brings you the next one as soon as it lands.
           </div>
         )}
       </motion.section>
 
       {predictions.length > 0 && (
-        <motion.section {...rise(0.16)} className="flex flex-col gap-2.5 pt-2" aria-label="CrUber predicts">
+        <motion.section {...rise(0.16)} className="flex flex-col gap-2.5 pt-2" aria-label="Iris predicts" data-tour="predictions">
           <SectionLabel icon={Sparkles} aside={ws.kind === "buyer" ? "From your last 6 weeks of shifts" : "Updated live"}>
-            CrUber predicts
+            Iris predicts
           </SectionLabel>
           <ul className="stagger-in divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card/80 backdrop-blur-sm">
             {predictions.map((prediction) => (
@@ -272,7 +272,7 @@ function Briefing({ onDraft }: { onDraft: (p: Prediction) => void }) {
   )
 }
 
-/** Home is the agent: what needs you and what CrUber expects next, with the ask bar docked below. A conversation takes over the same page. */
+/** Home is the agent: what needs you and what Iris expects next, with the ask bar docked below. A conversation takes over the same page. */
 export function AgentHome() {
   const { ws } = useWorkspace()
   const agent = useAgent()
@@ -306,7 +306,7 @@ export function AgentHome() {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} role="log" aria-label="Conversation with CrUber" className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
+      <div ref={scrollRef} role="log" aria-label="Conversation with Iris" className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
         <AnimatePresence mode="wait" initial={false}>
           {empty ? (
             <motion.div key="briefing" {...fade}>
@@ -355,7 +355,7 @@ export function AgentHome() {
               </motion.div>
             ) : null}
           </AnimatePresence>
-          <AgentComposer id={COMPOSER_ID} size="lg" label="Tell CrUber what to do" placeholder={<Placeholder examples={examples} />} onSubmit={agent.respond} onAttach={agent.attach}>
+          <AgentComposer id={COMPOSER_ID} size="lg" label="Tell Iris what to do" placeholder={<Placeholder examples={examples} />} onSubmit={agent.respond} onAttach={agent.attach}>
             <Kbd className="mr-1 hidden md:inline-flex">⌘J</Kbd>
           </AgentComposer>
         </div>

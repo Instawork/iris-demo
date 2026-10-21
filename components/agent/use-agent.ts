@@ -17,7 +17,7 @@ import type { UploadType } from "@/lib/types"
 export const AGENT_FILE_ACCEPT =
   ".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
 
-/** CrUber's agent: turns a sentence or a spreadsheet into a reviewed draft. Nothing is saved until the user approves it. */
+/** Iris's agent: turns a sentence or a spreadsheet into a reviewed draft. Nothing is saved until the user approves it. */
 export function useAgent() {
   const { ws } = useWorkspace()
   const messages = useAgentThreads((state) => state.threads[ws.id] ?? NO_MESSAGES)

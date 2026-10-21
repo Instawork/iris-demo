@@ -19,10 +19,10 @@ const mono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  applicationName: "CrUber",
+  applicationName: "Iris",
   title: {
-    default: "CrUber · Staffing, from every supplier, in one place",
-    template: "%s · CrUber",
+    default: "Iris · Staffing, from every supplier, in one place",
+    template: "%s · Iris",
   },
   description: "Book, approve and pay every staffing supplier from one place.",
   robots: {
@@ -30,14 +30,14 @@ export const metadata: Metadata = {
     follow: false,
   },
   openGraph: {
-    title: "CrUber · Staffing, from every supplier, in one place",
+    title: "Iris · Staffing, from every supplier, in one place",
     description: "Book, approve and pay every staffing supplier from one place.",
-    siteName: "CrUber",
+    siteName: "Iris",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "CrUber · Staffing, from every supplier, in one place",
+    title: "Iris · Staffing, from every supplier, in one place",
     description: "Book, approve and pay every staffing supplier from one place.",
   },
 };
@@ -53,7 +53,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable} h-full`} suppressHydrationWarning>
       <head>
-        <Script id="cruber-theme" strategy="beforeInteractive">
+        <Script id="iris-theme" strategy="beforeInteractive">
           {themeInitScript}
         </Script>
       </head>

@@ -45,7 +45,7 @@
 }
 
 /*
- * CrUber design tokens: ink and paper with a single soft lime accent (light), warm charcoal that is
+ * Iris design tokens: ink and paper with a single soft lime accent (light), warm charcoal that is
  * never pure black (dark). Utility names (text-body-3, bg-page-faded, ...) are shared by every
  * component, so the look is tuned here rather than per screen.
  */
@@ -251,8 +251,7 @@
   --supplier-metro: var(--chart-5);
   --buyer-levy: var(--chart-1);
   --buyer-chartwells: var(--chart-3);
-  --logo-tile: var(--foreground);
-  --logo-ink: var(--background);
+  --logo-tile: oklch(0.2 0.008 70);
   --grid: oklch(0.93 0.004 85);
   --scrollbar: color-mix(in oklch, var(--foreground) 18%, transparent);
   --elevation-raised: 0 1px 0 color-mix(in oklch, var(--foreground) 4%, transparent);

@@ -42,7 +42,7 @@ const ICON_TONE: Record<Todo["tone"], string> = {
 export function TodoRow({ todo }: { todo: Todo }) {
   const Icon = ICONS[todo.icon]
   return (
-    <li className="group relative flex items-center gap-3 px-4 py-3 transition-colors duration-100 hover:bg-hover has-[a:focus-visible]:bg-hover">
+    <li className="group relative flex items-center gap-3 px-4 py-3 transition-colors duration-100 hover:bg-hover has-[a:focus-visible]:bg-hover" data-tour={`todo-${todo.id}`}>
       <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg bg-tint-faded ring-1 ring-border ring-inset", ICON_TONE[todo.tone])}>
         <Icon className="size-4" strokeWidth={1.9} />
       </span>

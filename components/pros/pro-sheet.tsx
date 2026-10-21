@@ -103,7 +103,7 @@ function ProfileBody({ pro }: { pro: Pro }) {
               <SupplierLogo supplierId={pro.supplierId} size="xs" />
               <span>{supplier(pro.supplierId).shortName}</span>
               <span className="text-subtle">·</span>
-              <Tip content="CrUber ID. Use it in timesheet, tip and invoice uploads.">
+              <Tip content="Iris ID. Use it in timesheet, tip and invoice uploads.">
                 <code className="rounded-md bg-tint-faded px-1.5 py-0.5 font-mono text-caption-1">{pro.code}</code>
               </Tip>
             </SheetDescription>

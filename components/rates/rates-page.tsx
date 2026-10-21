@@ -35,7 +35,7 @@ export function ZipCell({ card }: { card: RateCard }) {
     <Tip
       content={
         <span className="block max-w-[260px]">
-          {card.zipsAutoFilled ? `Left blank, so CrUber covers all ${card.zips.length} ${city(card.cityId).name} zip codes. ` : ""}
+          {card.zipsAutoFilled ? `Left blank, so Iris covers all ${card.zips.length} ${city(card.cityId).name} zip codes. ` : ""}
           {card.zips.slice(0, 18).join(", ")}
           {card.zips.length > 18 ? ` and ${card.zips.length - 18} more` : ""}
         </span>
@@ -79,7 +79,7 @@ function MyRates() {
 
   const columns: Column<RateCard>[] = [
     { id: "city", header: "City", sortValue: (c) => `${city(c.cityId).name}${position(c.positionId).name}`, cell: (c) => `${city(c.cityId).name}, ${city(c.cityId).state}` },
-    { id: "zips", header: "Zip codes", info: "Optional. Leave blank and CrUber fills in every zip code in the city.", cell: (c) => <ZipCell card={c} /> },
+    { id: "zips", header: "Zip codes", info: "Optional. Leave blank and Iris fills in every zip code in the city.", cell: (c) => <ZipCell card={c} /> },
     { id: "position", header: "Position", sortValue: (c) => position(c.positionId).name, cell: (c) => <span className="font-medium">{position(c.positionId).name}</span> },
     { id: "pay", header: "Pay rate", info: "What the Pro earns per hour.", align: "right", sortValue: (c) => c.proRate, cell: (c) => <span className="tabular">{money(c.proRate)}</span> },
     {
@@ -109,7 +109,7 @@ function MyRates() {
       cell: (c) => (
         <span className="flex flex-col">
           <span>{formatDateShort(c.updatedAt.slice(0, 10))}</span>
-          <span className="text-caption-1 text-faded">{c.source === "api" ? "Synced by API" : c.source === "upload" ? "CSV upload" : "Edited in CrUber"}</span>
+          <span className="text-caption-1 text-faded">{c.source === "api" ? "Synced by API" : c.source === "upload" ? "CSV upload" : "Edited in Iris"}</span>
         </span>
       ),
     },

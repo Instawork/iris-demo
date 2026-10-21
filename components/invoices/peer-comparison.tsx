@@ -64,7 +64,7 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
   }
 
   return (
-    <Surface elevated>
+    <Surface elevated data-tour="peer">
       <SurfaceHeader
         title="Compared with other suppliers"
         info={`What the same hours would have cost from the other suppliers with rates for each shift's city and role, weighted by their rating. Invoices ${Math.round(ANOMALY_THRESHOLD * 100)}% or more above it are flagged.`}

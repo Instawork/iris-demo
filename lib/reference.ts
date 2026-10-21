@@ -1,6 +1,6 @@
 import type { Buyer, City, Location, Position, RequirementId, Supplier, Workspace } from "@/lib/types"
 
-/** Program rules Compass sets for every supplier on CrUber. */
+/** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
   name: "Compass Group USA",
   maxMarkupPct: 45,

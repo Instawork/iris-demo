@@ -159,7 +159,7 @@ export function UploadsPage() {
 
   return (
     <>
-      <PageHeader className="pt-4" title="Uploads" description="Send data into CrUber by CSV. Every row is checked, and you approve any fixes before anything is saved." />
+      <PageHeader className="pt-4" title="Uploads" description="Send data into Iris by CSV. Every row is checked, and you approve any fixes before anything is saved." />
       <Surface elevated className="p-4">
         <UploadPicker type={type} onTypeChange={setType} onUpload={upload} />
       </Surface>

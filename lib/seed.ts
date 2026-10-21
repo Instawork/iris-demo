@@ -876,7 +876,7 @@ function generateUploads(counters: Counters, today: string): Upload[] {
       uploadedAt: at(1, "16:42"), status: "needs_review", totalRows: 12, successRows: 9, errorRows: 3,
       issues: [
         { row: 7, column: "start_time", message: "Use 24-hour time", level: "error", suggestion: fix("16:30") },
-        { row: 10, column: "position", message: "Not a position on CrUber", level: "error", suggestion: fix("Concessions Attendant") },
+        { row: 10, column: "position", message: "Not a position on Iris", level: "error", suggestion: fix("Concessions Attendant") },
         { row: 12, column: "date", message: "Use YYYY-MM-DD", level: "error", suggestion: fix(game) },
       ],
       summary: "9 rows ready, 3 to review",

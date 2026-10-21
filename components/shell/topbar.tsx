@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ChevronRight, CircleHelp, Menu, Moon, PanelLeft, Plus, Search, Sun, Upload } from "lucide-react"
+import { ChevronRight, CircleHelp, Menu, Moon, PanelLeft, Play, Plus, Search, Sun, Upload } from "lucide-react"
 import { Fragment, useMemo } from "react"
 
 import { SECTION_LABELS, SETTINGS_LABELS } from "@/components/shell/nav-config"
@@ -11,6 +11,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { useTheme } from "@/hooks/use-theme"
+import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
 import { position } from "@/lib/reference"
 import { cn } from "@/lib/utils"
@@ -99,6 +100,15 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
         <Button variant="ghost" size="icon" className="text-faded md:hidden" onClick={() => setPalette(true)} aria-label="Search">
           <Search className="size-4" />
         </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" className="h-8 gap-1.5 rounded-lg px-2.5 text-body-3 text-faded" onClick={() => useTour.getState().open()} aria-label="Guided tour">
+              <Play className="size-3.5" />
+              <span className="hidden lg:inline">Guided tour</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">A 3-minute walkthrough of Iris</TooltipContent>
+        </Tooltip>
         <ThemeToggle />
         <Tooltip>
           <TooltipTrigger asChild>
@@ -107,7 +117,7 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="gap-2">
-            How CrUber works <Kbd>?</Kbd>
+            How Iris works <Kbd>?</Kbd>
           </TooltipContent>
         </Tooltip>
         {ws.kind === "buyer" ? (

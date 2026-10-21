@@ -337,7 +337,7 @@ export function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; 
   return (
     <div className={cn("flex h-full flex-col gap-1.5 overflow-hidden pt-3 pb-2", collapsed ? "px-2" : "px-3")}>
       <div className={cn("flex h-9 items-center px-1.5", collapsed && "justify-center px-0")}>
-        <Link href="/" onClick={onNavigate} className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/30" aria-label="CrUber home">
+        <Link href="/" onClick={onNavigate} className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/30" aria-label="Iris home">
           <Logo collapsed={collapsed} />
         </Link>
       </div>

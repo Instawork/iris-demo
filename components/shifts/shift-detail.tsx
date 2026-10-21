@@ -262,7 +262,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
-          <Surface elevated>
+          <Surface elevated data-tour="roster">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
               <div className="flex items-center gap-3">
                 <h3 className="text-body-2 font-bold">Timesheets</h3>
@@ -273,7 +273,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {phase === "past" && ws.kind !== "compass" && (
-                  <Button size="sm" className="h-8 rounded-lg text-caption-1 font-semibold" onClick={() => setHoursOpen(true)}>
+                  <Button size="sm" className="h-8 rounded-lg text-caption-1 font-semibold" onClick={() => setHoursOpen(true)} data-tour="hours-action">
                     {isBuyer ? "Review hours" : "Submit hours"}
                   </Button>
                 )}
@@ -456,7 +456,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
         </div>
 
         <div className="flex flex-col gap-4">
-          <Surface elevated>
+          <Surface elevated data-tour="release">
             <SurfaceHeader
               title="Suppliers"
               info="Approved suppliers receive this shift in priority order until it fills. Each Pro is billed at their own supplier's rate."

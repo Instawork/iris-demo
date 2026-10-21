@@ -45,7 +45,7 @@ const FILTERS: { value: Filter; label: string; tooltip?: string; empty?: { title
   {
     value: "not_compliant",
     label: "Not compliant",
-    tooltip: "A required document is missing, pending or expired. CrUber won't place them until it's fixed.",
+    tooltip: "A required document is missing, pending or expired. Iris won't place them until it's fixed.",
     empty: { title: "Everyone is compliant", description: "No active Pro has a missing or expired document." },
   },
   {
@@ -209,7 +209,7 @@ export function ProfessionalsPage() {
     {
       id: "shifts",
       header: "Shifts",
-      info: buyerId ? "Shifts worked at your locations." : "Shifts worked on CrUber.",
+      info: buyerId ? "Shifts worked at your locations." : "Shifts worked on Iris.",
       align: "right",
       sortValue: (r) => r.shifts,
       cell: (r) => r.shifts,

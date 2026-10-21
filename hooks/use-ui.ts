@@ -74,7 +74,7 @@ export const useUi = create<UiState>()(
       setShiftsView: (view) => set({ shiftsView: view }),
     }),
     {
-      name: "cruber-ui",
+      name: "iris-ui",
       skipHydration: true,
       partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, welcomeSeen: s.welcomeSeen, shiftsView: s.shiftsView }),
     },

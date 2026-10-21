@@ -11,9 +11,9 @@ export interface Prediction {
   kind: "recurring" | "fill-risk" | "expiring" | "spend"
   title: string
   detail: string
-  /** Why CrUber expects it, in one sentence. */
+  /** Why Iris expects it, in one sentence. */
   evidence: string
-  /** Past values, then the ones CrUber expects. */
+  /** Past values, then the ones Iris expects. */
   bars?: { value: number; predicted: boolean }[]
   cta: string
   draft?: { ask: string; request: ParsedAgentShift }
@@ -111,7 +111,7 @@ function expiringPros(data: DemoData, supplierId?: string): Prediction | undefin
     kind: "expiring",
     title: `${plural(pros.length, "Pro")} will drop off shifts within 30 days`,
     detail: "A required document expires soon. Renewing now keeps them eligible.",
-    evidence: "CrUber stops placing a Pro the day a required document expires.",
+    evidence: "Iris stops placing a Pro the day a required document expires.",
     cta: "Review Pros",
     href: "/professionals?filter=compliant",
   }

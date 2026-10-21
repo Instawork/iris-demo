@@ -492,7 +492,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
       todos.push({
         id: "documents",
         title: `${plural(blocked.length, "professional")} with missing or expired documents`,
-        description: "Active Pros CrUber keeps off shifts until their documents are current again.",
+        description: "Active Pros Iris keeps off shifts until their documents are current again.",
         count: blocked.length,
         href: "/professionals?filter=not_compliant",
         tone: "critical",

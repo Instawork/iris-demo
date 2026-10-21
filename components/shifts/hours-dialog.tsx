@@ -49,7 +49,9 @@ const STATUS: Record<Timesheet["status"], Record<PersonaKind, { label: string; t
 export function HoursDialog({ group, onOpenChange }: { group?: ShiftGroup; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={!!group} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 p-0 sm:max-w-3xl">{group && <HoursBody key={group.id} group={group} onDone={() => onOpenChange(false)} />}</DialogContent>
+      <DialogContent className="gap-0 p-0 sm:max-w-3xl" data-tour="hours-dialog">
+        {group && <HoursBody key={group.id} group={group} onDone={() => onOpenChange(false)} />}
+      </DialogContent>
     </Dialog>
   )
 }
@@ -92,7 +94,7 @@ function HoursBody({ group, onDone }: { group: ShiftGroup; onDone: () => void })
     const ids = toApprove.filter((id) => selected.has(id))
     const numbers = approve(ids)
     toast.success(`Approved ${plural(ids.length, "timesheet")}`, {
-      description: numbers.length ? `CrUber generated ${numbers.join(" and ")} from these hours.` : undefined,
+      description: numbers.length ? `Iris generated ${numbers.join(" and ")} from these hours.` : undefined,
       action: numbers.length ? { label: "View invoice", onClick: () => router.push(`/invoices/${numbers[0].toLowerCase()}`) } : undefined,
     })
     onDone()
@@ -265,7 +267,7 @@ function HoursBody({ group, onDone }: { group: ShiftGroup; onDone: () => void })
             </Button>
           )}
           {kind === "buyer" && toApprove.length > 0 && (
-            <Button disabled={!toApprove.some((id) => selected.has(id))} onClick={onApprove}>
+            <Button disabled={!toApprove.some((id) => selected.has(id))} onClick={onApprove} data-tour="approve-hours">
               Approve {toApprove.filter((id) => selected.has(id)).length}
             </Button>
           )}

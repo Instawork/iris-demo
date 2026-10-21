@@ -33,7 +33,7 @@ function Node({
   )
 }
 
-/** Buyers and Compass on the left, every supplier on the right, CrUber in the middle. */
+/** Buyers and Compass on the left, every supplier on the right, Iris in the middle. */
 export function HubDiagram({ className }: { className?: string }) {
   const container = useRef<HTMLDivElement>(null)
   const hub = useRef<HTMLDivElement>(null)
@@ -91,7 +91,7 @@ export function HubDiagram({ className }: { className?: string }) {
         <div ref={hub} className="relative z-10 rounded-[12px] bg-card p-1 shadow-raised ring-1 ring-border">
           <LogoMark className="size-10" />
         </div>
-        <span className="text-caption-1 font-semibold">CrUber</span>
+        <span className="text-caption-1 font-semibold">Iris</span>
       </div>
       <div className="flex min-w-0 flex-col items-start gap-4">
         {(

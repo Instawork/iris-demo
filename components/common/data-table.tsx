@@ -148,6 +148,7 @@ export function DataTable<T>({
               return (
                 <tr
                   key={id}
+                  data-row-id={id}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   className={cn(
                     "border-b border-border/70 transition-colors duration-100 last:border-b-0",

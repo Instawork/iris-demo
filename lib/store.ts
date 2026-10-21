@@ -560,7 +560,7 @@ export const useStore = create<StoreState>()(
                 counters: { inv: counter },
               },
               event(data, {
-                text: `${actor(wsId)} approved ${approved.length} timesheet${approved.length === 1 ? "" : "s"}. CrUber generated ${joinNames(invoices.map((i) => i.number))}`,
+                text: `${actor(wsId)} approved ${approved.length} timesheet${approved.length === 1 ? "" : "s"}. Iris generated ${joinNames(invoices.map((i) => i.number))}`,
                 actor: actor(wsId),
                 tone: "positive",
                 buyerId: approved[0].buyerId,
@@ -854,7 +854,7 @@ export const useStore = create<StoreState>()(
       }
     },
     {
-      name: "cruber-demo",
+      name: "iris-demo",
       version: DATA_VERSION,
       storage: debouncedStorage<Persisted>(),
       skipHydration: true,

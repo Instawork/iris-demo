@@ -51,7 +51,7 @@ export function ResumeSection({ pro, resume }: { pro: Pro; resume: ProResume }) 
           {cityLabel(pro.cityId)} · With {supplier(pro.supplierId).shortName} since {monthYear(pro.joinedOn)}
         </p>
       </div>
-      <Block title="Positions" info="Positions this Pro is approved to work on CrUber.">
+      <Block title="Positions" info="Positions this Pro is approved to work on Iris.">
         <div className="flex flex-wrap gap-1.5">
           {pro.positionIds.map((id) => (
             <StatusBadge key={id} tone="primary">
@@ -218,7 +218,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                 </span>
               </Tip>
               {actionable ? (
-                <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => complete(row)}>
+                <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => complete(row)} data-tour="doc-action" data-doc-state={row.state}>
                   {row.state === "missing" || row.state === "pending" ? "Mark complete" : "Renew"}
                 </Button>
               ) : (

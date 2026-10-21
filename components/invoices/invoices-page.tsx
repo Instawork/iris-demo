@@ -55,9 +55,9 @@ const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
-    "Every invoice and invoice group in the program. CrUber builds each invoice from approved hours, tips and the supplier's bill rate, and flags it when it costs well above what other suppliers would have charged.",
-  buyer: "Invoices for your locations. CrUber builds each one from the hours you approve, so there's nothing to upload.",
-  supplier: "What you're owed. CrUber builds an invoice from your bill rates whenever a buyer approves your hours.",
+    "Every invoice and invoice group in the program. Iris builds each invoice from approved hours, tips and the supplier's bill rate, and flags it when it costs well above what other suppliers would have charged.",
+  buyer: "Invoices for your locations. Iris builds each one from the hours you approve, so there's nothing to upload.",
+  supplier: "What you're owed. Iris builds an invoice from your bill rates whenever a buyer approves your hours.",
 }
 
 const when = <T,>(show: boolean, column: Column<T>) => (show ? [column] : [])

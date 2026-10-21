@@ -121,7 +121,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
             <>
               <Field label="Locations">{locationsFor(ws.buyerId).length} work locations</Field>
               <Field label="Program">Compass Group USA flexible labor program</Field>
-              <Field label="Payment terms" hint="Set by Compass for every supplier.">Net {PROGRAM.paymentTermsDays}, paid by ACH through CrUber</Field>
+              <Field label="Payment terms" hint="Set by Compass for every supplier.">Net {PROGRAM.paymentTermsDays}, paid by ACH through Iris</Field>
             </>
           )}
           {ws.kind === "supplier" && sup && (
@@ -242,7 +242,7 @@ function PositionsSection() {
       id: "requirements",
       header: "Required to work",
       className: "whitespace-normal",
-      info: "CrUber checks these on every placement, from any supplier.",
+      info: "Iris checks these on every placement, from any supplier.",
       cell: (p) => (
         <span className="flex flex-wrap gap-1">
           {requirementsFor([p.id]).map((r) => (
@@ -297,7 +297,7 @@ function TeamSection({ ws }: { ws: Workspace }) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Invite a teammate</DialogTitle>
-            <DialogDescription>They&apos;ll get an email to join {ws.name} on CrUber.</DialogDescription>
+            <DialogDescription>They&apos;ll get an email to join {ws.name} on Iris.</DialogDescription>
           </DialogHeader>
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" className="h-10 rounded-lg border border-input px-3 text-body-3 outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
           <Select value={role} onValueChange={setRole}>
@@ -358,7 +358,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
                   <KeyRound className="size-4 text-faded" /> API key
                 </span>
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-page-faded px-3 py-2 font-mono text-caption-1">
-                  <span className="flex-1 truncate">cru_live_{sup.id}_••••••••••••••••4f2a</span>
+                  <span className="flex-1 truncate">iris_live_{sup.id}_••••••••••••••••4f2a</span>
                   <Button size="icon-sm" variant="ghost" aria-label="Rotate key" onClick={() => toast.success("Key rotated", { description: "The old key keeps working for 24 hours." })}>
                     <RefreshCw className="size-3.5" />
                   </Button>
@@ -369,13 +369,13 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
                   <Webhook className="size-4 text-faded" /> Webhook
                 </span>
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-page-faded px-3 py-2 font-mono text-caption-1">
-                  <span className="flex-1 truncate">https://hooks.cruber.app/v1/{sup.id}/events</span>
+                  <span className="flex-1 truncate">https://hooks.iris.app/v1/{sup.id}/events</span>
                   <Button
                     size="icon-sm"
                     variant="ghost"
                     aria-label="Copy webhook"
                     onClick={() => {
-                      void navigator.clipboard?.writeText(`https://hooks.cruber.app/v1/${sup.id}/events`)
+                      void navigator.clipboard?.writeText(`https://hooks.iris.app/v1/${sup.id}/events`)
                       setCopied(true)
                       window.setTimeout(() => setCopied(false), 1400)
                     }}
@@ -404,13 +404,13 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
                     <span className="flex items-center gap-2">
                       <FileSpreadsheet className="size-4 text-positive" /> {s.label}
                     </span>
-                    <Button size="sm" variant="ghost" className="h-7 gap-1 text-caption-1" onClick={() => downloadCsv(`cruber-${s.type}-template.csv`, templateCsv(s.type, data, ws))}>
+                    <Button size="sm" variant="ghost" className="h-7 gap-1 text-caption-1" onClick={() => downloadCsv(`iris-${s.type}-template.csv`, templateCsv(s.type, data, ws))}>
                       <Download className="size-3.5" /> Template
                     </Button>
                   </li>
                 ))}
               </ul>
-              <Button className="h-9 gap-1.5 self-start rounded-lg text-body-3" onClick={() => toast.success("Request sent", { description: "Your CrUber partner manager will set up an API key with you." })}>
+              <Button className="h-9 gap-1.5 self-start rounded-lg text-body-3" onClick={() => toast.success("Request sent", { description: "Your Iris partner manager will set up an API key with you." })}>
                 <Plug className="size-4" /> Switch to API
               </Button>
             </div>
@@ -428,7 +428,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
   return (
     <>
       <Surface elevated className="overflow-hidden">
-        <SurfaceHeader title="One connection to every supplier" info="Instawork and other agencies connect to CrUber once. You never integrate with them one by one." />
+        <SurfaceHeader title="One connection to every supplier" info="Instawork and other agencies connect to Iris once. You never integrate with them one by one." />
         <div className="px-4 pb-4">
           <HubDiagram />
         </div>

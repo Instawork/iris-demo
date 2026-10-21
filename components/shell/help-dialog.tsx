@@ -60,7 +60,7 @@ function HelpBody({ initialTab }: { initialTab: HelpTab }) {
   return (
     <>
         <DialogHeader className="gap-1 border-b border-border px-6 pt-6 pb-4">
-          <DialogTitle className="text-featured-3 font-bold">How CrUber works</DialogTitle>
+          <DialogTitle className="text-featured-3 font-bold">How Iris works</DialogTitle>
           <DialogDescription className="text-body-3">
             Six pages, the same for everyone: Dashboard, Shifts, Supplier Rates, Professionals, Invoices and Uploads.
           </DialogDescription>

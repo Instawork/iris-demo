@@ -154,7 +154,7 @@ export function BookingWizard() {
     <div className="flex flex-col gap-6 pt-4">
       <h1 className="flex items-center gap-2 text-featured-1 font-semibold">
         New shift
-        <InfoTip className="size-[18px] [&>svg]:size-4">Describe the shift once. CrUber sends it to the suppliers you approved, and they fill it.</InfoTip>
+        <InfoTip className="size-[18px] [&>svg]:size-4">Describe the shift once. Iris sends it to the suppliers you approved, and they fill it.</InfoTip>
       </h1>
 
       <StepBar step={step} />
@@ -328,7 +328,7 @@ function ScheduleStep({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Position" hint="Positions that serve alcohol or handle food require the matching certifications. CrUber only places Pros who have them.">
+          <Field label="Position" hint="Positions that serve alcohol or handle food require the matching certifications. Iris only places Pros who have them.">
             <Select
               value={draft.positionId}
               onValueChange={(v) => setDraft((d) => ({ ...d, positionId: v, instructions: position(v).duties, tips: position(v).alcohol }))}

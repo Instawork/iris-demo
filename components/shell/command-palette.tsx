@@ -73,7 +73,7 @@ export function CommandPalette() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="top-[16%] translate-y-0 gap-0 overflow-hidden rounded-xl p-0 shadow-overlay sm:max-w-xl" showCloseButton={false}>
-        <DialogTitle className="sr-only">Search CrUber</DialogTitle>
+        <DialogTitle className="sr-only">Search Iris</DialogTitle>
         <DialogDescription className="sr-only">Jump to a page, a record or an action.</DialogDescription>
         {open && <PaletteBody onClose={() => setOpen(false)} />}
       </DialogContent>

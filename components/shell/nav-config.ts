@@ -21,7 +21,7 @@ export const SETTINGS_PAGES: NavItem[] = [
   { id: "settings.locations", label: "Work locations", href: "/settings/locations", icon: Settings, tooltip: "Venues, addresses and cost centers", kinds: ["buyer", "compass"] },
   { id: "settings.positions", label: "Positions", href: "/settings/positions", icon: Settings, tooltip: "Roles, duties, attire and required certifications" },
   { id: "settings.team", label: "Team Members", href: "/settings/team", icon: Settings, tooltip: "Who can post, approve and pay" },
-  { id: "settings.integrations", label: "Integrations", href: "/settings/integrations", icon: Settings, tooltip: "How each supplier connects to CrUber" },
+  { id: "settings.integrations", label: "Integrations", href: "/settings/integrations", icon: Settings, tooltip: "How each supplier connects to Iris" },
 ]
 
 const shiftsBadge = (data: DemoData, ws: Workspace) => {

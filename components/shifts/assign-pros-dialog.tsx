@@ -112,7 +112,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
               </button>
             )
             return reason?.toLowerCase().includes("expired") || reason?.toLowerCase().includes("missing") || reason?.toLowerCase().includes("pending") ? (
-              <Tip key={pro.id} content={<span className="flex items-center gap-1.5"><ShieldAlert className="size-3.5" />CrUber blocks placement until compliance is fixed.</span>}>
+              <Tip key={pro.id} content={<span className="flex items-center gap-1.5"><ShieldAlert className="size-3.5" />Iris blocks placement until compliance is fixed.</span>}>
                 <div>{row}</div>
               </Tip>
             ) : (

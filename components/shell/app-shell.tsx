@@ -10,15 +10,17 @@ import { HelpDialog } from "@/components/shell/help-dialog"
 import { SidebarContent, Sidebar } from "@/components/shell/sidebar"
 import { Topbar } from "@/components/shell/topbar"
 import { WelcomeDialog } from "@/components/shell/welcome-dialog"
+import { Tour } from "@/components/tour/tour"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { UploadDialog } from "@/components/uploads/upload-dialog"
+import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
 import { useStore } from "@/lib/store"
 
-/** Same frame as the app, so the first paint already looks like CrUber while saved data loads. */
+/** Same frame as the app, so the first paint already looks like Iris while saved data loads. */
 function BootFrame() {
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-page-faded" aria-busy="true" aria-label="Loading CrUber">
+    <div className="flex h-svh w-full overflow-hidden bg-page-faded" aria-busy="true" aria-label="Loading Iris">
       <div className="hidden w-60 shrink-0 px-3 pt-3 md:block">
         <div className="flex h-9 items-center px-1.5">
           <Logo />
@@ -54,9 +56,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([useStore.persist.rehydrate(), useUi.persist.rehydrate()]).then(() => {
+    void Promise.all([useStore.persist.rehydrate(), useUi.persist.rehydrate(), useTour.persist.rehydrate()]).then(() => {
       if (cancelled) return
       useStore.getState().ensureFresh()
+      const url = new URL(window.location.href)
+      if (url.searchParams.has("tour")) {
+        url.searchParams.delete("tour")
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`)
+        useTour.getState().open()
+      }
       setUiReady(true)
     })
     return () => {
@@ -131,6 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
       <WelcomeDialog />
       <AgentChat />
+      <Tour />
     </div>
   )
 }

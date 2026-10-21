@@ -516,7 +516,7 @@ export function templateCsv(type: UploadType, data: DemoData, ws: Workspace, wit
   return toCsv(templateRows(type, data, ws, withIssues), UPLOAD_SPECS[type].columns.map((c) => c.key))
 }
 
-export const templateName = (type: UploadType) => `cruber-${type}-template.csv`
+export const templateName = (type: UploadType) => `iris-${type}-template.csv`
 
 export const sampleName = (type: UploadType) => `sample_${type}.csv`
 
@@ -683,7 +683,7 @@ function planShifts(rows: Row[], ctx: Ctx): Planned {
     const code = (row.shift_group_id ?? "").toUpperCase()
     if (code && ctx.data.groups.some((g) => g.code.toLowerCase() === code.toLowerCase())) issues.push(problem(n, "shift_group_id", "ID already used by another shift", fixTo(freshCode(code))))
     const loc = row.location ? lookup(resolveLocation(row.location, ctx.ws.buyerId), row.location, locations, (l) => [l.name, l.costCenter], n, "location", issues, "Not one of your locations") : undefined
-    const pos = row.position ? lookup(resolvePosition(row.position), row.position, POSITIONS, (p) => [p.name], n, "position", issues, "Not a position on CrUber") : undefined
+    const pos = row.position ? lookup(resolvePosition(row.position), row.position, POSITIONS, (p) => [p.name], n, "position", issues, "Not a position on Iris") : undefined
     const date = row.date ? dateCell(row.date, n, "date", issues) : undefined
     if (date && date < ctx.today) issues.push(problem(n, "date", "Date is in the past"))
     const start = row.start_time ? timeCell(row.start_time, n, "start_time", issues) : undefined
@@ -902,9 +902,9 @@ function planRates(rows: Row[], ctx: Ctx): Planned {
     const issues: UploadIssue[] = []
     if (!supplierId) issues.push(problem(n, undefined, "Only suppliers upload rates"))
     required(row, ["city", "position", "pro_rate", "bill_rate"], issues, n)
-    const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not a CrUber city") : undefined
+    const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not an Iris city") : undefined
     if (c && supplierId && !supplier(supplierId).cityIds.includes(c.id)) issues.push(problem(n, "city", `You're not set up in ${c.name}`))
-    const pos = row.position ? lookup(resolvePosition(row.position), row.position, POSITIONS, (p) => [p.name], n, "position", issues, "Not a position on CrUber") : undefined
+    const pos = row.position ? lookup(resolvePosition(row.position), row.position, POSITIONS, (p) => [p.name], n, "position", issues, "Not a position on Iris") : undefined
     const same = c && pos ? firstSeen(seen, `${c.id}|${pos.id}`, n) : undefined
     if (same !== undefined) {
       results.push(duplicate(n, row, "position", `Duplicate of row ${same}`))
@@ -1034,7 +1034,7 @@ function planPros(rows: Row[], ctx: Ctx): Planned {
     if (existing && existing.supplierId !== supplierId) issues.push(problem(n, "pro_id", "Belongs to another supplier"))
     const twin = !row.pro_id && email ? ctx.data.pros.find((p) => p.supplierId === supplierId && p.email.toLowerCase() === email) : undefined
     if (twin) issues.push(problem(n, "pro_id", `Same email as ${twin.firstName} ${twin.lastName}`, fixTo(twin.code, `Update ${twin.code}`)))
-    const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not a CrUber city") : undefined
+    const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not an Iris city") : undefined
     if (c && supplierId && !supplier(supplierId).cityIds.includes(c.id)) issues.push(problem(n, "city", `You're not set up in ${c.name}`))
     let phone = existing?.phone ?? ""
     if (row.phone) {
@@ -1272,4 +1272,4 @@ export function fixOutcomes(items: ReviewItem[], decisions: FixDecisions): Uploa
 
 /* Exports --------------------------------------------------------------- */
 
-export const exportName = (base: string) => `cruber-${base}-${todayISO()}.csv`
+export const exportName = (base: string) => `iris-${base}-${todayISO()}.csv`

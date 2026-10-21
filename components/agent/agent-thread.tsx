@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { ArrowUp, CalendarPlus, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage } from "@/components/agent/agent-store"
 import { AGENT_FILE_ACCEPT } from "@/components/agent/use-agent"
@@ -17,23 +17,36 @@ const EASE = [0.22, 1, 0.36, 1] as const
 
 type RunAction = (action: AgentAction, messageId?: number) => void
 
+const COMPOSE_EVENT = "iris:compose"
+
+/** Types a sentence into the composer with this id, as if the user wrote it, and optionally sends it. */
+export function compose(id: string, text: string, send = false) {
+  window.dispatchEvent(new CustomEvent(COMPOSE_EVENT, { detail: { id, text, send } }))
+}
+
 function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: AgentAction) => void }) {
   if (action.kind === "link")
     return (
-      <Button asChild variant="outline" size="sm" className="bg-background" onClick={() => onRun(action)}>
+      <Button asChild variant="outline" size="sm" className="bg-background" onClick={() => onRun(action)} data-tour="agent-link">
         <Link href={action.href}>{action.label}</Link>
       </Button>
     )
   const Icon = action.kind === "template" ? Download : action.kind === "create-shift" ? CalendarPlus : Upload
   return (
-    <Button variant={action.kind === "create-shift" ? "default" : "outline"} size="sm" className={cn(action.kind !== "create-shift" && "bg-background")} onClick={() => onRun(action)}>
+    <Button
+      variant={action.kind === "create-shift" ? "default" : "outline"}
+      size="sm"
+      className={cn(action.kind !== "create-shift" && "bg-background")}
+      onClick={() => onRun(action)}
+      data-tour={`agent-${action.kind}`}
+    >
       <Icon data-icon="inline-start" />
       {action.label}
     </Button>
   )
 }
 
-/** The conversation itself. Agent replies read as prose next to CrUber's mark; the user's turns sit in bubbles. */
+/** The conversation itself. Agent replies read as prose next to Iris's mark; the user's turns sit in bubbles. */
 export function AgentMessages({ messages, onRun, compact }: { messages: AgentMessage[]; onRun: RunAction; compact?: boolean }) {
   const reduce = useReducedMotion()
   return (
@@ -46,6 +59,7 @@ export function AgentMessages({ messages, onRun, compact }: { messages: AgentMes
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 0.32, ease: EASE }}
             className={cn("flex gap-3", message.from === "user" ? "justify-end" : "justify-start")}
+            data-tour={message.actions?.some((a) => a.kind === "create-shift") ? "agent-draft" : undefined}
           >
             {message.from === "agent" && <LogoMark className="mt-0.5 size-6" />}
             <div
@@ -101,12 +115,44 @@ export function AgentComposer({
 }) {
   const [draft, setDraft] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
+  const submitRef = useRef(onSubmit)
   const send = () => {
     if (!draft.trim()) return
     onSubmit(draft)
     setDraft("")
   }
   const lg = size === "lg"
+
+  useEffect(() => {
+    submitRef.current = onSubmit
+  }, [onSubmit])
+
+  useEffect(() => {
+    if (!id) return
+    let timer: number | undefined
+    const onCompose = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; text: string; send: boolean }>).detail
+      if (detail?.id !== id) return
+      window.clearInterval(timer)
+      let typed = 0
+      timer = window.setInterval(() => {
+        typed = Math.min(detail.text.length, typed + 2)
+        setDraft(detail.text.slice(0, typed))
+        if (typed < detail.text.length) return
+        window.clearInterval(timer)
+        document.getElementById(id)?.focus()
+        if (detail.send) {
+          submitRef.current(detail.text)
+          setDraft("")
+        }
+      }, 16)
+    }
+    window.addEventListener(COMPOSE_EVENT, onCompose)
+    return () => {
+      window.removeEventListener(COMPOSE_EVENT, onCompose)
+      window.clearInterval(timer)
+    }
+  }, [id])
   return (
     <InputGroup
       className={cn(

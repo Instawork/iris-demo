@@ -1,6 +1,6 @@
-# CrUber
+# Iris
 
-CrUber is an interactive staffing VMS demo for the Compass program. It gives Compass, location buyers, and staffing suppliers the same six-page workspace with persona-specific data and actions:
+Iris is an interactive staffing VMS demo for the Compass program. It gives Compass, location buyers, and staffing suppliers the same six-page workspace with persona-specific data and actions:
 
 - Dashboard
 - Shifts

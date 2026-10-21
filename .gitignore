@@ -37,6 +37,9 @@ yarn-error.log*
 .cursor/
 tools/
 
+# film project, rendered separately
+/video/
+
 # vercel
 .vercel
 

@@ -374,6 +374,7 @@ function columnsFor(ws: Workspace, actions: { onHours: (g: ShiftGroup) => void; 
               e.stopPropagation()
               actions.onHours(g)
             }}
+            data-tour={primary ? "hours-action" : undefined}
           >
             {h.label}
             {h.count ? <span className={cn("tabular", primary ? "opacity-70" : "")}>{h.count}</span> : null}

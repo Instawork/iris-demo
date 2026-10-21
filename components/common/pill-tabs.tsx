@@ -45,6 +45,7 @@ export function PillTabs<T extends string>({
             role="tab"
             type="button"
             aria-selected={active}
+            data-value={item.value}
             disabled={item.disabled}
             onClick={() => onChange(item.value)}
             className={cn(
