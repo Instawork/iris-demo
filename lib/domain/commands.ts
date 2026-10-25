@@ -1,6 +1,6 @@
 import { planImport } from "@/lib/csv"
-import { addDaysISO, paidHours, todayISO } from "@/lib/dates"
-import { budgetCheck, releasePlan, startsAt } from "@/lib/domain/budget"
+import { addDaysISO, hhmmFromMinutes, paidHours, todayISO, wallClock } from "@/lib/dates"
+import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, invoicesFor, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, round2 } from "@/lib/format"
@@ -72,7 +72,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
 
 /** Puts an order in front of agencies: the release plan from now, and the first tiers whose time has come. */
 function released(g: ShiftGroup, ordered: string[], now: string): ShiftGroup {
-  const plan = releasePlan(policyFor(g.buyerId), startsAt(g), ordered, new Date(now))
+  const plan = releasePlan(policyFor(g.buyerId), g, ordered, new Date(now))
   return { ...g, supplierReleases: plan, supplierIds: plan.filter((r) => r.releasedAt <= now).map((r) => r.supplierId), liveFill: { startedAt: now } }
 }
 
@@ -87,8 +87,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const start = time(input.start, "Start time")
   const end = time(input.end, "End time")
   if (start === end) fail("Start and end can't be the same time.")
-  const now = new Date(ctx.now)
-  const clockNow = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  const clockNow = hhmmFromMinutes(wallClock(new Date(ctx.now)).minutes)
   if (dates[0] === today && start <= clockNow) fail("That start time has already passed today. Pick a later time or another day.")
   const breakMins = num(input.breakMins ?? 0, "Break", 0, 120)
   const headcount = Math.round(num(input.headcount, "Headcount", 1, 60))

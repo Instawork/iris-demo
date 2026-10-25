@@ -1,5 +1,5 @@
 import { formatTimestamp, paidHours } from "@/lib/dates"
-import { budgetCheck, releasePlan, startsAt, type BudgetCheck } from "@/lib/domain/budget"
+import { budgetCheck, releasePlan, type BudgetCheck } from "@/lib/domain/budget"
 import { notifiedSuppliers, type BookingInput } from "@/lib/domain/core"
 import { round2 } from "@/lib/format"
 import { approversFor, location, policyFor, supplier } from "@/lib/reference"
@@ -31,7 +31,7 @@ export function previewOrder(
   const check = budgetCheck(data, loc.id, input.dates.map((date) => ({ date, estimate: perDate })), policy)
   const approvers = approversFor(loc.id)
   const first = [...input.dates].sort()[0]
-  const plan = releasePlan(policy, startsAt({ date: first, start: input.start }), [notified[0].card.supplierId], now)
+  const plan = releasePlan(policy, { date: first, start: input.start }, [notified[0].card.supplierId], now)
   const firstRelease = plan[0] ? new Date(plan[0].releasedAt) : undefined
   return {
     policy,

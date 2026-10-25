@@ -1,4 +1,4 @@
-import { addDaysISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, hhmmFromMinutes, instantAt, minutesOf, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
 import { groupEstimate } from "@/lib/metrics"
 import { LOCATIONS, policyFor } from "@/lib/reference"
@@ -49,13 +49,21 @@ export function budgetCheck(data: Pick<DemoData, "groups" | "budgets">, location
   return { weeks, needsApproval: overWeeks.length > 0, worst } satisfies BudgetCheck
 }
 
-/** When an order reaches each agency: held until the sector's lead time before the shift, then one agency per gap. */
-export function releasePlan(policy: SectorPolicy, startsAt: Date, supplierIds: string[], now: Date) {
-  const first = Math.max(now.getTime(), startsAt.getTime() - policy.releaseLeadHours * 3600_000)
+/**
+ * When an order reaches each agency: held until the sector's lead time before the shift, then one agency per gap. A
+ * sector without a lead time releases right away.
+ */
+export function releasePlan(policy: SectorPolicy, shift: Pick<ShiftGroup, "date" | "start">, supplierIds: string[], now: Date) {
+  const first = Math.max(now.getTime(), policy.releaseLeadHours ? leadTime(shift, policy.releaseLeadHours) : 0)
   return supplierIds.map((supplierId, index) => ({ supplierId, releasedAt: new Date(first + index * policy.tierGapHours * 3600_000).toISOString() }))
 }
 
-export const startsAt = (g: Pick<ShiftGroup, "date" | "start">) => new Date(`${g.date}T${g.start}:00`)
+/** Counted on the venue's clock, so 72 hours before a 2pm Sunday shift is 2pm Thursday even across a clock change. */
+function leadTime(shift: Pick<ShiftGroup, "date" | "start">, hours: number) {
+  const total = minutesOf(shift.start) - hours * 60
+  const days = Math.floor(total / 1440)
+  return instantAt(addDaysISO(shift.date, days), hhmmFromMinutes(total - days * 1440)).getTime()
+}
 
 const HEADROOM = 2200
 

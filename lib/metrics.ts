@@ -1,5 +1,5 @@
 import { readiness, summaryOf } from "@/lib/compliance"
-import { addDaysISO, daysFromToday, isPastShift, paidHours, todayISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
@@ -52,12 +52,8 @@ export type GroupPhase = "cancelled" | "past" | "in_progress" | "upcoming"
 export function groupPhase(g: ShiftGroup): GroupPhase {
   if (g.cancelledAt) return "cancelled"
   if (isPastShift(g.date, g.end, g.start)) return "past"
-  const today = todayISO()
-  if (g.date === today) {
-    const now = new Date()
-    const [h, m] = g.start.split(":").map(Number)
-    if (now.getHours() * 60 + now.getMinutes() >= h * 60 + m) return "in_progress"
-  }
+  const now = wallClock()
+  if (g.date === now.date && now.minutes >= minutesOf(g.start)) return "in_progress"
   return "upcoming"
 }
 

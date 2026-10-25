@@ -1,4 +1,4 @@
-import { addDaysISO, paidHours, todayISO, toISODate } from "@/lib/dates"
+import { addDaysISO, hhmmFromMinutes, paidHours, todayISO, toISODate, wallClock } from "@/lib/dates"
 import { locationsFor } from "@/lib/reference"
 
 const MONTHS: Record<string, number> = {
@@ -89,8 +89,7 @@ function parseDate(lower: string, today: string): { date?: string; invalid?: boo
     const month = named ? MONTHS[named[1]] : Number(numeric![1]) - 1
     const day = Number(named ? named[2] : numeric![2])
     const yearText = named ? named[3] : numeric![3]
-    const now = new Date()
-    let year = yearText ? Number(yearText.length === 2 ? `20${yearText}` : yearText) : now.getFullYear()
+    let year = yearText ? Number(yearText.length === 2 ? `20${yearText}` : yearText) : Number(today.slice(0, 4))
     let candidate = new Date(year, month, day)
     if (!yearText && toISODate(candidate) < today) candidate = new Date(++year, month, day)
     if (candidate.getMonth() !== month || candidate.getDate() !== day || toISODate(candidate) < today) return { invalid: true }
@@ -118,10 +117,7 @@ function locationIn(lower: string, buyerId: string) {
   )
 }
 
-const nowHHMM = () => {
-  const now = new Date()
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-}
+const nowHHMM = () => hhmmFromMinutes(wallClock().minutes)
 
 function parseTimes(lower: string) {
   const text = lower.replace(/\bnoon\b/g, "12pm").replace(/\bmidnight\b/g, "12am")

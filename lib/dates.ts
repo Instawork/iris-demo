@@ -1,14 +1,52 @@
-import { addDays, differenceInCalendarDays, format, parseISO, startOfWeek } from "date-fns"
+import { addDays, format, parseISO, startOfWeek } from "date-fns"
+
+/**
+ * The server and every device read the clock in the program's time zone, the one shift times are written in. A laptop
+ * that travels to another zone still shows the same release times and "today" as the server.
+ */
+export const PROGRAM_TIME_ZONE = "America/Chicago"
+
+const wallParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: PROGRAM_TIME_ZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+})
+
+/** The program's wall clock at an instant: the date, and minutes since midnight. */
+export function wallClock(at = new Date()) {
+  const p: Record<string, string> = {}
+  for (const part of wallParts.formatToParts(at)) p[part.type] = part.value
+  return { date: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) }
+}
+
+/** The instant a program wall-clock time happens. */
+export function instantAt(date: string, hhmm: string) {
+  const target = Date.parse(`${date}T${hhmm}:00Z`)
+  let t = target
+  for (let i = 0; i < 3; i++) {
+    const w = wallClock(new Date(t))
+    const shown = Date.parse(`${w.date}T${hhmmFromMinutes(w.minutes)}:00Z`)
+    if (shown === target) break
+    t += target - shown
+  }
+  return new Date(t)
+}
 
 export const toISODate = (d: Date) => format(d, "yyyy-MM-dd")
 
-export const todayISO = () => toISODate(new Date())
+export const todayISO = () => wallClock().date
 
 export const parseDate = (iso: string) => parseISO(iso.length === 10 ? `${iso}T00:00:00` : iso)
 
 export const addDaysISO = (iso: string, days: number) => toISODate(addDays(parseDate(iso), days))
 
-export const daysFromToday = (iso: string) => differenceInCalendarDays(parseDate(iso), new Date())
+const dayNumber = (iso: string) => Math.round(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) / 86_400_000)
+
+export const daysFromToday = (iso: string) => dayNumber(iso) - dayNumber(todayISO())
 
 export const weekStartISO = (iso: string) => toISODate(startOfWeek(parseDate(iso), { weekStartsOn: 1 }))
 
@@ -85,7 +123,9 @@ export const formatRelativeDay = (iso: string) => {
   return formatDateShort(iso)
 }
 
-export const formatTimestamp = (iso: string) => format(parseISO(iso), "MMM d, h:mm a")
+const stamp = new Intl.DateTimeFormat("en-US", { timeZone: PROGRAM_TIME_ZONE, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+
+export const formatTimestamp = (iso: string) => stamp.format(parseISO(iso)).replace(/\u202f/g, " ")
 
 export const timeAgo = (iso: string) => {
   const diffMs = Date.now() - parseISO(iso).getTime()
@@ -100,11 +140,7 @@ export const timeAgo = (iso: string) => {
 }
 
 export const isPastShift = (date: string, end: string, start: string) => {
-  const today = todayISO()
-  if (date < today) return true
-  if (date > today) return false
-  const now = new Date()
-  const nowMins = now.getHours() * 60 + now.getMinutes()
-  const endMins = minutesOf(start) + spanMinutes(start, end)
-  return nowMins >= endMins
+  const now = wallClock()
+  if (date !== now.date) return date < now.date
+  return now.minutes >= minutesOf(start) + spanMinutes(start, end)
 }

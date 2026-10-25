@@ -1,3 +1,4 @@
+import { PROGRAM_TIME_ZONE } from "@/lib/dates"
 import type { Notice } from "@/lib/domain/commands"
 import { advance } from "@/lib/domain/simulate"
 import { diffData, isEmptyChange, type Changes } from "@/lib/domain/sync"
@@ -5,6 +6,9 @@ import { findWorkspace } from "@/lib/reference"
 import { DATA_VERSION, generateDemoData } from "@/lib/seed"
 import type { DemoData } from "@/lib/types"
 import { hasDatabase, loadTenantRow, saveTenantRow } from "@/server/db"
+
+// The seed writes venue times through the local clock, so the server's local clock is the program's.
+process.env.TZ = PROGRAM_TIME_ZONE
 
 /**
  * One demo tenant: the authoritative copy of its data, a queue that applies one change at a time, and the devices
