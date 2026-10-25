@@ -1,8 +1,8 @@
-import { BadgeDollarSign, Calendar, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
+import { BadgeCheck, BadgeDollarSign, Calendar, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
-import { filledCount, groupPhase, inScope, invoiceStatus, isOpenTo, needsReview } from "@/lib/metrics"
+import { awaitingApproval, filledCount, groupPhase, inScope, invoiceStatus, isOpenTo, needsReview } from "@/lib/metrics"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
 export interface NavItem {
@@ -37,6 +37,18 @@ const shiftsBadge = (data: DemoData, ws: Workspace) => {
 /** The same six pages for everyone, as in the PRD. Each page shows that persona's data and actions. */
 export function navFor(ws: Workspace): NavItem[] {
   const kind = ws.kind
+  const approvals: NavItem[] = ws.approves?.length
+    ? [
+        {
+          id: "approvals",
+          label: "Approvals",
+          href: "/approvals",
+          icon: BadgeCheck,
+          tooltip: "Over-budget orders waiting on you",
+          badge: (data, w) => data.groups.filter((g) => awaitingApproval(g) && w.approves?.includes(g.locationId)).length,
+        },
+      ]
+    : []
   return [
     {
       id: "home",
@@ -50,6 +62,7 @@ export function navFor(ws: Workspace): NavItem[] {
             ? "Your todos, spend and the suppliers you approve"
             : "Your todos, performance and the buyers that approved you",
     },
+    ...approvals,
     {
       id: "shifts",
       label: "Shifts",
@@ -107,6 +120,7 @@ export const settingsFor = (ws: Workspace) => SETTINGS_PAGES.filter((p) => !p.ki
 
 export const SECTION_LABELS: Record<string, string> = {
   "": "Dashboard",
+  approvals: "Approvals",
   shifts: "Shifts",
   professionals: "Professionals",
   rates: "Supplier Rates",

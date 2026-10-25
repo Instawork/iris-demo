@@ -129,7 +129,8 @@ export class Tenant {
     this.timer = setInterval(() => {
       const playing = playedSuppliers(this.connectedWorkspaces())
       void this.mutate({ kind: "tick", actor: "Iris" }, (data) => {
-        const { data: next, notices } = advance(data, { now: new Date(), simulated: (supplierId) => !playing.has(supplierId) })
+        const paused = new Set(data.settings?.pausedAgencies ?? [])
+        const { data: next, notices } = advance(data, { now: new Date(), simulated: (supplierId) => !playing.has(supplierId) && !paused.has(supplierId) })
         return { data: next, result: null, notices }
       }).catch((error) => console.error(`[iris] scheduler tick failed for ${this.id}`, error))
     }, TICK_MS)

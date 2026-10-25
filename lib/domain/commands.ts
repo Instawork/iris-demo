@@ -1,21 +1,12 @@
 import { planImport } from "@/lib/csv"
 import { addDaysISO, paidHours, todayISO } from "@/lib/dates"
+import { budgetCheck, releasePlan, startsAt } from "@/lib/domain/budget"
+import { eligiblePros, event, invoicesFor, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { billFrom, round2 } from "@/lib/format"
-import { groupPhase, isOpenTo } from "@/lib/metrics"
-import { PROGRAM, SUPPLIERS, findLocation, findPosition, findSupplier, location, position, supplier } from "@/lib/reference"
+import { awaitingApproval, groupPhase, isOpenTo } from "@/lib/metrics"
+import { PROGRAM, SUPPLIERS, approversFor, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
 import { generateDemoData } from "@/lib/seed"
-import type { DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Upload, Workspace } from "@/lib/types"
-import {
-  eligiblePros,
-  event,
-  invoicesFor,
-  merge,
-  notifiedSuppliers,
-  supplierReleasePlan,
-  type BookingInput,
-  type Patch,
-  type RateCardInput,
-} from "@/lib/domain/core"
+import type { ApprovalRequest, DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Upload, Workspace } from "@/lib/types"
 
 export class CommandError extends Error {
   constructor(
@@ -37,6 +28,8 @@ export interface Notice {
   tone: "success" | "info" | "warning"
   buyerId?: string
   supplierId?: string
+  /** Only these workspaces, when set. */
+  workspaceIds?: string[]
 }
 
 export interface Outcome<R> {
@@ -76,29 +69,58 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
 
 /* --------------------------------- Shifts --------------------------------- */
 
+/** Puts an order in front of agencies: the release plan from now, and the first tiers whose time has come. */
+function released(g: ShiftGroup, ordered: string[], now: string): ShiftGroup {
+  const plan = releasePlan(policyFor(g.buyerId), startsAt(g), ordered, new Date(now))
+  return { ...g, supplierReleases: plan, supplierIds: plan.filter((r) => r.releasedAt <= now).map((r) => r.supplierId), liveFill: { startedAt: now } }
+}
+
 function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInput): Outcome<string[]> {
   const loc = need(findLocation(str(input?.locationId, "Location")), "That location doesn't exist")
   if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== loc.buyerId) forbid("Only this location's buyer can post shifts here.")
   const pos = need(findPosition(str(input.positionId, "Position")), "That position doesn't exist")
-  const dates = strList(input.dates, "Dates", 31)
+  const policy = policyFor(loc.buyerId)
+  const dates = [...new Set(strList(input.dates, "Dates", 31))].sort()
   const today = todayISO()
   if (!dates.length || dates.some((d) => !DATE.test(d) || d < today)) fail("Pick one or more dates from today on.")
   const start = time(input.start, "Start time")
   const end = time(input.end, "End time")
   if (start === end) fail("Start and end can't be the same time.")
+  const now = new Date(ctx.now)
+  const clockNow = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  if (dates[0] === today && start <= clockNow) fail("That start time has already passed today. Pick a later time or another day.")
   const breakMins = num(input.breakMins ?? 0, "Break", 0, 120)
   const headcount = Math.round(num(input.headcount, "Headcount", 1, 60))
+  if (headcount * dates.length > policy.maxSpotsPerOrder) fail(`${policy.sector} orders can create up to ${policy.maxSpotsPerOrder} spots at a time.`)
   const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, pos.id)
   if (!notified.length) fail(`None of your approved suppliers has an active ${pos.name} rate at ${loc.name}.`)
   const card = notified[0].card
   const ordered = notified.map((n) => n.card.supplierId)
+  const estimate = round2(paidHours(start, end, breakMins) * card.billRate * headcount)
+  const check = budgetCheck(data, loc.id, dates.map((date) => ({ date, estimate })), policy)
+  const worst = check.worst
+  const approvers = approversFor(loc.id)
+  const approval: ApprovalRequest | undefined =
+    check.needsApproval && worst && approvers.length
+      ? {
+          status: "pending",
+          requestedAt: ctx.now,
+          requestedBy: actorName(ctx),
+          requestedByWorkspace: ctx.ws.id,
+          weekStart: worst.weekStart,
+          budget: worst.budget,
+          committed: worst.committed,
+          estimate: round2(estimate * dates.length),
+          overPct: worst.overPct,
+        }
+      : undefined
   let sg = data.counters.sg
   const ids: string[] = []
-  const groups: ShiftGroup[] = [...new Set(dates)].sort().map((date) => {
+  const groups: ShiftGroup[] = dates.map((date) => {
     const code = `SG-${sg++}`
     const id = code.toLowerCase()
     ids.push(id)
-    return {
+    const g: ShiftGroup = {
       id,
       code,
       buyerId: loc.buyerId,
@@ -111,8 +133,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
       end,
       breakMins,
       supplierId: card.supplierId,
-      supplierIds: ordered.slice(0, 1),
-      supplierReleases: supplierReleasePlan(ordered, ctx.now),
+      supplierIds: [],
       billRate: card.billRate,
       proRate: card.proRate,
       markupPct: card.markupPct,
@@ -123,25 +144,100 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
       createdAt: ctx.now,
       createdBy: actorName(ctx),
       source: "booking",
-      liveFill: { startedAt: ctx.now },
+      approval,
     }
+    return approval ? g : released(g, ordered, ctx.now)
   })
-  return done(
-    data,
-    ids,
-    { groups: [...groups, ...data.groups], counters: { sg } },
-    event(
-      data,
-      {
-        text: `${actorName(ctx)} posted ${headcount * groups.length} ${pos.name} spots at ${loc.name}. ${supplier(card.supplierId).shortName} received them first`,
-        actor: actorName(ctx),
-        tone: "primary",
-        buyerId: loc.buyerId,
-        groupId: groups[0]?.id,
-      },
-      ctx.now,
-    ),
+  const spots = headcount * groups.length
+  const first = groups[0]
+  const text = approval
+    ? `${actorName(ctx)} asked for ${spots} ${pos.name} spots at ${loc.name}. It's ${(approval.overPct * 100).toFixed(1)}% over that week's budget, so it's waiting for ${joinNames(approvers.map((a) => a.user.name))}`
+    : first.supplierIds.length
+      ? `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${supplier(card.supplierId).shortName} received them first`
+      : `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${policy.sector} releases them ${policy.releaseLeadHours} hours before the shift`
+  return {
+    ...done(data, ids, { groups: [...groups, ...data.groups], counters: { sg } }, event(data, { text, actor: actorName(ctx), tone: approval ? "warning" : "primary", buyerId: loc.buyerId, groupId: first.id }, ctx.now)),
+    notices: approval
+      ? [
+          {
+            text: `${actorName(ctx)} needs your approval: ${spots} ${pos.name} spots at ${loc.name}, ${(approval.overPct * 100).toFixed(1)}% over budget`,
+            tone: "warning",
+            workspaceIds: approvers.map((a) => a.id),
+          },
+        ]
+      : [],
+  }
+}
+
+function decideApproval(data: DemoData, ctx: CommandContext, input: { groupIds: string[]; decision: "approve" | "decline"; note?: string }): Outcome<number> {
+  const ids = new Set(strList(input?.groupIds, "Orders", 100))
+  const pending = data.groups.filter((g) => ids.has(g.id) && awaitingApproval(g))
+  if (!pending.length) fail("These orders were already decided.")
+  if (pending.some((g) => !ctx.ws.approves?.includes(g.locationId))) forbid("Only the district approver can decide these orders.")
+  const approve = input.decision === "approve"
+  const note = optStr(input.note, 1000)
+  const decided = { decidedAt: ctx.now, decidedBy: actorName(ctx), note }
+  const updated = new Map(
+    pending.map((g) => {
+      const approval = { ...g.approval!, ...decided, status: approve ? ("approved" as const) : ("declined" as const) }
+      const ordered = notifiedSuppliers(data, g.buyerId, location(g.locationId).cityId, g.positionId).map((n) => n.card.supplierId)
+      const next: ShiftGroup = approve ? released({ ...g, approval }, ordered.length ? ordered : [g.supplierId], ctx.now) : { ...g, approval, cancelledAt: ctx.now }
+      return [g.id, next]
+    }),
   )
+  const first = pending[0]
+  const spots = pending.reduce((s, g) => s + g.slots.length, 0)
+  const what = `${spots} ${position(first.positionId).name} spots at ${location(first.locationId).name}`
+  return {
+    ...done(
+      data,
+      pending.length,
+      { groups: data.groups.map((g) => updated.get(g.id) ?? g) },
+      event(
+        data,
+        {
+          text: approve ? `${actorName(ctx)} approved ${what}. Released to agencies` : `${actorName(ctx)} declined ${what}${note ? `: ${note}` : ""}`,
+          actor: actorName(ctx),
+          tone: approve ? "positive" : "critical",
+          buyerId: first.buyerId,
+          groupId: first.id,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: [
+      {
+        text: approve ? `${actorName(ctx)} approved your order: ${what}. It's going to agencies now.` : `${actorName(ctx)} declined your order: ${what}${note ? `. "${note}"` : ""}`,
+        tone: approve ? "success" : "warning",
+        workspaceIds: [...new Set(pending.map((g) => g.approval!.requestedByWorkspace))],
+      },
+    ],
+  }
+}
+
+/** Sends the order to its next agency now, instead of waiting for the sector's release time. */
+function releaseNextTier(data: DemoData, ctx: CommandContext, input: { groupId: string }): Outcome<string | null> {
+  const g = groupOf(data, input?.groupId)
+  if (!ownsBuyer(ctx.ws, g.buyerId)) forbid("Only the buyer can release this order early.")
+  if (awaitingApproval(g)) fail("This order is waiting for approval.")
+  if (g.cancelledAt || groupPhase(g) === "past") fail("This order is closed.")
+  const plan = g.supplierReleases ?? []
+  const index = plan.findIndex((r) => !g.supplierIds.includes(r.supplierId))
+  if (index < 0) fail("Every agency already has this order.")
+  const gap = policyFor(g.buyerId).tierGapHours * 3600_000
+  const nowMs = new Date(ctx.now).getTime()
+  const nextPlan = plan.map((r, i) => (i < index ? r : { ...r, releasedAt: new Date(nowMs + (i - index) * gap).toISOString() }))
+  const supplierId = plan[index].supplierId
+  const next: ShiftGroup = { ...g, supplierReleases: nextPlan, supplierIds: [...g.supplierIds, supplierId], liveFill: g.liveFill ?? { startedAt: ctx.now } }
+  return {
+    ...done(
+      data,
+      supplierId,
+      { groups: data.groups.map((x) => (x.id === g.id ? next : x)) },
+      event(data, { text: `${actorName(ctx)} released ${g.code} to ${supplier(supplierId).shortName} early`, actor: actorName(ctx), tone: "primary", buyerId: g.buyerId, supplierId, groupId: g.id }, ctx.now),
+    ),
+    notices: [{ text: `New shift released to you: ${g.code} at ${location(g.locationId).name}`, tone: "info", supplierId }],
+  }
 }
 
 const groupOf = (data: DemoData, groupId: unknown) => need(data.groups.find((g) => g.id === groupId), "That shift doesn't exist")
@@ -703,14 +799,30 @@ function resolveUpload(data: DemoData, ctx: CommandContext, input: { id: string;
 
 /* ---------------------------------- Demo ----------------------------------- */
 
-function resetDemo(): Outcome<null> {
-  return { data: generateDemoData(), result: null, replaced: true }
+function resetDemo(data: DemoData): Outcome<null> {
+  return { data: { ...generateDemoData(), settings: data.settings }, result: null, replaced: true }
+}
+
+/** Presenter switch: whether Iris staffs an agency's shifts when nobody is signed in as that agency. */
+function setAgencyAutoFill(data: DemoData, ctx: CommandContext, input: { supplierId: string; enabled: boolean }): Outcome<null> {
+  const s = need(findSupplier(str(input?.supplierId, "Agency")), "That agency doesn't exist")
+  const paused = new Set(data.settings?.pausedAgencies ?? [])
+  if (input.enabled) paused.delete(s.id)
+  else paused.add(s.id)
+  return done(
+    data,
+    null,
+    { settings: { ...data.settings, pausedAgencies: [...paused] } },
+    event(data, { text: `${actorName(ctx)} ${input.enabled ? "resumed" : "paused"} automatic staffing for ${s.shortName}`, actor: actorName(ctx), tone: "neutral", supplierId: s.id }, ctx.now),
+  )
 }
 
 /* -------------------------------- Registry --------------------------------- */
 
 export const COMMANDS = {
   createJobPosting,
+  decideApproval,
+  releaseNextTier,
   cancelGroup,
   setHeadcount,
   assignPros,
@@ -737,6 +849,7 @@ export const COMMANDS = {
   commitUpload,
   resolveUpload,
   resetDemo,
+  setAgencyAutoFill,
 }
 
 export type CommandName = keyof typeof COMMANDS

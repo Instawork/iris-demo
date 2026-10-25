@@ -32,6 +32,7 @@ import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { ProSheet } from "@/components/pros/pro-sheet"
 import { AssignProsDialog } from "@/components/shifts/assign-pros-dialog"
 import { HoursDialog } from "@/components/shifts/hours-dialog"
+import { ApprovalCard, ReleaseCard } from "@/components/shifts/order-status"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   AlertDialog,
@@ -58,7 +59,7 @@ import { formatClock, formatDateLong, formatInterval, formatTimestamp, timeAgo }
 import { fullName, money, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
 import { buyer, city, location, position, supplier } from "@/lib/reference"
-import { joinNames, useStore } from "@/lib/store"
+import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
 import type { Pro, ShiftGroup, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -108,7 +109,10 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const loc = location(group.locationId)
   const sent = joinNames(group.supplierIds.map((id) => supplier(id).shortName))
   const supplierReleases =
-    group.supplierReleases ?? group.supplierIds.map((supplierId) => ({ supplierId, releasedAt: group.createdAt }))
+    group.supplierReleases ??
+    (group.approval && group.approval.status !== "approved"
+      ? notifiedSuppliers(data, group.buyerId, loc.cityId, group.positionId).map((n) => ({ supplierId: n.card.supplierId, releasedAt: "" }))
+      : group.supplierIds.map((supplierId) => ({ supplierId, releasedAt: group.createdAt })))
   const phase = groupPhase(group)
   const filled = filledCount(group)
   const total = group.slots.length
@@ -164,13 +168,14 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             {group.badges.map((b) => (
               <StatusBadge key={b}>{b}</StatusBadge>
             ))}
-            {group.cancelledAt && <StatusBadge tone="critical">Cancelled</StatusBadge>}
+            {group.approval?.status === "pending" && !group.cancelledAt && <StatusBadge tone="warning">Needs approval</StatusBadge>}
+            {group.cancelledAt && <StatusBadge tone="critical">{group.approval?.status === "declined" ? "Declined" : "Cancelled"}</StatusBadge>}
             {phase === "in_progress" && (
               <StatusBadge tone="positive" dot>
                 In progress
               </StatusBadge>
             )}
-            {group.liveFill && upcoming && (
+            {group.liveFill && upcoming && group.supplierIds.length > 0 && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-faded px-2.5 py-1 text-caption-1 font-semibold text-primary">
                 <span className="size-1.5 animate-live rounded-full bg-primary" /> Suppliers are filling this now
               </span>
@@ -334,8 +339,10 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                           <span className="flex items-center gap-2.5">
                             <span className={cn("size-8 rounded-full border border-dashed border-border-strong", group.liveFill && "skeleton-shimmer border-transparent")} />
                             <span className="flex flex-col whitespace-nowrap">
-                              <span className="font-medium text-faded">{group.cancelledAt ? "Cancelled" : group.liveFill ? "Finding a Pro…" : "Open spot"}</span>
-                              <span className="text-caption-1 text-subtle">{group.cancelledAt ? "—" : `Open to ${sent}`}</span>
+                              <span className="font-medium text-faded">{group.cancelledAt ? "Cancelled" : group.liveFill && group.supplierIds.length ? "Finding a Pro…" : "Open spot"}</span>
+                              <span className="text-caption-1 text-subtle">
+                                {group.cancelledAt ? "—" : group.approval?.status === "pending" ? "Waiting for approval" : sent ? `Open to ${sent}` : "Held for release"}
+                              </span>
                             </span>
                           </span>
                         )}
@@ -456,6 +463,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
         </div>
 
         <div className="flex flex-col gap-4">
+          <ApprovalCard group={group} />
+          <ReleaseCard group={group} />
           <Surface elevated data-tour="release">
             <SurfaceHeader
               title="Suppliers"
@@ -475,7 +484,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-body-3 font-semibold">{s.shortName}</span>
                       <span className="text-caption-1 text-faded">
-                        {released ? (filledBy ? `${filledBy} of ${total} spots filled` : "Released · no Pros yet") : `Scheduled ${formatTimestamp(releasedAt)}`}
+                        {released ? (filledBy ? `${filledBy} of ${total} spots filled` : "Released · no Pros yet") : filled >= total ? "Not needed, already full" : releasedAt ? `Scheduled ${formatTimestamp(releasedAt)}` : group.approval?.status === "declined" ? "Not sent" : "After approval"}
                       </span>
                     </span>
                     {card && <span className="text-body-3 font-medium tabular">{money(card.billRate)}/hr</span>}
@@ -710,11 +719,20 @@ function TipsDialog({
 
 function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], invoices: { id: string; number: string; issuedOn: string }[]) {
   const items: { at: string; text: string; dot: string }[] = []
+  const a = group.approval
   items.push({
     at: group.createdAt,
-    text: `${group.createdBy} posted ${group.slots.length} spots and notified ${joinNames(group.supplierIds.map((id) => supplier(id).shortName))}${group.source === "upload" ? " by CSV upload" : ""}`,
-    dot: "bg-primary",
+    text: a
+      ? `${group.createdBy} asked for ${group.slots.length} spots, ${(a.overPct * 100).toFixed(1)}% over the week's budget`
+      : group.supplierReleases && !group.supplierIds.length
+        ? `${group.createdBy} posted ${group.slots.length} spots, held until ${formatTimestamp(group.supplierReleases[0].releasedAt)}`
+        : `${group.createdBy} posted ${group.slots.length} spots${group.supplierIds.length ? ` and notified ${joinNames(group.supplierIds.map((id) => supplier(id).shortName))}` : ""}${group.source === "upload" ? " by CSV upload" : ""}`,
+    dot: a ? "bg-warning" : "bg-primary",
   })
+  if (a?.decidedAt) items.push({ at: a.decidedAt, text: `${a.decidedBy} ${a.status === "approved" ? "approved" : "declined"} the order${a.note ? `: "${a.note}"` : ""}`, dot: a.status === "approved" ? "bg-positive" : "bg-critical" })
+  for (const r of group.supplierReleases ?? []) {
+    if (group.supplierIds.includes(r.supplierId) && r.releasedAt > group.createdAt) items.push({ at: r.releasedAt, text: `Released to ${supplier(r.supplierId).shortName}`, dot: "bg-primary" })
+  }
   const confirmations = group.slots.filter((s) => s.confirmedAt && s.proId).sort((a, b) => a.confirmedAt!.localeCompare(b.confirmedAt!))
   if (confirmations.length) {
     const first = confirmations[0]
@@ -729,7 +747,7 @@ function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], 
       items.push({ at: last.confirmedAt!, text: `${confirmations.length} of ${group.slots.length} spots confirmed, ${formatTimeToFill(Math.max(0, hrs))} after booking`, dot: "bg-positive" })
     }
   }
-  if (group.cancelledAt) items.push({ at: group.cancelledAt, text: "Shift cancelled", dot: "bg-critical" })
+  if (group.cancelledAt && a?.status !== "declined") items.push({ at: group.cancelledAt, text: "Shift cancelled", dot: "bg-critical" })
   const sheets = timesheets.filter((t) => t.groupId === group.id)
   const submitted = sheets.map((t) => t.submittedAt).filter(Boolean).sort()
   const submitters = [...new Set(sheets.filter((t) => t.submittedAt).map((t) => t.supplierId))]

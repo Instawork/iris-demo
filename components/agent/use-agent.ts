@@ -5,13 +5,14 @@ import { useCallback } from "react"
 import { NO_MESSAGES, useAgentThreads, type AgentAction } from "@/components/agent/agent-store"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
-import { parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
+import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
-import { formatClock, formatDateFull, paidHours } from "@/lib/dates"
-import { money, round2 } from "@/lib/format"
-import { PROGRAM, location, locationsFor, position, supplier } from "@/lib/reference"
+import { formatClock, formatDateFull, formatDateShort, formatTimestamp, paidHours } from "@/lib/dates"
+import { previewOrder } from "@/lib/domain/order"
+import { money, moneyWhole, round2 } from "@/lib/format"
+import { PROGRAM, approversFor, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
 import { detectUploadType, isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
-import { notifiedSuppliers, useStore, type BookingInput } from "@/lib/store"
+import { joinNames, notifiedSuppliers, useStore, type BookingInput } from "@/lib/store"
 import type { UploadType } from "@/lib/types"
 
 export const AGENT_FILE_ACCEPT =
@@ -55,18 +56,31 @@ export function useAgent() {
         attire: pos.attire,
         tips: pos.alcohol,
       }
+      const preview = previewOrder(data, input)
+      const week = preview?.check.worst
+      const budgetLine = !week?.budget
+        ? undefined
+        : preview?.needsApproval
+          ? `Budget: ${loc.name} has ${moneyWhole(week.committed)} of its ${moneyWhole(week.budget)} budget committed the week of ${formatDateShort(week.weekStart)}. This makes it ${(week.overPct * 100).toFixed(1)}% over, so ${joinNames(preview.approvers.map((a) => `${a.user.name} (${a.user.title})`))} approves it before agencies see it.`
+          : `Budget: fits the week's ${moneyWhole(week.budget)} budget (${moneyWhole(week.committed + week.adding)} with this order).`
+      const releaseLine =
+        preview?.held && preview.firstRelease
+          ? `${preview.policy.sector} releases orders ${preview.policy.releaseLeadHours} hours before the shift: ${quotes[0].supplier.shortName} sees it ${formatTimestamp(preview.firstRelease.toISOString())}.`
+          : undefined
       add({
         from: "agent",
         text: [
           "Draft ready — review before posting",
           `${request.headcount} ${pos.name} · ${formatDateFull(request.date)} · ${formatClock(request.start)}–${formatClock(request.end)}`,
           `${loc.name} · ${hours} paid hours${request.breakMins ? ` · ${request.breakMins}-minute unpaid break` : ""}`,
-          `Release order: ${quotes.map(({ supplier: item }, index) => `${index + 1}. ${item.shortName}${index ? ` (+${index * PROGRAM.cascadeHoursBefore}h)` : " (now)"}`).join(" · ")}`,
+          `Release order: ${quotes.map(({ supplier: item }, index) => `${index + 1}. ${item.shortName}${index ? ` (+${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h)` : releaseLine ? "" : " (now)"}`).join(" · ")}`,
           `Bill rates: ${quotes.map(({ supplier: item, card }) => `${item.shortName} ${money(card.billRate)}/hr`).join(" · ")}`,
           `Estimated total: ${money(Math.min(...totals))}${Math.min(...totals) === Math.max(...totals) ? "" : `–${money(Math.max(...totals))}`}`,
-          "Nothing will be created until you approve below.",
+          ...(budgetLine ? [budgetLine] : []),
+          ...(releaseLine ? [releaseLine] : []),
+          preview?.needsApproval ? "Nothing goes to agencies until it's approved." : "Nothing will be created until you approve below.",
         ].join("\n"),
-        actions: [{ label: "Create and send", kind: "create-shift", input }],
+        actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input }],
       })
     },
     [add, ws.buyerId],
@@ -79,13 +93,13 @@ export function useAgent() {
       add({ from: "user", text })
       const lower = text.toLowerCase()
 
-      if (ws.kind === "buyer" && /(create|book|post).*(shift)|shift.*(create|book|post)/.test(lower)) {
+      const parsed = ws.kind === "buyer" ? parseAgentShift(text, ws.buyerId!) : undefined
+      if (ws.kind === "buyer" && parsed && (parsed.draft || looksLikeShiftRequest(text))) {
         const buyerId = ws.buyerId!
-        const parsed = parseAgentShift(text, buyerId)
         if (!parsed.draft) {
           add({
             from: "agent",
-            text: `I still need the ${parsed.missing.join(", ")}. Include them in one sentence, for example: “Create 3 line cook shifts on May 20th from 8am to 4pm.” I’ll use ${locationsFor(buyerId)[0].name} unless you name another location.`,
+            text: `I still need the ${parsed.missing.join(", ")}. Include them in one sentence, for example: “12 bartenders at ${locationsFor(buyerId)[0].name} Sunday 2pm to 11:30pm.” I’ll use ${locationsFor(buyerId)[0].name} unless you name another location.`,
           })
           return
         }
@@ -201,11 +215,15 @@ export function useAgent() {
         if (messageId) dropActions(ws.id, messageId)
         const pos = position(action.input.positionId)
         const created = useStore.getState().data.groups.find((group) => group.id === ids[0])
-        add({
-          from: "agent",
-          text: `Created ${action.input.headcount} ${pos.name} spot${action.input.headcount === 1 ? "" : "s"}. ${created ? supplier(created.supplierId).shortName : "The first supplier"} received the shift first; later suppliers release every ${PROGRAM.cascadeHoursBefore} hours only while spots remain.`,
-          actions: [{ label: "View created shift", kind: "link", href: `/shifts/${ids[0]}` }],
-        })
+        const spots = `${action.input.headcount} ${pos.name} spot${action.input.headcount === 1 ? "" : "s"}`
+        const approver = created ? approversFor(created.locationId)[0] : undefined
+        const text =
+          created?.approval?.status === "pending"
+            ? `Sent ${spots} to ${approver?.user.name ?? "your approver"} for approval. Agencies see it the moment it's approved.`
+            : created && !created.supplierIds.length && created.supplierReleases?.[0]
+              ? `Posted ${spots}. ${supplier(created.supplierId).shortName} sees it ${formatTimestamp(created.supplierReleases[0].releasedAt)}, when ${policyFor(created.buyerId).sector} releases it.`
+              : `Created ${spots}. ${created ? supplier(created.supplierId).shortName : "The first supplier"} received the shift first; later suppliers follow every ${policyFor(created?.buyerId ?? "").tierGapHours} hours only while spots remain.`
+        add({ from: "agent", text, actions: [{ label: "View created shift", kind: "link", href: `/shifts/${ids[0]}` }] })
         return
       }
       setOpen(false)

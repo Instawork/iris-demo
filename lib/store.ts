@@ -25,8 +25,12 @@ interface StoreState {
   data: DemoData
   connect: () => void
   resetDemo: () => Promise<void>
+  setAgencyAutoFill: (supplierId: string, enabled: boolean) => Promise<void>
+  signOut: () => Promise<void>
   setWorkspace: (id: string) => Promise<void>
   bookShifts: (input: BookingInput, key?: string) => Promise<string[]>
+  decideApproval: (groupIds: string[], decision: "approve" | "decline", note?: string) => Promise<number>
+  releaseNextTier: (groupId: string) => Promise<string | null>
   cancelGroup: (groupId: string) => Promise<void>
   setHeadcount: (groupId: string, headcount: number) => Promise<void>
   setSupplierApproval: (buyerId: string, supplierId: string, approved: boolean) => Promise<void>
@@ -87,6 +91,7 @@ export const useStore = create<StoreState>()((set, get) => {
 
   const relevant = (notice: Notice) => {
     const ws = workspace(get().workspaceId)
+    if (notice.workspaceIds) return notice.workspaceIds.includes(ws.id)
     if (notice.supplierId) return ws.supplierId === notice.supplierId
     if (notice.buyerId) return ws.kind === "compass" || ws.buyerId === notice.buyerId
     return true
@@ -178,6 +183,14 @@ export const useStore = create<StoreState>()((set, get) => {
       await send("resetDemo", {} as never)
     },
 
+    setAgencyAutoFill: async (supplierId, enabled) => void (await send("setAgencyAutoFill", { supplierId, enabled })),
+
+    signOut: async () => {
+      source?.close()
+      await fetch("/api/session", { method: "DELETE" }).catch(() => undefined)
+      window.location.href = new URL("/sign-in", window.location.origin).href
+    },
+
     setWorkspace: async (id) => {
       const res = await fetch("/api/session", {
         method: "POST",
@@ -193,6 +206,8 @@ export const useStore = create<StoreState>()((set, get) => {
     },
 
     bookShifts: async (input, key) => (await send("createJobPosting", input, key)) ?? [],
+    decideApproval: async (groupIds, decision, note) => (await send("decideApproval", { groupIds, decision, note })) ?? 0,
+    releaseNextTier: async (groupId) => (await send("releaseNextTier", { groupId })) ?? null,
     cancelGroup: async (groupId) => void (await send("cancelGroup", { groupId })),
     setHeadcount: async (groupId, headcount) => void (await send("setHeadcount", { groupId, headcount })),
     setSupplierApproval: async (buyerId, supplierId, approved) => void (await send("setSupplierApproval", { buyerId, supplierId, approved })),

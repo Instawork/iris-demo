@@ -92,7 +92,7 @@ const last = (selector: string) => {
 }
 const click = (selector: string) => (one(selector) as HTMLElement | null)?.click()
 
-export const askExample = () => `Create 8 bartender shifts at West Loop Arena on ${formatDay(addDaysISO(todayISO(), 9), "MMMM do")} from 4pm to 11pm`
+export const askExample = () => `Create 8 bartender shifts at West Loop Arena on ${formatDay(addDaysISO(todayISO(), 2), "MMMM do")} from 4pm to 11pm`
 
 const serial = (id: string) => Number(id.split("-")[1]) || 0
 

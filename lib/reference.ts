@@ -1,4 +1,4 @@
-import type { Buyer, City, Location, Position, RequirementId, Supplier, Workspace } from "@/lib/types"
+import type { Buyer, City, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
 
 /** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
@@ -8,6 +8,29 @@ export const PROGRAM = {
   dueSoonDays: 7,
   cascadeHoursBefore: 4,
 }
+
+/** Each sector runs ordering its own way. Levy orders by event and holds release until 72 hours before doors. */
+export const SECTOR_POLICIES: SectorPolicy[] = [
+  {
+    buyerId: "levy-chi",
+    sector: "Levy",
+    ordering: "event",
+    maxSpotsPerOrder: 400,
+    releaseLeadHours: 72,
+    tierGapHours: 4,
+    approvalOverPct: 0,
+    requiredTraining: "Creating Legends",
+  },
+  {
+    buyerId: "chartwells-south",
+    sector: "Chartwells",
+    ordering: "shift",
+    maxSpotsPerOrder: 120,
+    releaseLeadHours: 0,
+    tierGapHours: 4,
+    approvalOverPct: 0,
+  },
+]
 
 export const CITIES: City[] = [
   {
@@ -257,8 +280,8 @@ export const SUPPLIERS: Supplier[] = [
     tagline: "Regional event and culinary staffing",
     cityIds: ["chi", "atl"],
     coiExpiresInDays: 126,
-    contactName: "Dana Brooks",
-    contactEmail: "dana@crewline.example",
+    contactName: "Devon Brooks",
+    contactEmail: "devon@crewline.example",
     profile: { fillRate: 0.88, hoursToFill: 9, noShowRate: 0.032, compliance: 0.94, payIndex: 1.0, markupPct: 36, share: 0.24 },
   },
   {
@@ -345,6 +368,15 @@ export const WORKSPACES: Workspace[] = [
     user: { name: "Jordan Ellis", firstName: "Jordan", title: "Director of Operations", email: "jordan.ellis@levy.example" },
   },
   {
+    id: "ws-levy-dm",
+    kind: "buyer",
+    buyerId: "levy-chi",
+    name: "Levy · Chicago",
+    sublabel: "Buyer · District approvals",
+    user: { name: "Dana Ruiz", firstName: "Dana", title: "District Manager", email: "dana.ruiz@levy.example" },
+    approves: ["loc-lfs", "loc-wla", "loc-rcc", "loc-nsb"],
+  },
+  {
     id: "ws-chartwells",
     kind: "buyer",
     buyerId: "chartwells-south",
@@ -373,7 +405,7 @@ export const WORKSPACES: Workspace[] = [
     supplierId: "crewline",
     name: "Crewline Staffing",
     sublabel: "Supplier · API connected",
-    user: { name: "Dana Brooks", firstName: "Dana", title: "Account Manager", email: "dana@crewline.example" },
+    user: { name: "Devon Brooks", firstName: "Devon", title: "Account Manager", email: "devon@crewline.example" },
   },
   {
     id: "ws-harbor",
@@ -416,6 +448,11 @@ export const findLocation = (id: string) => locationMap.get(id)
 export const findPosition = (id: string) => positionMap.get(id)
 export const findSupplier = (id: string) => supplierMap.get(id)
 export const findWorkspace = (id: string) => workspaceMap.get(id)
+
+export const policyFor = (buyerId: string) => SECTOR_POLICIES.find((p) => p.buyerId === buyerId) ?? SECTOR_POLICIES[0]
+
+/** Who approves over-budget orders at a location. */
+export const approversFor = (locationId: string) => WORKSPACES.filter((w) => w.approves?.includes(locationId))
 
 export const locationsFor = (buyerId?: string) =>
   buyerId ? LOCATIONS.filter((l) => l.buyerId === buyerId) : LOCATIONS

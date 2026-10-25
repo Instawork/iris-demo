@@ -70,7 +70,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
         <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row sm:items-start">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-body-2 font-bold">{title}</span>
-            {group.liveFill && phase === "upcoming" && (
+            {group.liveFill && phase === "upcoming" && group.supplierIds.length > 0 && (
               <Tip content="Suppliers are confirming Pros right now">
                 <span className="inline-flex h-5 items-center gap-1.5 rounded-md bg-brand px-1.5 text-caption-1 font-semibold text-brand-foreground">
                   <span className="size-1.5 animate-pulse rounded-full bg-brand-foreground" />
@@ -78,6 +78,11 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
                 </span>
               </Tip>
             )}
+            {group.approval?.status === "pending" && !group.cancelledAt && <StatusBadge tone="warning">Needs approval</StatusBadge>}
+            {group.approval?.status === "declined" && <StatusBadge tone="critical">Declined</StatusBadge>}
+            {!group.approval || group.approval.status === "approved"
+              ? !group.cancelledAt && phase === "upcoming" && group.supplierReleases && !group.supplierIds.length && <StatusBadge>Held for release</StatusBadge>
+              : null}
             {phase === "in_progress" && (
               <StatusBadge tone="positive" dot>
                 In progress

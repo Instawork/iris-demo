@@ -29,8 +29,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { addDaysISO, formatClock, formatDateShort, formatDay, paidHours, parseDate, toISODate, todayISO } from "@/lib/dates"
-import { money, pct, round2 } from "@/lib/format"
+import { addDaysISO, formatClock, formatDateShort, formatDay, formatTimestamp, paidHours, parseDate, toISODate, todayISO } from "@/lib/dates"
+import { previewOrder, type OrderPreview } from "@/lib/domain/order"
+import { money, moneyWhole, pct, round2 } from "@/lib/format"
 import { formatTimeToFill, metricsFor, type SupplierMetrics } from "@/lib/metrics"
 import { POSITIONS, PROGRAM, city, location, locationsFor, position } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
@@ -107,6 +108,10 @@ export function BookingWizard() {
       })),
     [data, ws.buyerId, loc.cityId, draft.positionId, hrs, spots],
   )
+  const preview = useMemo(
+    () => previewOrder(data, { locationId: draft.locationId, positionId: draft.positionId, dates: draft.dates, start: draft.start, end: draft.end, breakMins: draft.breakMins, headcount: draft.headcount }),
+    [data, draft.locationId, draft.positionId, draft.dates, draft.start, draft.end, draft.breakMins, draft.headcount],
+  )
   const minTotal = quotes.length ? Math.min(...quotes.map((q) => q.total)) : 0
   const maxTotal = quotes.length ? Math.max(...quotes.map((q) => q.total)) : 0
 
@@ -150,12 +155,21 @@ export function BookingWizard() {
       setSubmitting(false)
       return
     }
-    toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
-      description:
-        quotes.length === 1
-          ? `Sent to ${quotes[0].supplier.shortName}. Watch Pros confirm as they accept.`
-          : `Sent to ${quotes[0].supplier.shortName} first. ${joinNames(quotes.slice(1).map((q) => q.supplier.shortName))} follow every ${PROGRAM.cascadeHoursBefore} hours if spots remain.`,
-    })
+    const created = useStore.getState().data.groups.find((g) => g.id === ids[0])
+    if (created?.approval?.status === "pending") {
+      toast.success(`Sent ${spots} ${pos.name} spot${spots === 1 ? "" : "s"} for approval`, {
+        description: `${joinNames(preview?.approvers.map((a) => a.user.name) ?? [])} approves it, then it goes to ${quotes[0].supplier.shortName}.`,
+      })
+    } else {
+      toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
+        description:
+          created && !created.supplierIds.length && created.supplierReleases?.[0]
+            ? `${quotes[0].supplier.shortName} sees it ${formatTimestamp(created.supplierReleases[0].releasedAt)}, ${preview?.policy.releaseLeadHours} hours before the shift.`
+            : quotes.length === 1
+              ? `Sent to ${quotes[0].supplier.shortName}. Watch Pros confirm as they accept.`
+              : `Sent to ${quotes[0].supplier.shortName} first. ${joinNames(quotes.slice(1).map((q) => q.supplier.shortName))} follow every ${preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore} hours if spots remain.`,
+      })
+    }
     router.push(ids.length === 1 ? `/shifts/${ids[0]}` : "/shifts")
   }
 
@@ -178,7 +192,7 @@ export function BookingWizard() {
             className="flex flex-col gap-4"
           >
             {step === 0 && <ScheduleStep draft={draft} set={set} setDraft={setDraft} locations={locations} hrs={hrs} />}
-            {step === 1 && <ReviewStep draft={draft} quotes={quotes} spots={spots} />}
+            {step === 1 && <ReviewStep draft={draft} quotes={quotes} spots={spots} preview={preview} />}
           </motion.div>
 
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
@@ -195,7 +209,7 @@ export function BookingWizard() {
               </Tip>
             ) : (
               <Button className="h-11 gap-2 rounded-lg px-6 text-body-2 font-semibold shadow-raised" disabled={!quotes.length || submitting} onClick={submit}>
-                <BadgeCheck className="size-5" /> Post {spots} spot{spots === 1 ? "" : "s"}
+                <BadgeCheck className="size-5" /> {preview?.needsApproval ? "Send for approval" : `Post ${spots} spot${spots === 1 ? "" : "s"}`}
               </Button>
             )}
           </div>
@@ -466,7 +480,7 @@ function ScheduleStep({
   )
 }
 
-function ReviewStep({ draft, quotes, spots }: { draft: Draft; quotes: Quote[]; spots: number }) {
+function ReviewStep({ draft, quotes, spots, preview }: { draft: Draft; quotes: Quote[]; spots: number; preview?: OrderPreview }) {
   const loc = location(draft.locationId)
   const pos = position(draft.positionId)
   const rows: [string, React.ReactNode][] = [
@@ -488,6 +502,7 @@ function ReviewStep({ draft, quotes, spots }: { draft: Draft; quotes: Quote[]; s
           </div>
         ))}
       </dl>
+      {preview && <OrderChecks preview={preview} locationName={loc.name} />}
       <div className="flex flex-col gap-2">
         <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
           Supplier release order
@@ -502,7 +517,7 @@ function ReviewStep({ draft, quotes, spots }: { draft: Draft; quotes: Quote[]; s
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
                   <span className="truncate text-caption-1 text-faded">
-                    {index ? `Releases ${index * PROGRAM.cascadeHoursBefore}h after posting` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
+                    {index ? `Releases ${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h after the first` : preview?.held && preview.firstRelease ? `Releases ${formatTimestamp(preview.firstRelease.toISOString())}` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
                   </span>
                 </span>
                 <span className="flex flex-col items-end">
@@ -530,5 +545,40 @@ function ReviewStep({ draft, quotes, spots }: { draft: Draft; quotes: Quote[]; s
         </p>
       </div>
     </Surface>
+  )
+}
+
+/** The checks the server will run, shown before posting: the unit's budget for the week and the sector's release rule. */
+function OrderChecks({ preview, locationName }: { preview: OrderPreview; locationName: string }) {
+  const week = preview.check.worst
+  const approvers = joinNames(preview.approvers.map((a) => `${a.user.name}, ${a.user.title}`))
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-body-3 font-semibold">Before it posts</h3>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {week?.budget ? (
+          <li className={cn("flex flex-col gap-0.5 px-4 py-3", preview.needsApproval && "bg-warning-faded")}>
+            <span className="text-body-3 font-semibold">
+              {preview.needsApproval ? `${(week.overPct * 100).toFixed(1)}% over the week's budget` : "Within the week's budget"}
+            </span>
+            <span className="text-caption-1 text-faded">
+              {locationName}: {moneyWhole(week.committed)} committed of {moneyWhole(week.budget)} for the week of {formatDateShort(week.weekStart)}. This order adds {moneyWhole(week.adding)}.
+              {preview.needsApproval ? ` ${approvers} approves it before agencies see it.` : ""}
+            </span>
+          </li>
+        ) : null}
+        <li className="flex flex-col gap-0.5 px-4 py-3">
+          <span className="text-body-3 font-semibold">
+            {preview.held && preview.firstRelease ? `Held until ${formatTimestamp(preview.firstRelease.toISOString())}` : "Released as soon as it posts"}
+          </span>
+          <span className="text-caption-1 text-faded">
+            {preview.policy.releaseLeadHours
+              ? `${preview.policy.sector} releases orders ${preview.policy.releaseLeadHours} hours before the shift, then to the next agency every ${preview.policy.tierGapHours} hours while spots are open.`
+              : `${preview.policy.sector} releases orders right away, then to the next agency every ${preview.policy.tierGapHours} hours while spots are open.`}
+            {preview.policy.requiredTraining ? ` Every worker needs ${preview.policy.requiredTraining}.` : ""}
+          </span>
+        </li>
+      </ul>
+    </div>
   )
 }

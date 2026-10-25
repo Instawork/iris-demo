@@ -1,4 +1,5 @@
 import { canWork } from "@/lib/compliance"
+import { generateBudgets } from "@/lib/domain/budget"
 import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartISO } from "@/lib/dates"
 import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, type Random } from "@/lib/random"
@@ -22,7 +23,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 10
+export const DATA_VERSION = 11
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -332,6 +333,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   const r = createRandom(20261013)
   const counters = emptyCounters()
   const pros = generatePros(r, counters, today)
+  plantExpiredCert(pros, today)
   const rateCards = generateRateCards(r, counters, today)
   const groups: ShiftGroup[] = []
   const timesheets: Timesheet[] = []
@@ -507,11 +509,24 @@ export function generateDemoData(today = todayISO()): DemoData {
     approvals: structuredClone(INITIAL_APPROVALS),
     reviews,
     businessActivity: [],
+    budgets: generateBudgets(groups, today),
     counters,
   }
 }
 
 /** Shape a few upcoming shifts so every persona has a decision to make on first load. */
+/**
+ * A well-rated Crewline bartender in Chicago whose alcohol server cert lapsed three days ago, so the agency sees Iris
+ * keep them off a bar shift and why.
+ */
+function plantExpiredCert(pros: Pro[], today: string) {
+  const pro = pros
+    .filter((p) => p.supplierId === "crewline" && p.cityId === "chi" && p.status === "active" && p.positionIds.includes("bartender"))
+    .sort((a, b) => b.rating - a.rating)[0]
+  if (!pro) return
+  pro.compliance = { ...pro.compliance, alcohol: { status: "complete", completedOn: addDaysISO(today, -3 * 365 - 3), expiresOn: addDaysISO(today, -3) } }
+}
+
 function plantStoryGroups(groups: ShiftGroup[], today: string) {
   const upcoming = groups.filter((g) => g.date > today).sort((a, b) => a.date.localeCompare(b.date))
   const short = upcoming.find((g) => g.supplierId === "harbor" && g.buyerId === "levy-chi" && g.slots.length >= 3)
@@ -668,7 +683,7 @@ function generateUploads(counters: Counters, today: string): Upload[] {
   const chartwells = { uploadedBy: "Alicia Moreno", actorKind: "buyer" as const, buyerId: "chartwells-south" }
   const compass = { uploadedBy: "Priya Raman", actorKind: "compass" as const }
   const instawork = { uploadedBy: "Marcus Lee", actorKind: "supplier" as const, supplierId: "instawork" }
-  const crewline = { uploadedBy: "Dana Brooks", actorKind: "supplier" as const, supplierId: "crewline" }
+  const crewline = { uploadedBy: "Devon Brooks", actorKind: "supplier" as const, supplierId: "crewline" }
   const harbor = { uploadedBy: "Renee Park", actorKind: "supplier" as const, supplierId: "harbor" }
   const metro = { uploadedBy: "Luis Ortega", actorKind: "supplier" as const, supplierId: "metro" }
   const lastMonthEnd = addDaysISO(`${today.slice(0, 8)}01`, -1)

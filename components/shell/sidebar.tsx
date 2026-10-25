@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Check, ChevronRight, ChevronsUpDown, CircleHelp, LogOut, RefreshCcw, RotateCcw, Settings, UserRound } from "lucide-react"
+import { Check, ChevronRight, ChevronsUpDown, CircleHelp, LogOut, RefreshCcw, RotateCcw, Settings, SlidersHorizontal, UserRound } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -11,6 +11,7 @@ import { Logo } from "@/components/brand/logo"
 import { WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { Tip } from "@/components/common/info-tip"
 import { ProAvatar } from "@/components/common/pro-avatar"
+import { DemoControlsDialog } from "@/components/shell/demo-controls"
 import { navFor, type NavItem } from "@/components/shell/nav-config"
 import {
   AlertDialog,
@@ -247,8 +248,10 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
   const openHelp = useUi((s) => s.openHelp)
   const resetWelcome = useUi((s) => s.resetWelcome)
   const resetDemo = useStore((s) => s.resetDemo)
+  const signOut = useStore((s) => s.signOut)
   const router = useRouter()
   const [confirmReset, setConfirmReset] = useState(false)
+  const [controlsOpen, setControlsOpen] = useState(false)
   const [first, last] = ws.user.name.split(" ")
   return (
     <>
@@ -292,6 +295,9 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           >
             <RotateCcw /> Replay welcome
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setControlsOpen(true)}>
+            <SlidersHorizontal /> Demo controls
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfirmReset(true)}>
             <RefreshCcw /> Reset demo data
           </DropdownMenuItem>
@@ -300,8 +306,8 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
             <CircleHelp /> Help and support
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => toast("This is a local demo", { description: "There's nothing to log out of. Your data stays in this browser." })}>
-            <LogOut /> Logout
+          <DropdownMenuItem onSelect={() => void signOut()}>
+            <LogOut /> Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -310,14 +316,14 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Reset demo data?</AlertDialogTitle>
             <AlertDialogDescription>
-              This brings back the original shifts, timesheets, invoices and uploads, with dates relative to today. Anything you booked or approved will be cleared.
+              This brings back the original shifts, timesheets, invoices and uploads, with dates relative to today, for everyone signed in. Anything booked or approved will be cleared.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                resetDemo()
+              onClick={async () => {
+                await resetDemo()
                 router.push("/")
                 toast.success("Demo data reset")
               }}
@@ -327,6 +333,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <DemoControlsDialog open={controlsOpen} onOpenChange={setControlsOpen} />
     </>
   )
 }

@@ -15,6 +15,48 @@ export interface Workspace {
   buyerId?: string
   supplierId?: string
   user: WorkspaceUser
+  /** Locations whose over-budget orders this person approves. */
+  approves?: string[]
+}
+
+/** How a sector runs ordering and release. Set by the sector, enforced on every order. */
+export interface SectorPolicy {
+  buyerId: string
+  sector: string
+  ordering: "event" | "shift"
+  /** Most spots one order can create. */
+  maxSpotsPerOrder: number
+  /** Orders are held until this many hours before the shift starts. 0 releases right away. */
+  releaseLeadHours: number
+  /** Hours between one agency's release and the next. */
+  tierGapHours: number
+  /** Over budget by more than this share needs an approver. 0 means any overage. */
+  approvalOverPct: number
+  /** Sector training every worker needs, shown on orders. */
+  requiredTraining?: string
+}
+
+export interface UnitBudget {
+  locationId: string
+  /** Monday the week starts. */
+  weekStart: string
+  amount: number
+}
+
+export interface ApprovalRequest {
+  status: "pending" | "approved" | "declined"
+  requestedAt: string
+  requestedBy: string
+  requestedByWorkspace: string
+  weekStart: string
+  budget: number
+  /** Agency spend already committed that week before this order. */
+  committed: number
+  estimate: number
+  overPct: number
+  decidedAt?: string
+  decidedBy?: string
+  note?: string
 }
 
 export interface Scope {
@@ -183,6 +225,8 @@ export interface ShiftGroup {
   uploadId?: string
   cancelledAt?: string
   liveFill?: { startedAt: string }
+  /** Set when the order went over the unit's budget and needed an approver. */
+  approval?: ApprovalRequest
 }
 
 export type TimesheetStatus = "awaiting_submission" | "submitted" | "approved" | "disputed"
@@ -384,5 +428,8 @@ export interface DemoData {
   approvals: Record<string, string[]>
   reviews: ProReview[]
   businessActivity: BusinessActivity[]
+  budgets: UnitBudget[]
+  /** Presenter controls for the demo tenant. */
+  settings?: { pausedAgencies?: string[] }
   counters: Counters
 }

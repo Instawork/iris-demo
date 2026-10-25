@@ -14,7 +14,10 @@ export const inScope = (scope: Scope, item: { buyerId?: string; supplierId?: str
 }
 
 /** Suppliers see every shift they were sent, not only the ones their rates priced. */
-export const isOpenTo = (g: ShiftGroup, supplierId: string) => g.supplierIds.includes(supplierId) || g.supplierId === supplierId
+/** Released to this agency. Orders with a release plan open only as each tier's time comes. */
+export const isOpenTo = (g: ShiftGroup, supplierId: string) => g.supplierIds.includes(supplierId) || (!g.supplierReleases && g.supplierId === supplierId)
+
+export const awaitingApproval = (g: ShiftGroup) => g.approval?.status === "pending" && !g.cancelledAt
 
 export const groupInScope = (scope: Scope, g: ShiftGroup) =>
   scope.kind === "supplier" ? !!scope.supplierId && isOpenTo(g, scope.supplierId) : inScope(scope, g)
@@ -441,6 +444,22 @@ export interface Todo {
 export function todosFor(data: DemoData, ws: Workspace): Todo[] {
   const scope = scopeOf(ws)
   const todos: Todo[] = []
+  if (ws.approves?.length) {
+    const pending = data.groups.filter((g) => awaitingApproval(g) && ws.approves!.includes(g.locationId))
+    if (pending.length) {
+      const amount = round2(pending.reduce((s, g) => s + (g.approval?.estimate ?? 0), 0))
+      todos.push({
+        id: "order-approvals",
+        title: `${plural(pending.length, "order")} over budget to approve`,
+        description: `${money(amount)} of agency spend waiting on you. Nothing goes to agencies until you approve.`,
+        count: pending.length,
+        href: "/approvals",
+        tone: "warning",
+        icon: "alert",
+        cta: "Review orders",
+      })
+    }
+  }
   if (scope.kind === "buyer") {
     const toApprove = data.timesheets.filter((t) => inScope(scope, t) && t.status === "submitted")
     if (toApprove.length) {
