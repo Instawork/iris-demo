@@ -1,7 +1,7 @@
 run = "npm install && npm run dev"
 entrypoint = "app/(app)/page.tsx"
 hidden = [".next", "node_modules"]
-modules = ["nodejs-22", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"

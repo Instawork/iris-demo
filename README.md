@@ -22,7 +22,7 @@ Domain rules live in `lib/domain/` and run on the server. `lib/store.ts` is the 
 
 ## Run locally
 
-Requires Node 22 and Postgres.
+Requires Node 20.9 or newer and Postgres.
 
 ```bash
 cp .env.example .env.local   # point DATABASE_URL at a local database
