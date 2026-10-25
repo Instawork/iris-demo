@@ -2,6 +2,7 @@ import { planImport } from "@/lib/csv"
 import { addDaysISO, paidHours, todayISO } from "@/lib/dates"
 import { budgetCheck, releasePlan, startsAt } from "@/lib/domain/budget"
 import { eligiblePros, event, invoicesFor, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
+import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, round2 } from "@/lib/format"
 import { awaitingApproval, groupPhase, isOpenTo } from "@/lib/metrics"
 import { PROGRAM, SUPPLIERS, approversFor, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
@@ -188,6 +189,7 @@ function decideApproval(data: DemoData, ctx: CommandContext, input: { groupIds: 
   const first = pending[0]
   const spots = pending.reduce((s, g) => s + g.slots.length, 0)
   const what = `${spots} ${position(first.positionId).name} spots at ${location(first.locationId).name}`
+  const release = approve ? (releaseSummary(updated.get(first.id)!) ?? "It's going to agencies now") : ""
   return {
     ...done(
       data,
@@ -196,7 +198,7 @@ function decideApproval(data: DemoData, ctx: CommandContext, input: { groupIds: 
       event(
         data,
         {
-          text: approve ? `${actorName(ctx)} approved ${what}. Released to agencies` : `${actorName(ctx)} declined ${what}${note ? `: ${note}` : ""}`,
+          text: approve ? `${actorName(ctx)} approved ${what}. ${release}` : `${actorName(ctx)} declined ${what}${note ? `: ${note}` : ""}`,
           actor: actorName(ctx),
           tone: approve ? "positive" : "critical",
           buyerId: first.buyerId,
@@ -207,7 +209,7 @@ function decideApproval(data: DemoData, ctx: CommandContext, input: { groupIds: 
     ),
     notices: [
       {
-        text: approve ? `${actorName(ctx)} approved your order: ${what}. It's going to agencies now.` : `${actorName(ctx)} declined your order: ${what}${note ? `. "${note}"` : ""}`,
+        text: approve ? `${actorName(ctx)} approved your order: ${what}. ${release}.` : `${actorName(ctx)} declined your order: ${what}${note ? `. "${note}"` : ""}`,
         tone: approve ? "success" : "warning",
         workspaceIds: [...new Set(pending.map((g) => g.approval!.requestedByWorkspace))],
       },

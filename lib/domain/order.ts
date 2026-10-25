@@ -1,9 +1,9 @@
-import { paidHours } from "@/lib/dates"
+import { formatTimestamp, paidHours } from "@/lib/dates"
 import { budgetCheck, releasePlan, startsAt, type BudgetCheck } from "@/lib/domain/budget"
 import { notifiedSuppliers, type BookingInput } from "@/lib/domain/core"
 import { round2 } from "@/lib/format"
-import { approversFor, location, policyFor } from "@/lib/reference"
-import type { DemoData, SectorPolicy, Workspace } from "@/lib/types"
+import { approversFor, location, policyFor, supplier } from "@/lib/reference"
+import type { DemoData, SectorPolicy, ShiftGroup, Workspace } from "@/lib/types"
 
 export interface OrderPreview {
   policy: SectorPolicy
@@ -42,4 +42,12 @@ export function previewOrder(
     firstRelease,
     held: !!firstRelease && firstRelease.getTime() > now.getTime() + 60_000,
   }
+}
+
+/** Who has a released order now, or when its first agency gets it while the sector holds it. */
+export function releaseSummary(g: Pick<ShiftGroup, "buyerId" | "supplierIds" | "supplierReleases">): string | undefined {
+  const first = g.supplierReleases?.[0]
+  if (!first) return undefined
+  const name = supplier(first.supplierId).shortName
+  return g.supplierIds.length ? `${name} has it now` : `${name} gets it ${formatTimestamp(first.releasedAt)}, when ${policyFor(g.buyerId).sector} releases it`
 }

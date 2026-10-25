@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkspace } from "@/hooks/use-app"
 import { formatDateShort, formatTimestamp, timeAgo } from "@/lib/dates"
+import { releaseSummary } from "@/lib/domain/order"
 import { moneyWhole } from "@/lib/format"
 import { awaitingApproval, filledCount, groupPhase } from "@/lib/metrics"
 import { approversFor, location, policyFor, position, supplier } from "@/lib/reference"
@@ -35,7 +36,9 @@ export function ApprovalCard({ group, compact }: { group: ShiftGroup; compact?: 
     const n = await decide([group.id], decision, note.trim() || undefined)
     setBusy(undefined)
     if (!n) return
-    toast.success(decision === "approve" ? "Approved. It's going to agencies now." : "Declined. The buyer has been told.", {
+    const updated = useStore.getState().data.groups.find((g) => g.id === group.id)
+    const release = updated && releaseSummary(updated)
+    toast.success(decision === "decline" ? "Declined. The buyer has been told." : release ? `Approved. ${release}.` : "Approved.", {
       description: `${group.slots.length} ${position(group.positionId).name} spots at ${loc.name}`,
     })
   }
