@@ -83,9 +83,10 @@ function CreateGroupBody({ invoiceIds, onClose, onCreated }: { invoiceIds: strin
         </span>
         <Button
           disabled={!members.length || !name.trim()}
-          onClick={() => {
-            const id = create(name.trim(), invoiceIds)
-            toast.success(`${code} created`, { description: `${plural(members.length, "invoice")} · ${money(total)}` })
+          onClick={async () => {
+            const id = await create(name.trim(), invoiceIds)
+            if (!id) return
+            toast.success(`${id.toUpperCase()} created`, { description: `${plural(members.length, "invoice")} · ${money(total)}` })
             onClose()
             onCreated(id)
           }}

@@ -6,7 +6,7 @@ import { billFrom, markupFrom, money, plural, round2 } from "@/lib/format"
 import { groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
-import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/store"
+import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/domain/core"
 import type {
   BusinessActivity,
   ComplianceItem,

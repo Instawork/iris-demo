@@ -56,9 +56,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([useStore.persist.rehydrate(), useUi.persist.rehydrate(), useTour.persist.rehydrate()]).then(() => {
+    useStore.getState().connect()
+    void Promise.all([useUi.persist.rehydrate(), useTour.persist.rehydrate()]).then(() => {
       if (cancelled) return
-      useStore.getState().ensureFresh()
       const url = new URL(window.location.href)
       if (url.searchParams.has("tour")) {
         url.searchParams.delete("tour")
@@ -71,12 +71,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       cancelled = true
     }
   }, [])
-
-  useEffect(() => {
-    if (!ready) return
-    const id = window.setInterval(() => useStore.getState().tick(), 2200)
-    return () => window.clearInterval(id)
-  }, [ready])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -32,8 +32,8 @@ export function ReviewFixes({ session, onChange, onDone }: { session: ReviewSess
 
   const acceptAll = () => setDecisions((prev) => ({ ...prev, ...Object.fromEntries(acceptable.map((it) => [it.key, { action: "accept" as const }])) }))
 
-  const save = () => {
-    const next = flow.save(session, decisions)
+  const save = async () => {
+    const next = await flow.save(session, decisions)
     if (next) onChange(next)
     else onDone()
   }

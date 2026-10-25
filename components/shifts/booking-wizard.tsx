@@ -124,23 +124,32 @@ export function BookingWizard() {
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  const submit = () => {
-    if (!quotes.length) return
+  const [requestKey] = useState(() => crypto.randomUUID())
+
+  const submit = async () => {
+    if (!quotes.length || submitting) return
     setSubmitting(true)
-    const ids = bookShifts({
-      locationId: draft.locationId,
-      positionId: draft.positionId,
-      dates: [...draft.dates].sort(),
-      start: draft.start,
-      end: draft.end,
-      breakMins: draft.breakMins,
-      headcount: draft.headcount,
-      name: draft.name,
-      eventName: draft.eventName,
-      instructions: draft.instructions,
-      attire: pos.attire,
-      tips: draft.tips,
-    })
+    const ids = await bookShifts(
+      {
+        locationId: draft.locationId,
+        positionId: draft.positionId,
+        dates: [...draft.dates].sort(),
+        start: draft.start,
+        end: draft.end,
+        breakMins: draft.breakMins,
+        headcount: draft.headcount,
+        name: draft.name,
+        eventName: draft.eventName,
+        instructions: draft.instructions,
+        attire: pos.attire,
+        tips: draft.tips,
+      },
+      requestKey,
+    )
+    if (!ids.length) {
+      setSubmitting(false)
+      return
+    }
     toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
       description:
         quotes.length === 1

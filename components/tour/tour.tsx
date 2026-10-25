@@ -576,8 +576,8 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
   const router = useRouter()
   const exit = () => useTour.getState().exit()
 
-  const start = () => {
-    useStore.getState().resetDemo()
+  const start = async () => {
+    await useStore.getState().resetDemo()
     useAgentThreads.setState({ threads: {} })
     useUi.setState({ welcomeSeen: { buyer: true, supplier: true, compass: true }, agentOpen: false })
     const { counters } = useStore.getState().data

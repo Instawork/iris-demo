@@ -177,7 +177,7 @@ export function useAgent() {
   )
 
   const runAction = useCallback(
-    (action: AgentAction, messageId?: number) => {
+    async (action: AgentAction, messageId?: number) => {
       if (action.kind === "template") {
         downloadCsv(templateName(action.type), templateCsv(action.type, useStore.getState().data, ws))
         return
@@ -196,11 +196,8 @@ export function useAgent() {
         return
       }
       if (action.kind === "create-shift") {
-        const ids = useStore.getState().bookShifts(action.input)
-        if (!ids.length) {
-          add({ from: "agent", text: "This shift could not be created because no approved supplier has an active rate for it. Review supplier approvals and rates, then try again." })
-          return
-        }
+        const ids = await useStore.getState().bookShifts(action.input, messageId ? `agent-${ws.id}-${messageId}` : undefined)
+        if (!ids.length) return
         if (messageId) dropActions(ws.id, messageId)
         const pos = position(action.input.positionId)
         const created = useStore.getState().data.groups.find((group) => group.id === ids[0])

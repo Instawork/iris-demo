@@ -127,8 +127,8 @@ export function useUploadFlow() {
     })
   }
 
-  /** Writes the decisions in and re-plans. Returns the next round while rows still have problems; otherwise saves. */
-  const save = (s: ReviewSession, decisions: FixDecisions): ReviewSession | undefined => {
+  /** Writes the decisions in and re-plans. Returns the next round while rows still have problems; otherwise saves on the server. */
+  const save = async (s: ReviewSession, decisions: FixDecisions): Promise<ReviewSession | undefined> => {
     const { data, commitUpload, resolveUpload } = useStore.getState()
     const items = reviewItems(s.plan)
     const fixed = applyFixes(s.csv, items, decisions, s.rowNumbers)
@@ -140,8 +140,9 @@ export function useUploadFlow() {
     const status: UploadStatus = rejected ? "completed_with_errors" : "completed"
     const summary = rejected ? `${plan.summary}, ${plural(rejected, "row")} left out` : plan.summary
     const record = { status, totalRows: s.total, successRows: plan.okCount, errorRows: rejected, issues: [...history, ...notes(plan)].slice(0, 250), summary, csv: kept(s.original) }
-    if (s.uploadId) resolveUpload(s.uploadId, record, plan.apply)
-    else commitUpload({ ...base(s.type, s.fileName), ...record }, plan.apply)
+    const apply = plan.apply ? { csv: fixed.csv, rowNumbers: fixed.rowNumbers } : undefined
+    if (s.uploadId) await resolveUpload(s.uploadId, record, apply)
+    else if (!(await commitUpload({ ...base(s.type, s.fileName), ...record }, apply))) return s
     announce(s.type, s.fileName, summary)
     return undefined
   }

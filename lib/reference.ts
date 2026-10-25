@@ -415,6 +415,7 @@ export const findCity = (id: string) => cityMap.get(id)
 export const findLocation = (id: string) => locationMap.get(id)
 export const findPosition = (id: string) => positionMap.get(id)
 export const findSupplier = (id: string) => supplierMap.get(id)
+export const findWorkspace = (id: string) => workspaceMap.get(id)
 
 export const locationsFor = (buyerId?: string) =>
   buyerId ? LOCATIONS.filter((l) => l.buyerId === buyerId) : LOCATIONS

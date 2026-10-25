@@ -184,10 +184,10 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
   const rows = requirementRows(pro).filter((r) => r.state !== "not_required")
   const done = rows.filter((r) => r.state === "complete" || r.state === "expiring").length
 
-  const complete = (row: RequirementRow) => {
+  const complete = async (row: RequirementRow) => {
     const wasBlocked = standingOf(pro) === "not_compliant"
     const verb = row.state === "missing" || row.state === "pending" ? "marked complete" : "renewed"
-    completeRequirement(pro.id, row.id)
+    await completeRequirement(pro.id, row.id)
     const next = useStore.getState().data.pros.find((p) => p.id === pro.id)
     if (!next) return
     const cleared = standingOf(next) === "compliant"

@@ -85,14 +85,15 @@ function HoursBody({ group, onDone }: { group: ShiftGroup; onDone: () => void })
   const canEditTips = (t: Timesheet) => t.status === "awaiting_submission" && kind !== "compass"
   const pick = (id?: string) => rows.find((r) => r.ts.id === id)
 
-  const saveTips = (ids: string[]) => {
+  const saveTips = async (ids: string[]) => {
     const entries = ids.filter((id) => tips[id] !== undefined).map((id) => ({ timesheetId: id, tips: Number(tips[id]) || 0 }))
-    if (entries.length) setTips(entries)
+    if (entries.length) await setTips(entries)
   }
 
-  const onApprove = () => {
+  const onApprove = async () => {
     const ids = toApprove.filter((id) => selected.has(id))
-    const numbers = approve(ids)
+    const numbers = await approve(ids)
+    if (!numbers.length) return
     toast.success(`Approved ${plural(ids.length, "timesheet")}`, {
       description: numbers.length ? `Iris generated ${numbers.join(" and ")} from these hours.` : undefined,
       action: numbers.length ? { label: "View invoice", onClick: () => router.push(`/invoices/${numbers[0].toLowerCase()}`) } : undefined,
@@ -100,9 +101,9 @@ function HoursBody({ group, onDone }: { group: ShiftGroup; onDone: () => void })
     onDone()
   }
 
-  const onSubmit = (ids: string[]) => {
-    saveTips(ids)
-    submit(ids)
+  const onSubmit = async (ids: string[]) => {
+    await saveTips(ids)
+    await submit(ids)
     toast.success(`Submitted ${plural(ids.length, "timesheet")}`, { description: kind === "supplier" ? "The buyer can approve them now." : "They're ready for you to approve." })
     if (kind === "supplier") onDone()
     else setSelected(new Set(ids))

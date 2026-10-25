@@ -128,8 +128,9 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
           <Button
             className="h-9 rounded-lg px-4 font-semibold"
             disabled={!picked.length}
-            onClick={() => {
-              const n = assignPros(group.id, picked)
+            onClick={async () => {
+              const n = await assignPros(group.id, picked)
+              if (!n) return
               toast.success(`${n} Pro${n === 1 ? "" : "s"} assigned`, { description: `${position(group.positionId).name} at ${loc.name}` })
               setPicked([])
               onOpenChange(false)
