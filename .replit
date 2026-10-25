@@ -12,7 +12,7 @@ PORT = "3000"
 [deployment]
 build = ["sh", "-c", "npm ci && npm run build"]
 run = ["sh", "-c", "npm start"]
-deploymentTarget = "gce"
+deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 3000

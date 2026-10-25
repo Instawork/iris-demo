@@ -61,7 +61,7 @@ The health endpoint is available at `/api/health`.
 
 ## Deployment
 
-Replit configuration is committed in `.replit` and deploys to a Reserved VM (one always-on instance). Publishing uses a clean install and production build:
+Replit configuration is committed in `.replit`. The deployment is Autoscale capped at one machine, because live updates and the scheduler are in-process; when it scales to zero, the next request reloads state from Postgres. Publishing uses a clean install and production build:
 
 ```bash
 npm ci
