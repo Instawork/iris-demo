@@ -229,7 +229,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             {workspaces.map((w) => (
               <Item
                 key={w.id}
-                value={`workspace ${w.name}`}
+                value={`workspace ${w.name} ${w.user.name}`}
                 icon={<WorkspaceAvatar ws={w} size="xs" />}
                 label={w.name}
                 hint={w.user.name}

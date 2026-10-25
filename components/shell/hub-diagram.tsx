@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { LogoMark } from "@/components/brand/logo"
 import { SupplierLogo, WorkspaceAvatar } from "@/components/brand/org-avatar"
-import { WORKSPACES, supplier } from "@/lib/reference"
+import { supplier, workspace } from "@/lib/reference"
 import { cn } from "@/lib/utils"
 
 function Node({
@@ -45,7 +45,9 @@ export function HubDiagram({ className }: { className?: string }) {
   const harbor = useRef<HTMLDivElement>(null)
   const metro = useRef<HTMLDivElement>(null)
   const [paths, setPaths] = useState<string[]>([])
-  const [wsLevy, wsChartwells, wsCompass] = WORKSPACES
+  const wsLevy = workspace("ws-levy")
+  const wsChartwells = workspace("ws-chartwells")
+  const wsCompass = workspace("ws-compass")
 
   useEffect(() => {
     const el = container.current
