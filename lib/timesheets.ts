@@ -151,7 +151,7 @@ export function timesheetChecks(t: Timesheet, others: Timesheet[] = []): Timeshe
   if (early > 15 && early < 180) {
     checks.push({
       id: "early",
-      label: "Clocked in early",
+      label: "Billed before the start",
       detail: `Billed from ${fmt(t.clockIn)}, ${early} minutes before the shift started.`,
       proposal: proposal(t, t.scheduledStart, t.clockOut, t.breakMins, "Billed from the scheduled start"),
     })

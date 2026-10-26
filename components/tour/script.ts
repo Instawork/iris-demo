@@ -404,7 +404,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: "Approve the clean ones together",
-    body: "Everything else matches the clock and the schedule. This week's hours go straight onto each agency's open invoice for the week, which Iris issues on Saturday.",
+    body: "These match the clock and the schedule, so they can go in one click. This week's hours go straight onto each agency's open invoice for the week, which Iris issues on Saturday.",
     action: "Click Approve",
     targets: () => [one('[data-tour="approve-clean"]')],
     placement: "bottom",
