@@ -49,13 +49,13 @@ interface Action {
 const ACTIONS: Record<PersonaKind, Action[]> = {
   buyer: [
     { id: "book", label: "New shift", icon: CalendarPlus, href: "/shifts/new" },
-    { id: "approve", label: "Approve hours", icon: Clock, href: "/shifts?filter=hours" },
+    { id: "approve", label: "Approve hours", icon: Clock, href: "/timesheets" },
     { id: "compare", label: "Compare supplier rates", icon: Scale, href: "/rates" },
     { id: "upload", label: "Upload a CSV", icon: Upload, upload: true },
   ],
   supplier: [
     { id: "fill", label: "Fill open spots", icon: UserRoundCheck, href: "/shifts" },
-    { id: "submit", label: "Submit hours", icon: Clock, href: "/shifts?filter=hours" },
+    { id: "submit", label: "Submit hours", icon: Clock, href: "/timesheets" },
     { id: "rates", label: "Update your rates", icon: BadgeDollarSign, href: "/rates" },
     { id: "upload", label: "Upload a CSV", icon: Upload, upload: true },
   ],

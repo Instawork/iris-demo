@@ -135,7 +135,7 @@ function SpendSection() {
             </span>
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-body-1 font-semibold tabular">{moneyWhole(s.approved)}</span>
-              <Link href="/shifts?filter=hours" className="text-body-3 text-faded tabular transition-colors hover:text-foreground">
+              <Link href="/timesheets" className="text-body-3 text-faded tabular transition-colors hover:text-foreground">
                 {moneyWhole(s.pending)} pending
               </Link>
             </div>

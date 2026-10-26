@@ -1,8 +1,11 @@
-import { eligiblePros, event, joinNames, merge } from "@/lib/domain/core"
+import { addDaysISO, hhmmFromMinutes, instantAt, minutesOf, spanMinutes, wallClock } from "@/lib/dates"
+import { eligiblePros, event, invoicesFor, joinNames, merge } from "@/lib/domain/core"
 import type { Notice } from "@/lib/domain/commands"
 import { filledCount, groupPhase } from "@/lib/metrics"
+import { hashString } from "@/lib/random"
 import { location, position, supplier } from "@/lib/reference"
-import type { DemoData, ShiftGroup, Slot } from "@/lib/types"
+import { change, hoursFor, overtimeKey, weekClosed, withOvertime } from "@/lib/timesheets"
+import type { ClockRecord, DemoData, ShiftGroup, Slot, Timesheet } from "@/lib/types"
 
 /** How fast each agency staffs a shift when nobody is playing it: odds per tick, Pros per burst, and the share it can fill. */
 const PACE: Record<string, { chance: number; burst: [number, number]; cap: number }> = {
@@ -21,10 +24,192 @@ export interface AdvanceOptions {
 }
 
 /**
- * One scheduler tick: release each shift to the next agency when its time comes, then let simulated agencies staff
- * what they can see. Releases happen for every agency; filling only for the simulated ones.
+ * One scheduler tick: release each shift to the next agency when its time comes, let simulated agencies staff what
+ * they can see, create timesheets for shifts that ended, and invoice approved hours once their week closes.
  */
-export function advance(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+export function advance(data: DemoData, options: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+  const filled = fill(data, options)
+  const closed = closeShifts(filled.data, options)
+  const invoiced = closeWeeks(closed.data, options.now)
+  return { data: invoiced.data, notices: [...filled.notices, ...closed.notices, ...invoiced.notices] }
+}
+
+/* ------------------------------- Timesheets ------------------------------- */
+
+/** Minutes after a shift's scheduled end before Iris creates its timesheets. */
+const CLOSE_AFTER_MINUTES = 30
+/** Hours a simulated CSV agency waits before sending its file. */
+const CSV_SUBMIT_AFTER_HOURS = 10
+
+const endsAt = (g: ShiftGroup) => instantAt(addDaysISO(g.date, spanMinutes(g.start, g.end) + minutesOf(g.start) >= 1440 ? 1 : 0), g.end).getTime()
+
+/** The clock for a worker who didn't punch on Iris: drawn the way that agency's workers usually punch, the same every time. */
+function usualClock(g: ShiftGroup, slot: Slot, instawork: boolean): ClockRecord | undefined {
+  const h = hashString(slot.id)
+  if (!instawork && h % 100 >= 92) return undefined
+  return {
+    in: hhmmFromMinutes(minutesOf(g.start) + ((h >>> 3) % 11) - 6),
+    out: hhmmFromMinutes(minutesOf(g.end) + ((h >>> 7) % 14) - 4),
+    breakMins: g.breakMins,
+    source: instawork ? "instawork_app" : "iris_checkin",
+  }
+}
+
+const punchedClock = (slot: Slot): ClockRecord | undefined => {
+  const p = slot.punches
+  if (!p?.in) return undefined
+  const breakMins = p.breakStart && p.breakEnd ? spanMinutes(p.breakStart, p.breakEnd) : 0
+  return { in: p.in, out: p.out, breakMins, source: "iris_checkin" }
+}
+
+/**
+ * A Draft timesheet for every worker on a shift that has ended, prefilled from the clock: the worker's own check-in,
+ * or the agency's usual clock when they didn't punch on Iris. API agencies send theirs for approval on their own;
+ * simulated CSV agencies submit their drafts the next morning.
+ */
+function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+  const nowMs = now.getTime()
+  const nowISO = now.toISOString()
+  const today = wallClock(now).date
+  const from = addDaysISO(today, -3)
+  const has = new Set<string>()
+  for (const t of data.timesheets) if (t.date >= from) has.add(`${t.groupId}|${t.slotId}`)
+  const proSupplier = new Map(data.pros.map((p) => [p.id, p.supplierId]))
+  let counter = data.counters.ts
+  const created: Timesheet[] = []
+  const finished = new Map<string, Set<string>>()
+
+  for (const g of data.groups) {
+    if (g.date < from || g.date > today || g.cancelledAt) continue
+    const endMs = endsAt(g)
+    for (const slot of g.slots) {
+      if (!slot.proId || slot.status === "no_show" || has.has(`${g.id}|${slot.id}`)) continue
+      const clockedOut = !!slot.punches?.out
+      if (!clockedOut && nowMs < endMs + CLOSE_AFTER_MINUTES * 60_000) continue
+      const supplierId = proSupplier.get(slot.proId) ?? g.supplierId
+      const sup = supplier(supplierId)
+      const clock = punchedClock(slot) ?? usualClock(g, slot, sup.isInstawork)
+      const complete = !!clock?.in && !!clock.out
+      const auto = sup.integration === "api" && complete
+      const breakMins = clock?.breakMins ?? g.breakMins
+      const id = `ts-${counter++}`
+      created.push({
+        id,
+        groupId: g.id,
+        slotId: slot.id,
+        proId: slot.proId,
+        supplierId,
+        buyerId: g.buyerId,
+        locationId: g.locationId,
+        positionId: g.positionId,
+        date: g.date,
+        scheduledStart: g.start,
+        scheduledEnd: g.end,
+        scheduledBreakMins: g.breakMins,
+        clockIn: clock?.in,
+        clockOut: clock?.out,
+        breakMins,
+        hours: hoursFor(clock?.in, clock?.out, breakMins, slot.sentHome),
+        otHours: 0,
+        clock,
+        sentHome: slot.sentHome,
+        billRate: g.billRate,
+        tips: 0,
+        status: auto ? "pending_approval" : "draft",
+        source: sup.integration === "api" ? "app" : "csv",
+        submittedAt: auto ? nowISO : undefined,
+        history: [
+          change(nowISO, "Iris", "created", { note: clock ? (slot.punches?.in ? "From the worker's check-in" : "From the clock") : "No clock record" }),
+          ...(auto ? [change(nowISO, `${sup.shortName} app`, "submitted", { note: "Sent by the agency's system" })] : []),
+        ],
+      })
+      finished.set(g.id, (finished.get(g.id) ?? new Set()).add(slot.id))
+    }
+  }
+
+  const seededAt = data.seededAt ?? nowISO
+  const stale = data.timesheets.filter((t) => {
+    if (t.status !== "draft" || !simulated(t.supplierId) || t.date < from) return false
+    const created = t.history[0]?.at ?? nowISO
+    return created > seededAt && nowMs - new Date(created).getTime() >= CSV_SUBMIT_AFTER_HOURS * 3600_000
+  })
+  if (!created.length && !stale.length) return { data, notices: [] }
+
+  const submittedIds = new Set(stale.map((t) => t.id))
+  const changed = [
+    ...created,
+    ...stale.map((t) => {
+      const sup = supplier(t.supplierId)
+      const fromSchedule = !t.clockIn || !t.clockOut
+      const times = fromSchedule ? { clockIn: t.scheduledStart, clockOut: t.scheduledEnd, breakMins: t.scheduledBreakMins } : {}
+      const after = { ...t, ...times }
+      return {
+        ...after,
+        hours: hoursFor(after.clockIn, after.clockOut, after.breakMins, t.sentHome),
+        status: "pending_approval" as const,
+        submittedAt: nowISO,
+        history: [
+          ...t.history,
+          change(nowISO, sup.integration === "api" ? `${sup.shortName} app` : sup.contactName, "submitted", {
+            note: fromSchedule ? "Billed to the schedule from the agency's records" : sup.integration === "api" ? "Sent by the agency's system" : "From the agency's CSV",
+          }),
+        ],
+      }
+    }),
+  ]
+  const sheets = withOvertime(
+    [...created, ...data.timesheets.map((t) => (submittedIds.has(t.id) ? changed.find((c) => c.id === t.id)! : t))],
+    new Set(changed.map(overtimeKey)),
+  )
+  let next = merge(data, {
+    timesheets: sheets,
+    groups: finished.size
+      ? data.groups.map((g) =>
+          finished.has(g.id) ? { ...g, slots: g.slots.map((s) => (finished.get(g.id)!.has(s.id) && s.status === "confirmed" ? { ...s, status: "completed" as const } : s)) } : g,
+        )
+      : data.groups,
+    counters: { ts: counter },
+  })
+
+  const notices: Notice[] = []
+  const sent = changed.filter((t) => t.status === "pending_approval")
+  for (const groupId of new Set(sent.map((t) => t.groupId))) {
+    const rows = sent.filter((t) => t.groupId === groupId)
+    const g = data.groups.find((x) => x.id === groupId)!
+    const who = joinNames([...new Set(rows.map((t) => supplier(t.supplierId).shortName))])
+    const text = `${who} submitted ${rows.length} ${position(g.positionId).name} ${rows.length === 1 ? "timesheet" : "timesheets"} for ${location(g.locationId).name}`
+    next = merge(next, event(next, { text, actor: who, tone: "primary", buyerId: g.buyerId, supplierId: rows[0].supplierId, groupId }, nowISO))
+    notices.push({ text: `${text}. Iris checked them against the clock.`, tone: "info", buyerId: g.buyerId })
+  }
+  return { data: next, notices }
+}
+
+/** Approved hours from a week that has ended go on each agency's invoice for that week. */
+function closeWeeks(data: DemoData, now: Date): { data: DemoData; notices: Notice[] } {
+  const today = wallClock(now).date
+  const due = data.timesheets.filter((t) => t.status === "approved" && weekClosed(t.date, today))
+  if (!due.length) return { data, notices: [] }
+  const nowISO = now.toISOString()
+  const { invoices, invoiceOf, counter } = invoicesFor(data, due, today)
+  const numberOf = new Map(invoices.map((i) => [i.id, i.number]))
+  const next = merge(data, {
+    timesheets: data.timesheets.map((t) => {
+      const invoiceId = invoiceOf.get(t.id)
+      return invoiceId ? { ...t, status: "invoiced" as const, invoiceId, history: [...t.history, change(nowISO, "Iris", "invoiced", { note: numberOf.get(invoiceId) })] } : t
+    }),
+    invoices: [...invoices, ...data.invoices],
+    counters: { inv: counter },
+  })
+  const text = `Iris invoiced the week's approved hours on ${invoices.map((i) => i.number).join(", ")}`
+  return {
+    data: merge(next, event(next, { text, actor: "Iris", tone: "positive", buyerId: invoices[0].buyerId }, nowISO)),
+    notices: invoices.map((i) => ({ text: `${i.number}: last week's approved hours, invoiced`, tone: "success", supplierId: i.supplierId })),
+  }
+}
+
+/* --------------------------------- Filling -------------------------------- */
+
+function fill(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
   const nowISO = now.toISOString()
   const notices: Notice[] = []
   let next = data

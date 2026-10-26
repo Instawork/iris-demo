@@ -7,6 +7,7 @@ import { groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
 import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/domain/core"
+import { billedOf, change, clockHours, hoursFor, overtimeKey, withOvertime } from "@/lib/timesheets"
 import type {
   BusinessActivity,
   ComplianceItem,
@@ -245,9 +246,9 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
   timesheets: {
     type: "timesheets",
     label: "Timesheet",
-    description: "Hours worked on finished shifts. They're saved as submitted, ready for approval on Shifts.",
+    description: "Hours worked on finished shifts. They're submitted for approval, and Iris checks them against its clock.",
     allowed: ["buyer", "supplier"],
-    href: "/shifts",
+    href: "/timesheets",
     columns: [
       SHIFT_GROUP_COLUMN,
       PRO_COLUMN,
@@ -363,8 +364,10 @@ function shiftRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
 const inWorkspace = (ws: Workspace, t: Timesheet) => (ws.kind === "buyer" ? t.buyerId === ws.buyerId : ws.kind === "supplier" ? t.supplierId === ws.supplierId : true)
 
 function timesheetRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
-  const order: Record<string, number> = { awaiting_submission: 0, disputed: 1, submitted: 2 }
-  const open = data.timesheets.filter((t) => inWorkspace(ws, t) && !t.invoiceId && t.status !== "approved" && (ws.kind !== "buyer" || t.status !== "disputed"))
+  const order: Record<string, number> = { draft: 0, rejected: 1, pending_approval: 2 }
+  const open = data.timesheets.filter(
+    (t) => inWorkspace(ws, t) && (t.status === "draft" || t.status === "pending_approval" || (ws.kind !== "buyer" && t.status === "rejected")),
+  )
   const rows = [...open]
     .sort((a, b) => order[a.status] - order[b.status] || b.date.localeCompare(a.date))
     .slice(0, 10)
@@ -799,18 +802,21 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
       breakMins = g?.breakMins
     } else if (breakMins === undefined || breakMins < 0 || breakMins > 120) issues.push(problem(n, "break_minutes", "Use 0 to 120 minutes"))
     const existing = g && pro ? ctx.data.timesheets.find((t) => t.groupId === g.id && t.proId === pro.id) : undefined
-    if (existing && (existing.status === "approved" || existing.invoiceId)) issues.push(problem(n, undefined, "Already approved, so these hours can't change", REMOVE_ROW))
+    if (existing && (existing.status === "approved" || existing.status === "invoiced")) issues.push(problem(n, undefined, "Already approved, so these hours can't change", REMOVE_ROW))
+    if (existing?.status === "removed") issues.push(problem(n, undefined, "This timesheet was removed from billing", REMOVE_ROW))
     let hours = 0
     if (clockIn && clockOut) {
-      hours = paidHours(clockIn, clockOut, breakMins ?? 0)
+      hours = hoursFor(clockIn, clockOut, breakMins ?? 0, existing?.sentHome ?? slot?.sentHome)
       const over = g ? round2(hours - paidHours(g.start, g.end, g.breakMins)) : 0
+      const onClock = clockHours(existing?.clock)
       if (hours > 16) issues.push(problem(n, "clock_out", `${hours} hours is longer than a shift can be`))
+      else if (onClock !== undefined && hours - onClock >= 0.25) issues.push(note(n, "clock_out", `${round2(hours - onClock)} hrs above Iris's clock, so it's flagged for the approver`))
       else if (over >= 0.75) issues.push(note(n, "clock_out", `${over} hrs over schedule, so it's flagged for the approver`))
     }
-    if (existing?.status === "disputed") issues.push(note(n, undefined, "Resubmits a disputed timesheet"))
+    if (existing?.status === "rejected") issues.push(note(n, undefined, "Resubmits a rejected timesheet"))
     const ok = !hasErrors(issues)
     if (ok && g && pro && slot && clockIn && clockOut) {
-      const patch = { clockIn, clockOut, breakMins: breakMins ?? 0, hours, status: "submitted" as const, source: "csv" as const, submittedAt: now }
+      const patch = { clockIn, clockOut, breakMins: breakMins ?? 0, hours, status: "pending_approval" as const, source: "csv" as const, submittedAt: now }
       if (existing) updates.set(existing.id, { ...patch, supplierId: pro.supplierId })
       else {
         const card = ctx.data.rateCards.find((c) => c.supplierId === pro.supplierId && c.cityId === location(g.locationId).cityId && c.positionId === g.positionId && c.status === "active")
@@ -826,8 +832,12 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
           date: g.date,
           scheduledStart: g.start,
           scheduledEnd: g.end,
+          scheduledBreakMins: g.breakMins,
+          otHours: 0,
+          sentHome: slot.sentHome,
           billRate: card?.billRate ?? g.billRate,
           tips: 0,
+          history: [change(now, ctx.ws.user.name, "submitted", { note: "From a CSV upload" })],
           ...patch,
         })
       }
@@ -840,15 +850,20 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
     ...tally(results),
     summary: total ? `${plural(total, "timesheet")} submitted for approval` : "No timesheets submitted",
     apply: total
-      ? (data) => ({
-          timesheets: [
+      ? (data) => {
+          const next = [
             ...creates,
-            ...data.timesheets.map((ts) =>
-              updates.has(ts.id) ? { ...ts, ...updates.get(ts.id), dispute: ts.dispute ? { ...ts.dispute, response: "Resubmitted by CSV", respondedAt: now } : undefined } : ts,
-            ),
-          ],
-          counters: { ts: tsCounter },
-        })
+            ...data.timesheets.map((ts) => {
+              const patch = updates.get(ts.id)
+              if (!patch) return ts
+              const after = { ...ts, ...patch }
+              const note = ts.status === "rejected" ? "Resubmitted by CSV after the rejection" : "From a CSV upload"
+              return { ...after, history: [...ts.history, change(now, ctx.ws.user.name, "submitted", { from: billedOf(ts), to: billedOf(after), note })] }
+            }),
+          ]
+          const keys = new Set([...creates, ...next.filter((t) => updates.has(t.id))].map(overtimeKey))
+          return { timesheets: withOvertime(next, keys), counters: { ts: tsCounter } }
+        }
       : undefined,
   }
 }

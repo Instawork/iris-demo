@@ -11,6 +11,7 @@ import { filledCount, invoiceBenchmark, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
+import { clockHours, timesheetChecks } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId } from "@/lib/types"
 
 export type ChapterId = "control" | "compliance" | "cost"
@@ -102,6 +103,10 @@ const booked = (ctx: TourContext) =>
     .sort((a, b) => serial(b.id) - serial(a.id))[0]
 
 const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv)
+
+/** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
+const paddedSheet = (data: DemoData) =>
+  data.timesheets.find((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && timesheetChecks(t).some((c) => c.id === "above_clock"))
 
 const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
 
@@ -328,7 +333,7 @@ export const SCRIPT: TourItem[] = [
     line: "Every hour checked against the clock.",
     wsId: LEVY,
     href: "/",
-    mission: "Approve last week's hours. Iris writes the invoice.",
+    mission: "Approve last night's hours. Iris catches the one billed above the clock.",
     again: true,
   },
   {
@@ -339,45 +344,64 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Hours, checked against the clock",
-    body: "Agencies submit hours from real clock-ins. Iris lines each one up with the schedule before you see it.",
+    body: "Iris records its own clock: the Instawork app, or the worker's check-in at the venue. Every hour an agency bills is lined up against it before you see it.",
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-approve"]')],
     placement: "bottom",
-    done: (ctx) => ctx.path === "/shifts",
-    skip: (_, api) => api.push("/shifts?filter=hours"),
+    done: (ctx) => ctx.path === "/timesheets",
+    skip: (_, api) => api.push("/timesheets"),
   },
   {
     kind: "step",
     id: "review-hours",
     chapter: "cost",
     wsId: LEVY,
-    path: /^\/shifts/,
-    href: () => "/shifts?filter=hours",
-    title: "Review a shift's hours",
-    body: "Open one shift to see every Pro's clock-in and clock-out.",
-    action: "Click the highlighted button",
-    targets: () => [one('[data-tour="hours-action"]') ?? one('[role="tab"][data-value="hours"]')],
-    placement: "left",
-    done: () => !!one('[data-tour="hours-dialog"]'),
-    skip: () => click('[data-tour="hours-action"]'),
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "One timesheet doesn't match the clock",
+    body: (ctx) => {
+      const t = paddedSheet(ctx.data)
+      return t && t.clock ? `A Harbor bartender was billed ${t.hours} hours for last night's concert. Iris's clock shows ${clockHours(t.clock)}.` : "Iris flags any timesheet billed above its clock."
+    },
+    action: "Open the flagged timesheet",
+    targets: () => [one(".tour-flagged")],
+    placement: "bottom",
+    done: () => !!one('[data-tour="timesheet-sheet"]'),
+    skip: () => click(".tour-flagged"),
   },
   {
     kind: "step",
     id: "approve",
     chapter: "cost",
     wsId: LEVY,
-    path: /^\/shifts/,
-    href: () => "/shifts?filter=hours",
-    title: "Approve, and the invoice writes itself",
-    body: "Hours that don't match the schedule get a warning sign. When it all checks out, approve and Iris builds the agency's invoice.",
-    action: "Click Approve",
-    targets: () => [one('[data-tour="approve-hours"]')],
-    placement: "bottom",
-    anchor: () => one('[data-tour="hours-dialog"]'),
-    done: (ctx) => generated(ctx).length > 0,
-    success: (ctx) => `Iris generated ${generated(ctx).map((i) => i.number).join(" and ")}`,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Approve at the clock's hours",
+    body: "Iris proposes the hours on its clock. Accept it and the timesheet is approved at those hours, with the correction on its history for the agency to see.",
+    action: "Click Approve at the clock's hours",
+    targets: () => [one('[data-tour="accept-proposal"]')],
+    placement: "left",
+    anchor: () => one('[data-tour="timesheet-sheet"]'),
+    done: (ctx) => ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.history.some((h) => h.action === "corrected")),
+    success: () => "Corrected to the clock and approved",
     back: "review-hours",
-    skip: () => click('[data-tour="approve-hours"]'),
+    skip: () => click('[data-tour="accept-proposal"]'),
+  },
+  {
+    kind: "step",
+    id: "approve-clean",
+    chapter: "cost",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Approve the clean ones together",
+    body: "Everything else matches the clock and the schedule. Last week's hours go straight onto the agency's invoice; this week's wait for Friday's close.",
+    action: "Click Approve",
+    targets: () => [one('[data-tour="approve-clean"]')],
+    placement: "bottom",
+    done: (ctx) => !ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && !timesheetChecks(t).length),
+    success: (ctx) => (generated(ctx).length ? `Approved. Iris invoiced last week's hours on ${generated(ctx).map((i) => i.number).join(" and ")}` : "Approved. They go on the invoice when the week closes"),
+    skip: () => click('[data-tour="approve-clean"]'),
   },
 
   {

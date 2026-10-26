@@ -15,7 +15,6 @@ import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge, type Tone } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { AssignProsDialog } from "@/components/shifts/assign-pros-dialog"
-import { HoursDialog } from "@/components/shifts/hours-dialog"
 import { SupplierStack } from "@/components/shifts/shift-card"
 import { ShiftsCalendar } from "@/components/shifts/shifts-calendar"
 import { Button } from "@/components/ui/button"
@@ -43,24 +42,25 @@ function hoursState(g: ShiftGroup, sheets: Timesheet[], ws: Workspace): HoursSta
   if (g.cancelledAt) return { label: "Cancelled", tone: "neutral" }
   if (phase === "upcoming") return { label: "Not started", tone: "neutral" }
   if (phase === "in_progress") return { label: "In progress", tone: "positive" }
-  const mine = ws.kind === "supplier" ? sheets.filter((t) => t.supplierId === ws.supplierId) : sheets
-  if (!mine.length) return { label: ws.kind === "supplier" ? "None of your Pros" : "No hours", tone: "neutral" }
+  const mine = (ws.kind === "supplier" ? sheets.filter((t) => t.supplierId === ws.supplierId) : sheets).filter((t) => t.status !== "removed")
+  if (!mine.length) return { label: ws.kind === "supplier" ? "None of your Pros" : "No hours yet", tone: "neutral" }
   const by = (s: Timesheet["status"]) => mine.filter((t) => t.status === s).length
+  const done: HoursState = { label: by("approved") ? "Approved" : "Invoiced", tone: "positive" }
   if (ws.kind === "buyer") {
-    if (by("submitted")) return { label: "Approve hours", tone: "warning", action: "approve", count: by("submitted") }
-    if (by("awaiting_submission")) return { label: "Waiting on supplier", tone: "neutral", action: "submit", count: by("awaiting_submission") }
-    if (by("disputed")) return { label: "Disputed", tone: "critical" }
-    return { label: "Approved", tone: "positive" }
+    if (by("pending_approval")) return { label: "Approve hours", tone: "warning", action: "approve", count: by("pending_approval") }
+    if (by("draft")) return { label: "With the agency", tone: "neutral", count: by("draft") }
+    if (by("rejected")) return { label: "Rejected", tone: "critical" }
+    return done
   }
   if (ws.kind === "supplier") {
-    if (by("awaiting_submission")) return { label: "Submit hours", tone: "warning", action: "submit", count: by("awaiting_submission") }
-    if (mine.some((t) => t.status === "disputed" && !t.dispute?.response)) return { label: "Respond", tone: "critical", action: "respond" }
-    if (by("submitted") || by("disputed")) return { label: "Submitted", tone: "neutral" }
-    return { label: "Approved", tone: "positive" }
+    if (by("rejected")) return { label: "Fix rejected", tone: "critical", action: "respond", count: by("rejected") }
+    if (by("draft")) return { label: "Submit hours", tone: "warning", action: "submit", count: by("draft") }
+    if (by("pending_approval")) return { label: "Pending approval", tone: "neutral" }
+    return done
   }
-  if (by("submitted") || by("awaiting_submission")) return { label: "Pending approval", tone: "neutral" }
-  if (by("disputed")) return { label: "Disputed", tone: "critical" }
-  return { label: "Approved", tone: "positive" }
+  if (by("pending_approval") || by("draft")) return { label: "Pending approval", tone: "neutral" }
+  if (by("rejected")) return { label: "Rejected", tone: "critical" }
+  return done
 }
 
 const needsHoursAction = (s: HoursState) => s.action === "approve" || s.action === "respond" || (s.action === "submit" && s.tone === "warning")
@@ -79,7 +79,6 @@ export function ShiftsPage() {
   const [buyers, setBuyers] = useState<string[]>([])
   const [positions, setPositions] = useState<string[]>([])
   const [range, setRange] = useState<IsoRange>({})
-  const [hoursFor, setHoursFor] = useState<string>()
   const [assignFor, setAssignFor] = useState<string>()
 
   const sheetsByGroup = useMemo(() => {
@@ -145,7 +144,7 @@ export function ShiftsPage() {
   }
 
   const columns = columnsFor(ws, {
-    onHours: (g) => setHoursFor(g.id),
+    onHours: (g) => router.push(`/timesheets?shift=${g.id}`),
     onAssign: (g) => setAssignFor(g.id),
   })
 
@@ -265,7 +264,6 @@ export function ShiftsPage() {
         </Surface>
       )}
 
-      <HoursDialog group={data.groups.find((g) => g.id === hoursFor)} onOpenChange={(open) => !open && setHoursFor(undefined)} />
       {assignFor && (
         <AssignProsDialog group={data.groups.find((g) => g.id === assignFor)!} open onOpenChange={(open) => !open && setAssignFor(undefined)} />
       )}

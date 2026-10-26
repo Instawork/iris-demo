@@ -2,10 +2,12 @@ import { canWork } from "@/lib/compliance"
 import { generateBudgets } from "@/lib/domain/budget"
 import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartISO } from "@/lib/dates"
 import { billFrom, round2, roundTo } from "@/lib/format"
-import { createRandom, type Random } from "@/lib/random"
+import { createRandom, hashString, type Random } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, location, position, requirementsFor, supplier } from "@/lib/reference"
+import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
   ActivityEvent,
+  ClockRecord,
   ComplianceItem,
   Counters,
   DemoData,
@@ -20,10 +22,11 @@ import type {
   ShiftGroup,
   Slot,
   Timesheet,
+  TimesheetStatus,
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 11
+export const DATA_VERSION = 12
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -443,19 +446,34 @@ export function generateDemoData(today = todayISO()): DemoData {
         groups.push(group)
 
         if (!ended) continue
+        const endedAt = isoAt(date, group.end === "00:00" ? "23:59" : group.end)
         for (const slot of group.slots) {
           if (slot.status !== "completed" || !slot.proId) continue
           const isApp = sup.integration === "api"
           const drift = isApp ? r.int(-6, 4) : r.int(-10, 10)
           let outDrift = isApp ? r.int(-4, 9) : r.int(-8, 14)
           if (r.chance(sup.isInstawork ? 0.015 : 0.05)) outDrift += r.int(55, 95)
-          const clockIn = hhmmFromMinutes(minutesOf(group.start) + drift)
-          const clockOut = hhmmFromMinutes(minutesOf(group.end) + outDrift)
+          const inAt = hhmmFromMinutes(minutesOf(group.start) + drift)
+          const outAt = hhmmFromMinutes(minutesOf(group.end) + outDrift)
           const breakMins = group.breakMins && r.chance(0.04) ? 0 : group.breakMins
+          const clock: ClockRecord | undefined =
+            sup.isInstawork || r.chance(0.92) ? { in: inAt, out: outAt, breakMins, source: sup.isInstawork ? "instawork_app" : "iris_checkin" } : undefined
           const age = Math.round((now.getTime() - shiftStart.getTime()) / 86400_000)
-          let status: Timesheet["status"] = "approved"
-          if (isApp ? age <= 2 : age <= 3) status = isApp ? "submitted" : r.chance(0.3) ? "submitted" : "awaiting_submission"
-          const submittedAt = status === "awaiting_submission" ? undefined : addHoursISO(isoAt(date, group.end === "00:00" ? "23:59" : group.end), isApp ? 0.3 : r.float(14, 30))
+          let status: TimesheetStatus = "approved"
+          if (isApp ? age <= 2 : age <= 3) status = isApp ? "pending_approval" : r.chance(0.3) ? "pending_approval" : "draft"
+          let clockIn: string | undefined = inAt
+          let clockOut: string | undefined = outAt
+          if (!isApp && status !== "draft") {
+            clockIn = hhmmFromMinutes(minutesOf(inAt) - r.int(0, 4))
+            clockOut = hhmmFromMinutes(minutesOf(outAt) + r.int(0, 6) + (r.chance(0.03) ? r.int(30, 75) : 0))
+          }
+          if (status === "draft" && !clock) {
+            clockIn = undefined
+            clockOut = undefined
+          }
+          const submitted = status === "draft" ? undefined : addHoursISO(endedAt, isApp ? 0.3 : r.float(14, 30))
+          const submittedAt = submitted && submitted > nowISO ? nowISO : submitted
+          const created = addHoursISO(endedAt, 0.5)
           const ts: Timesheet = {
             id: `ts-${counters.ts++}`,
             groupId: group.id,
@@ -468,17 +486,27 @@ export function generateDemoData(today = todayISO()): DemoData {
             date,
             scheduledStart: group.start,
             scheduledEnd: group.end,
+            scheduledBreakMins: group.breakMins,
             clockIn,
             clockOut,
             breakMins,
-            hours: paidHours(clockIn, clockOut, breakMins),
+            hours: clockIn && clockOut ? paidHours(clockIn, clockOut, breakMins) : 0,
+            otHours: 0,
+            clock,
             billRate: group.billRate,
             tips: group.badges.includes("TIPS") && age > 3 ? round2(r.float(18, 96)) : 0,
             status,
             source: isApp ? "app" : "csv",
-            submittedAt: submittedAt && submittedAt > nowISO ? nowISO : submittedAt,
+            submittedAt,
             approvedAt: status === "approved" ? addHoursISO(isoAt(date, "12:00"), r.float(24, 60)) : undefined,
             approvedBy: status === "approved" ? group.createdBy : undefined,
+            history:
+              status === "approved"
+                ? []
+                : [
+                    change(created > nowISO ? nowISO : created, "Iris", "created", { note: clock ? "From the clock" : "No clock record" }),
+                    ...(submittedAt ? [change(submittedAt, isApp ? `${sup.shortName} app` : sup.contactName, "submitted", { note: isApp ? "Sent by the agency's system" : "From the agency's CSV" })] : []),
+                  ],
           }
           timesheets.push(ts)
         }
@@ -487,20 +515,26 @@ export function generateDemoData(today = todayISO()): DemoData {
   }
 
   plantStoryGroups(groups, today)
-  const disputed = plantDisputes(r, timesheets, today)
-  const { invoices, invoiceGroups } = generateInvoices(counters, timesheets, pros, today, disputed)
+  plantHoursStory(r, counters, groups, timesheets, pros, rateCards, today, nowISO)
+  plantOvertime(counters, groups, timesheets, pros, rateCards, today)
+  plantSentHome(groups, timesheets, today)
+  plantMissingPunch(timesheets, today)
+  plantRejections(r, timesheets, today)
+  const sheets = withOvertime(timesheets)
+  const { invoices, invoiceGroups } = generateInvoices(counters, sheets, pros, today)
   const uploads = generateUploads(counters, today)
-  const roster = generateRoster(r, timesheets, pros, today)
-  const reviews = generateReviews(r, counters, timesheets, pros)
+  const roster = generateRoster(r, sheets, pros, today)
+  const reviews = generateReviews(r, counters, sheets, pros)
   const activity = generateActivity(counters, groups, invoices, uploads, pros, today)
 
   return {
     version: DATA_VERSION,
     seededOn: today,
+    seededAt: nowISO,
     pros,
     rateCards,
     groups,
-    timesheets,
+    timesheets: sheets,
     invoices,
     invoiceGroups,
     uploads,
@@ -541,23 +575,211 @@ function plantStoryGroups(groups: ShiftGroup[], today: string) {
   }
 }
 
-function plantDisputes(r: Random, timesheets: Timesheet[], today: string) {
+/**
+ * Last night's concert at West Loop Arena, staffed by Harbor. Harbor's CSV came in this morning, and one bartender is
+ * billed at 9.5 hours against 8.0 on Iris's clock: the case the Features and FAQ says Iris catches.
+ */
+function plantHoursStory(r: Random, counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], today: string, nowISO: string) {
+  const date = addDaysISO(today, -1)
+  const loc = location("loc-wla")
+  const card = rateCards.find((c) => c.supplierId === "harbor" && c.cityId === loc.cityId && c.positionId === "bartender" && c.status === "active")
+  if (!card) return
+  const busy = new Set(groups.filter((g) => g.date === date).flatMap((g) => g.slots.flatMap((s) => (s.proId ? [s.proId] : []))))
+  const crew = pros
+    .filter((p) => p.supplierId === "harbor" && p.cityId === loc.cityId && !busy.has(p.id) && canWork(p, "bartender", date).ok)
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, 6)
+  if (crew.length < 3) return
+  const code = `SG-${counters.sg++}`
+  const id = code.toLowerCase()
+  const pos = position("bartender")
+  const group: ShiftGroup = {
+    id,
+    code,
+    buyerId: loc.buyerId,
+    locationId: loc.id,
+    positionId: pos.id,
+    eventName: "Concert night",
+    date,
+    start: "16:00",
+    end: "00:30",
+    breakMins: 30,
+    supplierId: "harbor",
+    supplierIds: ["harbor"],
+    billRate: card.billRate,
+    proRate: card.proRate,
+    markupPct: card.markupPct,
+    slots: crew.map((p, i) => ({ id: `${id}-${i + 1}`, proId: p.id, status: "completed" as const, confirmedAt: isoAt(addDaysISO(date, -6), "14:20") })),
+    badges: ["TIPS"],
+    instructions: pos.duties,
+    attire: pos.attire,
+    createdAt: isoAt(addDaysISO(date, -8), "10:35"),
+    createdBy: "Jordan Ellis",
+    source: "booking",
+  }
+  groups.push(group)
+  const created = [isoAt(today, "01:00"), nowISO].sort()[0]
+  const submittedAt = [isoAt(today, "07:42"), nowISO].sort()[0]
+  group.slots.forEach((slot, i) => {
+    const padded = i === 0
+    const inAt = padded ? "16:00" : hhmmFromMinutes(minutesOf("16:00") + r.int(-5, 3))
+    const outAt = padded ? "00:30" : hhmmFromMinutes(minutesOf("00:30") + r.int(-3, 6))
+    const clockIn = padded ? "15:30" : inAt
+    const clockOut = padded ? "01:30" : outAt
+    timesheets.push({
+      id: `ts-${counters.ts++}`,
+      groupId: group.id,
+      slotId: slot.id,
+      proId: slot.proId!,
+      supplierId: "harbor",
+      buyerId: group.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      date,
+      scheduledStart: group.start,
+      scheduledEnd: group.end,
+      scheduledBreakMins: group.breakMins,
+      clockIn,
+      clockOut,
+      breakMins: 30,
+      hours: paidHours(clockIn, clockOut, 30),
+      otHours: 0,
+      clock: { in: inAt, out: outAt, breakMins: 30, source: "iris_checkin" },
+      billRate: card.billRate,
+      tips: 0,
+      status: "pending_approval",
+      source: "csv",
+      submittedAt,
+      history: [change(created, "Iris", "created", { note: "From the clock" }), change(submittedAt, "Renee Park", "submitted", { note: "From the agency's CSV" })],
+    })
+  })
+}
+
+/**
+ * Last week's convention move-in at Riverside Convention Center: one Instawork porter booked eight hours a day,
+ * Saturday to Thursday. Past 40 hours the rest bills at time and a half, which Iris splits out on the timesheet and
+ * the invoice.
+ */
+function plantOvertime(counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], today: string) {
+  const loc = location("loc-rcc")
+  const card = rateCards.find((c) => c.supplierId === "instawork" && c.cityId === loc.cityId && c.positionId === "porter" && c.status === "active")
+  if (!card) return
+  const weekStart = addDaysISO(weekStartISO(today), -7)
+  const days = Array.from({ length: 6 }, (_, i) => addDaysISO(weekStart, i))
+  const busy = new Set(groups.filter((g) => days.includes(g.date)).flatMap((g) => g.slots.flatMap((s) => (s.proId ? [s.proId] : []))))
+  const pro = pros.find((p) => p.supplierId === "instawork" && p.cityId === loc.cityId && p.status === "active" && !busy.has(p.id) && days.every((d) => canWork(p, "porter", d).ok))
+  if (!pro) return
+  const pos = position("porter")
+  for (const date of days) {
+    const code = `SG-${counters.sg++}`
+    const id = code.toLowerCase()
+    groups.push({
+      id,
+      code,
+      buyerId: loc.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      eventName: "Convention move-in",
+      date,
+      start: "07:00",
+      end: "15:30",
+      breakMins: 30,
+      supplierId: "instawork",
+      supplierIds: ["instawork"],
+      billRate: card.billRate,
+      proRate: card.proRate,
+      markupPct: card.markupPct,
+      slots: [{ id: `${id}-1`, proId: pro.id, status: "completed", confirmedAt: isoAt(addDaysISO(weekStart, -5), "11:10") }],
+      badges: [],
+      instructions: pos.duties,
+      attire: pos.attire,
+      createdAt: isoAt(addDaysISO(weekStart, -6), "09:40"),
+      createdBy: "Jordan Ellis",
+      source: "booking",
+    })
+    const clockIn = hhmmFromMinutes(minutesOf("07:00") - (hashString(id) % 4))
+    const clockOut = hhmmFromMinutes(minutesOf("15:30") + (hashString(id) % 5))
+    timesheets.push({
+      id: `ts-${counters.ts++}`,
+      groupId: id,
+      slotId: `${id}-1`,
+      proId: pro.id,
+      supplierId: "instawork",
+      buyerId: loc.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      date,
+      scheduledStart: "07:00",
+      scheduledEnd: "15:30",
+      scheduledBreakMins: 30,
+      clockIn,
+      clockOut,
+      breakMins: 30,
+      hours: paidHours(clockIn, clockOut, 30),
+      otHours: 0,
+      clock: { in: clockIn, out: clockOut, breakMins: 30, source: "instawork_app" },
+      billRate: card.billRate,
+      tips: 0,
+      status: "approved",
+      source: "app",
+      submittedAt: isoAt(date, "15:50"),
+      approvedAt: isoAt(addDaysISO(date, 1), "10:15"),
+      approvedBy: "Jordan Ellis",
+      history: [],
+    })
+  }
+}
+
+/** A worker sent home early on yesterday's shifts is billed at the four-hour minimum. */
+function plantSentHome(groups: ShiftGroup[], timesheets: Timesheet[], today: string) {
+  const t = timesheets
+    .filter((x) => x.status === "pending_approval" && x.date >= addDaysISO(today, -2) && x.clockIn && x.clock && ["concessions", "porter", "cashier"].includes(x.positionId))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))[0]
+  if (!t?.clockIn) return
+  const out = hhmmFromMinutes(minutesOf(t.clockIn) + 150)
+  t.clockOut = out
+  t.breakMins = 0
+  t.sentHome = true
+  t.hours = hoursFor(t.clockIn, out, 0, true)
+  t.clock = { ...t.clock!, out, breakMins: 0 }
+  const slot = groups.find((g) => g.id === t.groupId)?.slots.find((s) => s.id === t.slotId)
+  if (slot) slot.sentHome = true
+}
+
+/** A Harbor worker forgot to clock out, so the agency's draft is missing its clock-out. */
+function plantMissingPunch(timesheets: Timesheet[], today: string) {
+  const t = timesheets.find((x) => x.status === "draft" && x.supplierId === "harbor" && x.date >= addDaysISO(today, -3) && x.clock?.out)
+  if (!t) return
+  t.clockOut = undefined
+  t.hours = 0
+  t.clock = { ...t.clock!, out: undefined }
+}
+
+/** Three over-schedule timesheets the buyer sent back to Harbor and Metro with a reason. */
+function plantRejections(r: Random, timesheets: Timesheet[], today: string) {
   const candidates = timesheets.filter(
     (t) => t.status === "approved" && (t.supplierId === "metro" || t.supplierId === "harbor") && t.date >= addDaysISO(today, -9) && t.hours > 7.6,
   )
-  const picked = r.shuffle(candidates).slice(0, 3)
-  for (const t of picked) {
-    t.status = "disputed"
+  for (const t of r.shuffle(candidates).slice(0, 3)) {
+    const by = t.buyerId === "levy-chi" ? "Jordan Ellis" : "Alicia Moreno"
+    const at = new Date(`${addDaysISO(t.date, 2)}T09:30:00`).toISOString()
+    const reason = "Hours above schedule"
+    const note = "Clock-out is more than an hour after the scheduled end. Please confirm with your Pro."
+    t.status = "rejected"
     t.approvedAt = undefined
     t.approvedBy = undefined
-    t.dispute = {
-      reason: "Hours above schedule",
-      note: "Clock-out is more than an hour after the scheduled end. Please confirm with your Pro.",
-      raisedAt: new Date(`${addDaysISO(t.date, 2)}T09:30:00`).toISOString(),
-      raisedBy: t.buyerId === "levy-chi" ? "Jordan Ellis" : "Alicia Moreno",
-    }
+    t.rejection = { reason, note, at, by }
+    t.history = [
+      change(addHoursISO(isoAt(t.date, t.scheduledEnd), 0.5), "Iris", "created", { note: t.clock ? "From the clock" : "No clock record" }),
+      ...(t.submittedAt ? [change(t.submittedAt, supplierName(t.supplierId), "submitted", { note: "From the agency's CSV" })] : []),
+      change(at, by, "rejected", { reason, note }),
+    ]
   }
-  return new Set(picked.map((t) => t.id))
+}
+
+const supplierName = (id: string) => {
+  const s = SUPPLIERS.find((x) => x.id === id)
+  return s ? (s.integration === "api" ? `${s.shortName} app` : s.contactName) : id
 }
 
 function lineFrom(t: Timesheet, pros: Map<string, Pro>, idx: number): InvoiceLine {
@@ -576,13 +798,14 @@ function lineFrom(t: Timesheet, pros: Map<string, Pro>, idx: number): InvoiceLin
     clockIn: t.clockIn,
     clockOut: t.clockOut,
     hours: t.hours,
+    otHours: t.otHours || undefined,
     billRate: t.billRate,
-    amount: round2(t.hours * t.billRate),
+    amount: laborAmount(t),
     tips: t.tips,
   }
 }
 
-function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro[], today: string, disputed: Set<string>) {
+function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro[], today: string) {
   const proMap = new Map(pros.map((p) => [p.id, p]))
   const invoices: Invoice[] = []
   const thisWeek = weekStartISO(today)
@@ -594,9 +817,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
     const dueOn = addDaysISO(issuedOn, PROGRAM.paymentTermsDays)
     for (const s of SUPPLIERS) {
       for (const buyerId of ["levy-chi", "chartwells-south"]) {
-        const rows = timesheets.filter(
-          (t) => t.supplierId === s.id && t.buyerId === buyerId && t.date >= periodStart && t.date <= periodEnd && t.status === "approved" && !disputed.has(t.id),
-        )
+        const rows = timesheets.filter((t) => t.supplierId === s.id && t.buyerId === buyerId && t.date >= periodStart && t.date <= periodEnd && t.status === "approved")
         if (!rows.length) continue
         const id = `inv-${counters.inv}`
         const number = `INV-${counters.inv++}`
@@ -620,7 +841,10 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
         }
         const total = invoiceTotalRaw(invoice)
         invoice.paidAmount = status === "paid" ? total : status === "partial" ? round2(total * 0.5) : 0
-        rows.forEach((t) => (t.invoiceId = id))
+        rows.forEach((t) => {
+          t.invoiceId = id
+          t.status = "invoiced"
+        })
         invoices.push(invoice)
       }
     }

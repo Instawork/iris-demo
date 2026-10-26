@@ -1,8 +1,8 @@
 import { canWork } from "@/lib/compliance"
-import { addDaysISO } from "@/lib/dates"
-import { round2 } from "@/lib/format"
+import { addDaysISO, weekEndISO, weekStartISO } from "@/lib/dates"
 import { PROGRAM, SUPPLIERS, location } from "@/lib/reference"
 import { emptyCounters } from "@/lib/seed"
+import { laborAmount } from "@/lib/timesheets"
 import type { ActivityEvent, Counters, DemoData, Invoice, RateCard, ShiftGroup, Timesheet } from "@/lib/types"
 
 export const emptyData = (): DemoData => ({
@@ -104,25 +104,30 @@ export function supplierReleasePlan(supplierIds: string[], createdAt: string) {
   }))
 }
 
-/** One invoice per supplier for a batch of approved hours, priced at the hours, tips and bill rate on each timesheet. */
+/**
+ * One invoice per supplier, buyer and work week for approved hours, priced at the hours, overtime, tips and bill rate
+ * on each timesheet. The period is the Saturday to Friday week the hours were worked in.
+ */
 export function invoicesFor(data: DemoData, approved: Timesheet[], today: string) {
   const pros = new Map(data.pros.map((p) => [p.id, p]))
-  const bySupplier = new Map<string, Timesheet[]>()
-  for (const t of approved) bySupplier.set(`${t.supplierId}|${t.buyerId}`, [...(bySupplier.get(`${t.supplierId}|${t.buyerId}`) ?? []), t])
+  const byWeek = new Map<string, Timesheet[]>()
+  for (const t of approved) {
+    const key = `${t.supplierId}|${t.buyerId}|${weekStartISO(t.date)}`
+    byWeek.set(key, [...(byWeek.get(key) ?? []), t])
+  }
   let counter = data.counters.inv
   const invoiceOf = new Map<string, string>()
-  const invoices: Invoice[] = [...bySupplier.values()].map((rows) => {
+  const invoices: Invoice[] = [...byWeek.values()].map((rows) => {
     const number = `INV-${counter}`
     const id = `inv-${counter++}`
-    const dates = rows.map((t) => t.date).sort()
     rows.forEach((t) => invoiceOf.set(t.id, id))
     return {
       id,
       number,
       supplierId: rows[0].supplierId,
       buyerId: rows[0].buyerId,
-      periodStart: dates[0],
-      periodEnd: dates[dates.length - 1],
+      periodStart: weekStartISO(rows[0].date),
+      periodEnd: weekEndISO(rows[0].date),
       issuedOn: today,
       dueOn: addDaysISO(today, PROGRAM.paymentTermsDays),
       status: "unpaid",
@@ -144,8 +149,9 @@ export function invoicesFor(data: DemoData, approved: Timesheet[], today: string
           clockIn: t.clockIn,
           clockOut: t.clockOut,
           hours: t.hours,
+          otHours: t.otHours || undefined,
           billRate: t.billRate,
-          amount: round2(t.hours * t.billRate),
+          amount: laborAmount(t),
           tips: t.tips,
         }
       }),

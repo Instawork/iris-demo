@@ -4,7 +4,7 @@ import { toast } from "sonner"
 import { create } from "zustand"
 
 import { emptyData, type BookingInput, type RateCardInput } from "@/lib/domain/core"
-import type { CommandInput, CommandName, CommandResult, Notice, UploadApply } from "@/lib/domain/commands"
+import type { ApproveResult, CommandInput, CommandName, CommandResult, Notice, UploadApply } from "@/lib/domain/commands"
 import { applyChanges, type Changes } from "@/lib/domain/sync"
 import { DEFAULT_WORKSPACE_ID, workspace } from "@/lib/reference"
 import type { DemoData, RequirementId, RosterStatus, Upload } from "@/lib/types"
@@ -13,6 +13,8 @@ export { eligiblePros, emptyData, joinNames, notifiedSuppliers, supplierReleaseP
 export type { BookingInput, Patch, RateCardInput } from "@/lib/domain/core"
 
 type UploadRecord = Omit<Upload, "id" | "code">
+
+export type TimesInput = { clockIn: string; clockOut: string; breakMins: number }
 
 export type Connection = "connecting" | "live" | "offline"
 
@@ -39,12 +41,15 @@ interface StoreState {
   releasePro: (groupId: string, slotId: string) => Promise<void>
   markNoShow: (groupId: string, slotId: string) => Promise<void>
   setRoster: (buyerId: string, proIds: string[], status: RosterStatus | null) => Promise<void>
-  /** Approves submitted hours and returns the numbers of the invoices generated from them. */
-  approveTimesheets: (ids: string[]) => Promise<string[]>
-  adjustTimesheet: (id: string, patch: { clockIn: string; clockOut: string; breakMins: number; reason: string }) => Promise<void>
-  disputeTimesheet: (id: string, reason: string, note?: string) => Promise<void>
-  respondDispute: (id: string, action: "accept" | "confirm", note?: string) => Promise<void>
-  submitTimesheets: (ids: string[]) => Promise<void>
+  /** Approves pending hours. A reason approves flagged ones as billed. Hours from a closed week are invoiced right away. */
+  approveTimesheets: (ids: string[], reason?: string) => Promise<ApproveResult | undefined>
+  /** Corrects a pending timesheet's billed times, then approves it. */
+  correctTimesheet: (id: string, times: TimesInput, reason: string) => Promise<ApproveResult | undefined>
+  rejectTimesheets: (ids: string[], reason: string, note?: string) => Promise<number>
+  submitTimesheets: (ids: string[]) => Promise<number>
+  withdrawTimesheets: (ids: string[]) => Promise<number>
+  editTimesheet: (id: string, times: TimesInput, note?: string) => Promise<boolean>
+  removeTimesheet: (id: string, reason: string) => Promise<boolean>
   setTips: (entries: { timesheetId: string; tips: number }[]) => Promise<void>
   createInvoiceGroup: (name: string, invoiceIds: string[]) => Promise<string>
   removeFromGroup: (invoiceId: string) => Promise<void>
@@ -216,11 +221,13 @@ export const useStore = create<StoreState>()((set, get) => {
     releasePro: async (groupId, slotId) => void (await send("releasePro", { groupId, slotId })),
     markNoShow: async (groupId, slotId) => void (await send("markNoShow", { groupId, slotId })),
     setRoster: async (buyerId, proIds, status) => void (await send("setRoster", { buyerId, proIds, status })),
-    approveTimesheets: async (ids) => (await send("approveTimesheets", { ids })) ?? [],
-    adjustTimesheet: async (id, patch) => void (await send("adjustTimesheet", { id, patch })),
-    disputeTimesheet: async (id, reason, note) => void (await send("disputeTimesheet", { id, reason, note })),
-    respondDispute: async (id, action, note) => void (await send("respondDispute", { id, action, note })),
-    submitTimesheets: async (ids) => void (await send("submitTimesheets", { ids })),
+    approveTimesheets: async (ids, reason) => send("approveTimesheets", { ids, reason }),
+    correctTimesheet: async (id, times, reason) => send("correctTimesheet", { id, ...times, reason }),
+    rejectTimesheets: async (ids, reason, note) => (await send("rejectTimesheets", { ids, reason, note })) ?? 0,
+    submitTimesheets: async (ids) => (await send("submitTimesheets", { ids })) ?? 0,
+    withdrawTimesheets: async (ids) => (await send("withdrawTimesheets", { ids })) ?? 0,
+    editTimesheet: async (id, times, note) => (await send("editTimesheet", { id, ...times, note })) !== undefined,
+    removeTimesheet: async (id, reason) => (await send("removeTimesheet", { id, reason })) !== undefined,
     setTips: async (entries) => void (await send("setTips", { entries })),
     createInvoiceGroup: async (name, invoiceIds) => (await send("createInvoiceGroup", { name, invoiceIds })) ?? "",
     removeFromGroup: async (invoiceId) => void (await send("removeFromGroup", { invoiceId })),

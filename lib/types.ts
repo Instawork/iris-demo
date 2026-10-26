@@ -192,6 +192,17 @@ export interface Slot {
   proId?: string
   status: SlotStatus
   confirmedAt?: string
+  /** Punches the worker recorded on Iris check-in while the shift was on. */
+  punches?: Punches
+  /** The buyer sent the worker home early, so the four-hour minimum applies. */
+  sentHome?: boolean
+}
+
+export interface Punches {
+  in?: string
+  breakStart?: string
+  breakEnd?: string
+  out?: string
 }
 
 export interface ShiftGroup {
@@ -229,15 +240,41 @@ export interface ShiftGroup {
   approval?: ApprovalRequest
 }
 
-export type TimesheetStatus = "awaiting_submission" | "submitted" | "approved" | "disputed"
+/** Fieldglass's time sheet statuses, which Compass's approvers already know. */
+export type TimesheetStatus = "draft" | "pending_approval" | "approved" | "rejected" | "invoiced" | "removed"
 
-export interface TimesheetDispute {
+/** Times Iris recorded itself, independent of what the agency bills. */
+export interface ClockRecord {
+  in?: string
+  out?: string
+  breakMins: number
+  source: "instawork_app" | "iris_checkin"
+}
+
+export interface BilledTimes {
+  clockIn?: string
+  clockOut?: string
+  breakMins: number
+  hours: number
+}
+
+export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "approved" | "rejected" | "removed" | "invoiced"
+
+export interface TimesheetChange {
+  at: string
+  by: string
+  action: TimesheetAction
+  from?: BilledTimes
+  to?: BilledTimes
+  reason?: string
+  note?: string
+}
+
+export interface TimesheetRejection {
   reason: string
   note?: string
-  raisedAt: string
-  raisedBy: string
-  response?: string
-  respondedAt?: string
+  at: string
+  by: string
 }
 
 export interface Timesheet {
@@ -252,10 +289,17 @@ export interface Timesheet {
   date: string
   scheduledStart: string
   scheduledEnd: string
+  scheduledBreakMins: number
+  /** Billed times: what the agency submits, and what approval and invoicing use. */
   clockIn?: string
   clockOut?: string
   breakMins: number
   hours: number
+  /** The part of `hours` past 40 in the work week with this agency, billed at the overtime rate. */
+  otHours: number
+  clock?: ClockRecord
+  /** Billed at the four-hour minimum because the buyer sent the worker home early. */
+  sentHome?: boolean
   billRate: number
   tips: number
   status: TimesheetStatus
@@ -263,8 +307,8 @@ export interface Timesheet {
   submittedAt?: string
   approvedAt?: string
   approvedBy?: string
-  dispute?: TimesheetDispute
-  adjustment?: { reason: string; previousHours: number; at: string; by: string }
+  rejection?: TimesheetRejection
+  history: TimesheetChange[]
   invoiceId?: string
 }
 
@@ -284,6 +328,7 @@ export interface InvoiceLine {
   clockIn?: string
   clockOut?: string
   hours: number
+  otHours?: number
   billRate: number
   amount: number
   tips: number
@@ -415,6 +460,8 @@ export interface Counters {
 export interface DemoData {
   version: number
   seededOn: string
+  /** When the demo data was generated. Drafts from before then wait for a person to submit them. */
+  seededAt?: string
   pros: Pro[]
   rateCards: RateCard[]
   groups: ShiftGroup[]

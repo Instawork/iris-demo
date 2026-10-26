@@ -1,8 +1,9 @@
-import { BadgeCheck, BadgeDollarSign, Calendar, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
+import { BadgeCheck, BadgeDollarSign, Calendar, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
 import { awaitingApproval, filledCount, groupPhase, inScope, invoiceStatus, isOpenTo, needsReview } from "@/lib/metrics"
+import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
 export interface NavItem {
@@ -25,16 +26,17 @@ export const SETTINGS_PAGES: NavItem[] = [
 ]
 
 const shiftsBadge = (data: DemoData, ws: Workspace) => {
-  if (ws.kind === "buyer") return new Set(data.timesheets.filter((t) => t.buyerId === ws.buyerId && t.status === "submitted").map((t) => t.groupId)).size
   if (ws.kind !== "supplier" || !ws.supplierId) return 0
-  const toSubmit = new Set(data.timesheets.filter((t) => t.supplierId === ws.supplierId && t.status === "awaiting_submission").map((t) => t.groupId))
-  const toFill = data.groups.filter(
-    (g) => isOpenTo(g, ws.supplierId!) && groupPhase(g) === "upcoming" && daysFromToday(g.date) <= 7 && filledCount(g) < g.slots.length,
-  )
-  return toSubmit.size + toFill.length
+  return data.groups.filter((g) => isOpenTo(g, ws.supplierId!) && groupPhase(g) === "upcoming" && daysFromToday(g.date) <= 7 && filledCount(g) < g.slots.length).length
 }
 
-/** The same six pages for everyone, as in the PRD. Each page shows that persona's data and actions. */
+const timesheetsBadge = (data: DemoData, ws: Workspace) => {
+  if (ws.kind === "buyer") return data.timesheets.filter((t) => t.buyerId === ws.buyerId && t.status === "pending_approval").length
+  if (ws.kind === "supplier") return data.timesheets.filter((t) => t.supplierId === ws.supplierId && withAgency(t)).length
+  return 0
+}
+
+/** The same pages for everyone. Each page shows that persona's data and actions. */
 export function navFor(ws: Workspace): NavItem[] {
   const kind = ws.kind
   const approvals: NavItem[] = ws.approves?.length
@@ -68,8 +70,21 @@ export function navFor(ws: Workspace): NavItem[] {
       label: "Shifts",
       href: "/shifts",
       icon: Calendar,
-      tooltip: kind === "supplier" ? "Shifts open to you. Assign Pros and submit hours." : kind === "buyer" ? "Post shifts and approve hours" : "Every shift across every buyer and supplier",
-      badge: kind === "compass" ? undefined : shiftsBadge,
+      tooltip: kind === "supplier" ? "Shifts open to you. Assign Pros." : kind === "buyer" ? "Post shifts and track who's coming" : "Every shift across every buyer and supplier",
+      badge: kind === "supplier" ? shiftsBadge : undefined,
+    },
+    {
+      id: "timesheets",
+      label: "Timesheets",
+      href: "/timesheets",
+      icon: Clock,
+      tooltip:
+        kind === "supplier"
+          ? "Hours from your finished shifts. Check and submit them."
+          : kind === "buyer"
+            ? "Hours checked against the clock. Approve them."
+            : "Every timesheet, with the clock beside what was billed",
+      badge: kind === "compass" ? undefined : timesheetsBadge,
     },
     {
       id: "rates",
@@ -122,6 +137,7 @@ export const SECTION_LABELS: Record<string, string> = {
   "": "Dashboard",
   approvals: "Approvals",
   shifts: "Shifts",
+  timesheets: "Timesheets",
   professionals: "Professionals",
   rates: "Supplier Rates",
   invoices: "Invoices",

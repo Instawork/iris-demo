@@ -1,5 +1,13 @@
-import { redirect } from "next/navigation"
+import { Suspense } from "react"
+
+import { TimesheetsPage } from "@/components/timesheets/timesheets-page"
+
+export const metadata = { title: "Timesheets" }
 
 export default function Page() {
-  redirect("/shifts?filter=hours")
+  return (
+    <Suspense>
+      <TimesheetsPage />
+    </Suspense>
+  )
 }

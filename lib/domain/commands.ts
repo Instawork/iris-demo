@@ -1,5 +1,5 @@
 import { planImport } from "@/lib/csv"
-import { addDaysISO, hhmmFromMinutes, paidHours, todayISO, wallClock } from "@/lib/dates"
+import { addDaysISO, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock } from "@/lib/dates"
 import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, invoicesFor, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { releaseSummary } from "@/lib/domain/order"
@@ -7,7 +7,8 @@ import { billFrom, round2 } from "@/lib/format"
 import { awaitingApproval, groupPhase, isOpenTo } from "@/lib/metrics"
 import { PROGRAM, SUPPLIERS, approversFor, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
 import { generateDemoData } from "@/lib/seed"
-import type { ApprovalRequest, DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Upload, Workspace } from "@/lib/types"
+import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, weekClosed, withAgency, withOvertime } from "@/lib/timesheets"
+import type { ApprovalRequest, DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Timesheet, Upload, Workspace } from "@/lib/types"
 
 export class CommandError extends Error {
   constructor(
@@ -333,9 +334,10 @@ function releasePro(data: DemoData, ctx: CommandContext, input: { groupId: strin
 function markNoShow(data: DemoData, ctx: CommandContext, input: { groupId: string; slotId: string }): Outcome<null> {
   const g = groupOf(data, input?.groupId)
   slotAccess(data, ctx, g, input.slotId)
+  const sheets = data.timesheets.filter((t) => t.groupId === g.id && t.slotId === input.slotId && (withAgency(t) || t.status === "pending_approval"))
   return done(data, null, {
     groups: data.groups.map((x) => (x.id === g.id ? { ...x, slots: x.slots.map((s) => (s.id === input.slotId ? { ...s, status: "no_show" as const } : s)) } : x)),
-    timesheets: data.timesheets.filter((t) => !(t.groupId === g.id && t.slotId === input.slotId && !t.invoiceId)),
+    timesheets: replaceSheets(data, sheets.map((t) => removed(t, ctx, "No-show"))),
   })
 }
 
@@ -392,150 +394,269 @@ function setRoster(data: DemoData, ctx: CommandContext, input: { buyerId: string
 
 /* -------------------------------- Timesheets ------------------------------ */
 
-function approveTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[] }): Outcome<string[]> {
-  const set = new Set(strList(input?.ids, "Timesheets"))
-  const approved = data.timesheets.filter((t) => set.has(t.id) && t.status === "submitted")
-  if (approved.some((t) => !ownsBuyer(ctx.ws, t.buyerId) || isCompass(ctx.ws))) forbid("Only the buyer approves hours.")
-  if (!approved.length) return done(data, [])
-  const stamp = { approvedAt: ctx.now, approvedBy: actorName(ctx) }
-  const { invoices, invoiceOf, counter } = invoicesFor(data, approved, todayISO())
-  const worked = new Map<string, number>()
-  for (const t of approved) worked.set(t.proId, (worked.get(t.proId) ?? 0) + 1)
-  const ids = new Set(approved.map((t) => t.id))
-  const numbers = invoices.map((i) => i.number)
-  return done(
-    data,
-    numbers,
-    {
-      timesheets: data.timesheets.map((t) => (ids.has(t.id) ? { ...t, status: "approved" as const, ...stamp, invoiceId: invoiceOf.get(t.id) } : t)),
-      pros: data.pros.map((p) => (worked.has(p.id) ? { ...p, shiftsWorked: p.shiftsWorked + worked.get(p.id)! } : p)),
-      invoices: [...invoices, ...data.invoices],
-      counters: { inv: counter },
-    },
-    event(
-      data,
-      {
-        text: `${actorName(ctx)} approved ${plural(approved.length, "timesheet")}. Iris generated ${numbers.join(", ")}`,
-        actor: actorName(ctx),
-        tone: "positive",
-        buyerId: approved[0].buyerId,
-      },
-      ctx.now,
-    ),
-  )
-}
-
 const timesheetOf = (data: DemoData, id: unknown) => need(data.timesheets.find((t) => t.id === id), "That timesheet doesn't exist")
 
-function adjustTimesheet(
+const sheetsOf = (data: DemoData, ids: unknown) => {
+  const set = new Set(strList(ids, "Timesheets"))
+  return data.timesheets.filter((t) => set.has(t.id))
+}
+
+const buysSheet = (ws: Workspace, t: Timesheet) => ws.kind === "buyer" && ws.buyerId === t.buyerId
+
+/** Puts changed timesheets back in place and recomputes overtime for the weeks they touch. */
+function replaceSheets(data: DemoData, changed: Timesheet[]): Timesheet[] {
+  const byId = new Map(changed.map((t) => [t.id, t]))
+  return withOvertime(
+    data.timesheets.map((t) => byId.get(t.id) ?? t),
+    new Set(changed.map(overtimeKey)),
+  )
+}
+
+/** The checks on each timesheet, with the worker's other timesheets in view so a double billing shows. */
+function checksFor(data: DemoData, rows: Timesheet[]) {
+  const pros = new Set(rows.map((t) => t.proId))
+  const theirs = new Map<string, Timesheet[]>()
+  for (const t of data.timesheets) if (pros.has(t.proId)) theirs.set(t.proId, [...(theirs.get(t.proId) ?? []), t])
+  return new Map(rows.map((t) => [t.id, timesheetChecks(t, theirs.get(t.proId))]))
+}
+
+const billedTimes = (input: { clockIn?: unknown; clockOut?: unknown; breakMins?: unknown }) => {
+  const clockIn = time(input?.clockIn, "Clock-in")
+  const clockOut = time(input.clockOut, "Clock-out")
+  const breakMins = Math.round(num(input.breakMins ?? 0, "Break", 0, 180))
+  if (clockIn === clockOut) fail("Clock-in and clock-out can't be the same time.")
+  if (breakMins >= spanMinutes(clockIn, clockOut)) fail("The break can't be as long as the shift.")
+  return { clockIn, clockOut, breakMins }
+}
+
+const agenciesOf = (rows: Timesheet[]) => joinNames([...new Set(rows.map((t) => supplier(t.supplierId).shortName))])
+
+const perAgency = (rows: Timesheet[], text: (n: number) => string, tone: Notice["tone"]): Notice[] =>
+  [...new Set(rows.map((t) => t.supplierId))].map((supplierId) => ({ text: text(rows.filter((t) => t.supplierId === supplierId).length), tone, supplierId }))
+
+export interface ApproveResult {
+  approved: number
+  /** Flagged timesheets left waiting, because they need a decision. */
+  flagged: number
+  invoices: string[]
+}
+
+/** Approves the rows. Hours from a week that has closed go on that week's invoice now; this week's wait for it to close. */
+function approve(data: DemoData, ctx: CommandContext, rows: Timesheet[], reason?: string): Outcome<ApproveResult> {
+  const today = todayISO()
+  const by = actorName(ctx)
+  const approved = rows.map((t) => ({
+    ...t,
+    status: "approved" as const,
+    approvedAt: ctx.now,
+    approvedBy: by,
+    history: [...t.history, change(ctx.now, by, "approved", reason ? { reason } : undefined)],
+  }))
+  const ids = new Set(approved.map((t) => t.id))
+  let sheets = replaceSheets(data, approved)
+  const due = sheets.filter((t) => ids.has(t.id) && weekClosed(t.date, today))
+  const { invoices, invoiceOf, counter } = invoicesFor(data, due, today)
+  const numberOf = new Map(invoices.map((i) => [i.id, i.number]))
+  sheets = sheets.map((t) => {
+    const invoiceId = invoiceOf.get(t.id)
+    return invoiceId ? { ...t, status: "invoiced" as const, invoiceId, history: [...t.history, change(ctx.now, "Iris", "invoiced", { note: numberOf.get(invoiceId) })] } : t
+  })
+  const worked = new Map<string, number>()
+  for (const t of approved) worked.set(t.proId, (worked.get(t.proId) ?? 0) + 1)
+  const numbers = invoices.map((i) => i.number)
+  const what = plural(approved.length, "timesheet")
+  return {
+    ...done(
+      data,
+      { approved: approved.length, flagged: 0, invoices: numbers },
+      {
+        timesheets: sheets,
+        pros: data.pros.map((p) => (worked.has(p.id) ? { ...p, shiftsWorked: p.shiftsWorked + worked.get(p.id)! } : p)),
+        invoices: [...invoices, ...data.invoices],
+        counters: { inv: counter },
+      },
+      event(
+        data,
+        {
+          text: `${by} approved ${what} from ${agenciesOf(approved)}. ${numbers.length ? `Iris invoiced them on ${numbers.join(", ")}` : "They go on the agency's invoice when the week closes"}`,
+          actor: by,
+          tone: "positive",
+          buyerId: approved[0].buyerId,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: perAgency(approved, (n) => `${by} approved ${plural(n, "timesheet")}${numbers.length ? ` and Iris invoiced them` : ""}.`, "success"),
+  }
+}
+
+/** Approves pending timesheets. Clean ones approve in bulk; a flagged one needs a reason to approve as billed. */
+function approveTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[]; reason?: string }): Outcome<ApproveResult> {
+  if (ctx.ws.kind !== "buyer") forbid("Only the buyer approves hours.")
+  const rows = sheetsOf(data, input?.ids)
+  if (rows.some((t) => !buysSheet(ctx.ws, t))) forbid("Only the buyer approves hours.")
+  const pending = rows.filter((t) => t.status === "pending_approval")
+  const reason = optStr(input.reason, 300)
+  const checks = checksFor(data, pending)
+  const flagged = pending.filter((t) => checks.get(t.id)!.length > 0)
+  const ready = reason ? pending : pending.filter((t) => !checks.get(t.id)!.length)
+  if (!ready.length) return done(data, { approved: 0, flagged: flagged.length, invoices: [] })
+  const out = approve(data, ctx, ready, reason)
+  return { ...out, result: { ...out.result, flagged: reason ? 0 : flagged.length } }
+}
+
+/** Corrects a pending timesheet's billed times, Iris's proposal or the buyer's own, then approves it. */
+function correctTimesheet(
   data: DemoData,
   ctx: CommandContext,
-  input: { id: string; patch: { clockIn: string; clockOut: string; breakMins: number; reason: string } },
+  input: { id: string; clockIn: string; clockOut: string; breakMins: number; reason: string },
+): Outcome<ApproveResult> {
+  const t = timesheetOf(data, input?.id)
+  if (!buysSheet(ctx.ws, t)) forbid("Only the buyer can correct these hours.")
+  if (t.status !== "pending_approval") fail("Only timesheets waiting for approval can be corrected.")
+  const times = billedTimes(input)
+  const reason = str(input.reason, "A reason", 300)
+  const hours = hoursFor(times.clockIn, times.clockOut, times.breakMins, t.sentHome)
+  const corrected: Timesheet = {
+    ...t,
+    ...times,
+    hours,
+    history: [...t.history, change(ctx.now, actorName(ctx), "corrected", { from: billedOf(t), to: { ...times, hours }, reason })],
+  }
+  return approve(data, ctx, [corrected])
+}
+
+/** Sends pending timesheets back to the agency with a reason. */
+function rejectTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[]; reason: string; note?: string }): Outcome<number> {
+  if (ctx.ws.kind !== "buyer") forbid("Only the buyer can reject hours.")
+  const rows = sheetsOf(data, input?.ids)
+  if (rows.some((t) => !buysSheet(ctx.ws, t))) forbid("Only the buyer can reject hours.")
+  const pending = rows.filter((t) => t.status === "pending_approval")
+  if (!pending.length) fail("These timesheets aren't waiting for approval.")
+  const reason = str(input.reason, "A reason", 120)
+  const note = optStr(input.note, 1000)
+  const by = actorName(ctx)
+  const rejected = pending.map((t) => ({
+    ...t,
+    status: "rejected" as const,
+    rejection: { reason, note, at: ctx.now, by },
+    history: [...t.history, change(ctx.now, by, "rejected", { reason, note })],
+  }))
+  return {
+    ...done(
+      data,
+      rejected.length,
+      { timesheets: replaceSheets(data, rejected) },
+      event(
+        data,
+        {
+          text: `${by} rejected ${plural(rejected.length, "timesheet")} back to ${agenciesOf(rejected)} (${reason.toLowerCase()})`,
+          actor: by,
+          tone: "warning",
+          buyerId: rejected[0].buyerId,
+          supplierId: rejected[0].supplierId,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: perAgency(rejected, (n) => `${by} rejected ${plural(n, "timesheet")}: ${reason}. Fix and resubmit.`, "warning"),
+  }
+}
+
+/**
+ * Submits drafts and rejected timesheets for approval. The agency submits its own; a buyer can submit a draft for an
+ * agency that hasn't, as Fieldglass lets a buyer complete a draft for a worker.
+ */
+function submitTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[] }): Outcome<number> {
+  const rows = sheetsOf(data, input?.ids).filter(withAgency)
+  if (rows.some((t) => !isSupplier(ctx.ws, t.supplierId) && !buysSheet(ctx.ws, t))) forbid("Only the agency submits its hours.")
+  if (!rows.length) return done(data, 0)
+  const ready = rows.filter((t) => t.clockIn && t.clockOut)
+  if (!ready.length) fail("Add the missing clock-in or clock-out first.")
+  const by = actorName(ctx)
+  const submitted = ready.map((t) => ({
+    ...t,
+    status: "pending_approval" as const,
+    submittedAt: ctx.now,
+    history: [
+      ...t.history,
+      change(ctx.now, by, "submitted", t.status === "rejected" ? { note: "Resubmitted after the rejection" } : ctx.ws.kind === "buyer" ? { note: "Submitted by the buyer for the agency" } : undefined),
+    ],
+  }))
+  return {
+    ...done(
+      data,
+      submitted.length,
+      { timesheets: replaceSheets(data, submitted) },
+      event(
+        data,
+        {
+          text: `${ctx.ws.kind === "supplier" ? ctx.ws.name : by} submitted ${plural(submitted.length, "timesheet")} for approval`,
+          actor: by,
+          tone: "primary",
+          supplierId: submitted[0].supplierId,
+          buyerId: submitted[0].buyerId,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: [...new Set(submitted.map((t) => t.buyerId))].map((buyerId) => ({
+      text: `${agenciesOf(submitted.filter((t) => t.buyerId === buyerId))} submitted ${plural(submitted.filter((t) => t.buyerId === buyerId).length, "timesheet")} for approval.`,
+      tone: "info" as const,
+      buyerId,
+    })),
+  }
+}
+
+/** Pulls pending timesheets back to Draft so the agency can change them. */
+function withdrawTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[] }): Outcome<number> {
+  const rows = sheetsOf(data, input?.ids).filter((t) => t.status === "pending_approval")
+  if (rows.some((t) => !isSupplier(ctx.ws, t.supplierId))) forbid("Only the agency can withdraw its hours.")
+  if (!rows.length) return done(data, 0)
+  const by = actorName(ctx)
+  const withdrawn = rows.map((t) => ({ ...t, status: "draft" as const, submittedAt: undefined, history: [...t.history, change(ctx.now, by, "withdrawn")] }))
+  return done(data, withdrawn.length, { timesheets: replaceSheets(data, withdrawn) })
+}
+
+/** The agency changes the times it bills on a draft or a rejected timesheet. */
+function editTimesheet(
+  data: DemoData,
+  ctx: CommandContext,
+  input: { id: string; clockIn: string; clockOut: string; breakMins: number; note?: string },
 ): Outcome<null> {
   const t = timesheetOf(data, input?.id)
-  if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== t.buyerId) forbid("Only the buyer can adjust these hours.")
-  if (t.invoiceId || t.status === "approved") fail("Approved hours can't be changed.")
-  const clockIn = time(input.patch?.clockIn, "Clock-in")
-  const clockOut = time(input.patch?.clockOut, "Clock-out")
-  const breakMins = num(input.patch.breakMins ?? 0, "Break", 0, 180)
-  const reason = str(input.patch.reason, "A reason", 300)
-  return done(data, null, {
-    timesheets: data.timesheets.map((x) =>
-      x.id === t.id
-        ? {
-            ...x,
-            clockIn,
-            clockOut,
-            breakMins,
-            hours: paidHours(clockIn, clockOut, breakMins),
-            adjustment: { reason, previousHours: x.hours, at: ctx.now, by: actorName(ctx) },
-            source: "manual" as const,
-          }
-        : x,
-    ),
-  })
+  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency edits the hours it bills.")
+  if (!canEditBilled(t)) fail("Withdraw it first. Only drafts and rejected timesheets can be edited.")
+  const times = billedTimes(input)
+  const hours = hoursFor(times.clockIn, times.clockOut, times.breakMins, t.sentHome)
+  const edited: Timesheet = {
+    ...t,
+    ...times,
+    hours,
+    history: [...t.history, change(ctx.now, actorName(ctx), "edited", { from: billedOf(t), to: { ...times, hours }, note: optStr(input.note, 500) })],
+  }
+  return done(data, null, { timesheets: replaceSheets(data, [edited]) })
 }
 
-function disputeTimesheet(data: DemoData, ctx: CommandContext, input: { id: string; reason: string; note?: string }): Outcome<null> {
+/** Takes a timesheet out of billing: a shift the worker didn't work, or a duplicate. The record stays, at zero hours. */
+function removeTimesheet(data: DemoData, ctx: CommandContext, input: { id: string; reason: string }): Outcome<null> {
   const t = timesheetOf(data, input?.id)
-  if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== t.buyerId) forbid("Only the buyer can dispute these hours.")
-  if (t.status !== "submitted") fail("Only submitted hours can be disputed.")
-  const reason = str(input.reason, "A reason", 120)
-  return done(
-    data,
-    null,
-    {
-      timesheets: data.timesheets.map((x) =>
-        x.id === t.id ? { ...x, status: "disputed" as const, dispute: { reason, note: optStr(input.note, 1000), raisedAt: ctx.now, raisedBy: actorName(ctx) } } : x,
-      ),
-    },
-    event(
-      data,
-      {
-        text: `${actorName(ctx)} disputed hours for a ${position(t.positionId).name} shift (${reason.toLowerCase()})`,
-        actor: actorName(ctx),
-        tone: "warning",
-        buyerId: t.buyerId,
-        supplierId: t.supplierId,
-      },
-      ctx.now,
-    ),
-  )
+  const reason = str(input?.reason, "A reason", 200)
+  if (isSupplier(ctx.ws, t.supplierId)) {
+    if (!canEditBilled(t)) fail("Only drafts and rejected timesheets can be removed.")
+  } else if (buysSheet(ctx.ws, t)) {
+    if (t.status !== "draft" && t.status !== "rejected" && t.status !== "pending_approval") fail("Approved hours can't be removed.")
+  } else forbid()
+  return done(data, null, { timesheets: replaceSheets(data, [removed(t, ctx, reason)]) })
 }
 
-function respondDispute(data: DemoData, ctx: CommandContext, input: { id: string; action: "accept" | "confirm"; note?: string }): Outcome<null> {
-  const t = timesheetOf(data, input?.id)
-  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency can answer this dispute.")
-  if (t.status !== "disputed" || !t.dispute) fail("This timesheet isn't disputed.")
-  const action = input.action === "accept" ? "accept" : "confirm"
-  const note = optStr(input.note, 1000)
-  return done(data, null, {
-    timesheets: data.timesheets.map((x) => {
-      if (x.id !== t.id || !x.dispute) return x
-      const scheduled = paidHours(x.scheduledStart, x.scheduledEnd, x.breakMins)
-      const fixed =
-        action === "accept"
-          ? {
-              clockIn: x.scheduledStart,
-              clockOut: x.scheduledEnd,
-              hours: scheduled,
-              adjustment: { reason: "Corrected to schedule after dispute", previousHours: x.hours, at: ctx.now, by: actorName(ctx) },
-            }
-          : {}
-      return {
-        ...x,
-        ...fixed,
-        status: "submitted" as const,
-        submittedAt: ctx.now,
-        dispute: { ...x.dispute, response: note || (action === "accept" ? "Corrected to the scheduled hours." : "Confirmed with the Pro: hours are correct."), respondedAt: ctx.now },
-      }
-    }),
-  })
-}
-
-function submitTimesheets(data: DemoData, ctx: CommandContext, input: { ids: string[] }): Outcome<null> {
-  const set = new Set(strList(input?.ids, "Timesheets"))
-  const rows = data.timesheets.filter((t) => set.has(t.id) && t.status === "awaiting_submission")
-  if (rows.some((t) => !isSupplier(ctx.ws, t.supplierId))) forbid("Only the agency submits its hours.")
-  if (!rows.length) return done(data, null)
-  const ids = new Set(rows.map((t) => t.id))
-  return done(
-    data,
-    null,
-    { timesheets: data.timesheets.map((t) => (ids.has(t.id) ? { ...t, status: "submitted" as const, submittedAt: ctx.now } : t)) },
-    event(
-      data,
-      {
-        text: `${ctx.ws.name} submitted ${plural(rows.length, "timesheet")} for approval`,
-        actor: actorName(ctx),
-        tone: "primary",
-        supplierId: ctx.ws.supplierId,
-        buyerId: rows[0].buyerId,
-      },
-      ctx.now,
-    ),
-  )
-}
+const removed = (t: Timesheet, ctx: CommandContext, reason: string): Timesheet => ({
+  ...t,
+  status: "removed",
+  hours: 0,
+  otHours: 0,
+  history: [...t.history, change(ctx.now, actorName(ctx), "removed", { reason })],
+})
 
 function setTips(data: DemoData, ctx: CommandContext, input: { entries: { timesheetId: string; tips: number }[] }): Outcome<null> {
   const entries = Array.isArray(input?.entries) ? input.entries.slice(0, 2000) : fail("Tips are required")
@@ -833,10 +954,12 @@ export const COMMANDS = {
   moveSupplierPriority,
   setRoster,
   approveTimesheets,
-  adjustTimesheet,
-  disputeTimesheet,
-  respondDispute,
+  correctTimesheet,
+  rejectTimesheets,
   submitTimesheets,
+  withdrawTimesheets,
+  editTimesheet,
+  removeTimesheet,
   setTips,
   createInvoiceGroup,
   removeFromGroup,

@@ -138,7 +138,7 @@ export function useAgent() {
       }
 
       if (lower.includes("hour") || lower.includes("timesheet")) {
-        add({ from: "agent", text: "You can review submitted hours shift by shift, or attach a timesheet CSV for validation.", actions: [{ label: "Open hours queue", kind: "link", href: "/shifts?filter=hours" }, { label: "Upload timesheets", kind: "upload", type: "timesheets" }] })
+        add({ from: "agent", text: "Every timesheet is checked against Iris's clock. Approve the clean ones together, or attach a timesheet CSV and Iris will check it.", actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }, { label: "Upload timesheets", kind: "upload", type: "timesheets" }] })
         return
       }
 

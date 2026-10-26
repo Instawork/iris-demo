@@ -27,12 +27,12 @@ import { EmptyState } from "@/components/common/empty-state"
 import { FillPipe } from "@/components/common/fill-pipe"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { ProAvatar } from "@/components/common/pro-avatar"
-import { StatusBadge, type Tone } from "@/components/common/status-badge"
+import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { ProSheet } from "@/components/pros/pro-sheet"
 import { AssignProsDialog } from "@/components/shifts/assign-pros-dialog"
-import { HoursDialog } from "@/components/shifts/hours-dialog"
 import { ApprovalCard, ReleaseCard } from "@/components/shifts/order-status"
+import { TimesheetStatusBadge } from "@/components/timesheets/timesheet-bits"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   AlertDialog,
@@ -62,13 +62,6 @@ import { buyer, city, location, position, supplier } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
 import type { Pro, ShiftGroup, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
-
-const TS_STATUS: Record<Timesheet["status"], { label: string; tone: Tone }> = {
-  awaiting_submission: { label: "Awaiting supplier", tone: "neutral" },
-  submitted: { label: "Needs approval", tone: "warning" },
-  approved: { label: "Approved", tone: "positive" },
-  disputed: { label: "Disputed", tone: "critical" },
-}
 
 export function ShiftDetail({ id }: { id: string }) {
   const data = useData()
@@ -102,7 +95,6 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const [assignOpen, setAssignOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [headcountOpen, setHeadcountOpen] = useState(false)
-  const [hoursOpen, setHoursOpen] = useState(false)
   const [tipsOpen, setTipsOpen] = useState(false)
 
   const pos = position(group.positionId)
@@ -278,8 +270,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {phase === "past" && ws.kind !== "compass" && (
-                  <Button size="sm" className="h-8 rounded-lg text-caption-1 font-semibold" onClick={() => setHoursOpen(true)} data-tour="hours-action">
-                    {isBuyer ? "Review hours" : "Submit hours"}
+                  <Button asChild size="sm" className="h-8 rounded-lg text-caption-1 font-semibold" data-tour="hours-action">
+                    <Link href={`/timesheets?shift=${group.id}`}>{isBuyer ? "Review hours" : "Submit hours"}</Link>
                   </Button>
                 )}
                 {isBuyer && hasTips && phase === "past" && (
@@ -356,7 +348,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                         {slot.status === "no_show" ? (
                           <StatusBadge tone="critical">No show</StatusBadge>
                         ) : ts ? (
-                          <StatusBadge tone={TS_STATUS[ts.status].tone}>{TS_STATUS[ts.status].label}</StatusBadge>
+                          <TimesheetStatusBadge t={ts} kind={ws.kind} />
                         ) : pro ? (
                           <Tip content={slot.confirmedAt ? `Confirmed ${formatTimestamp(slot.confirmedAt)}` : undefined}>
                             <span>
@@ -547,7 +539,6 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
       </AlertDialog>
 
       <HeadcountDialog open={headcountOpen} onOpenChange={setHeadcountOpen} group={group} onSave={(n) => setHeadcount(group.id, n)} />
-      <HoursDialog group={hoursOpen ? group : undefined} onOpenChange={setHoursOpen} />
       <TipsDialog open={tipsOpen} onOpenChange={setTipsOpen} rows={rows.filter((r) => r.pro && r.ts).map((r) => ({ pro: r.pro!, ts: r.ts! }))} onSave={setTips} />
     </>
   )

@@ -3,6 +3,7 @@ import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO,
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
+import { timesheetAmount, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Invoice, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
@@ -74,28 +75,7 @@ export const needsAttention = (g: ShiftGroup) => {
 
 /* -------------------------------- Timesheets ------------------------------- */
 
-export const timesheetAmount = (t: Timesheet) => round2(t.hours * t.billRate + t.tips)
-
-export type TimesheetFlag = { id: string; label: string; detail: string }
-
-export function timesheetFlags(t: Timesheet): TimesheetFlag[] {
-  const flags: TimesheetFlag[] = []
-  const scheduled = paidHours(t.scheduledStart, t.scheduledEnd, t.breakMins)
-  if (t.hours - scheduled >= 0.75) {
-    flags.push({
-      id: "over",
-      label: "Over schedule",
-      detail: `${round2(t.hours - scheduled)} hrs more than the ${round2(scheduled)} hrs scheduled.`,
-    })
-  }
-  if (t.breakMins === 0 && scheduled >= 6) {
-    flags.push({ id: "break", label: "No break", detail: "No unpaid break recorded on a shift of 6+ hours." })
-  }
-  if (!t.clockIn || !t.clockOut) {
-    flags.push({ id: "punch", label: "Missing punch", detail: "Clock-in or clock-out is missing." })
-  }
-  return flags
-}
+export { timesheetAmount }
 
 /* --------------------------------- Invoices -------------------------------- */
 
@@ -419,7 +399,7 @@ export const prosFor = (data: DemoData, scope: Scope) => scopedPros(data, scopeK
 
 export const proStats = memo((data: DemoData, key: string) => {
   const [proId, buyerId] = key.split("|")
-  const sheets = data.timesheets.filter((t) => t.proId === proId && (!buyerId || t.buyerId === buyerId))
+  const sheets = data.timesheets.filter((t) => t.proId === proId && t.status !== "removed" && (!buyerId || t.buyerId === buyerId))
   const last = sheets.map((t) => t.date).sort().pop()
   return { shifts: sheets.length, hours: round2(sheets.reduce((s, t) => s + t.hours, 0)), lastWorked: last }
 })
@@ -457,15 +437,18 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
     }
   }
   if (scope.kind === "buyer") {
-    const toApprove = data.timesheets.filter((t) => inScope(scope, t) && t.status === "submitted")
+    const toApprove = data.timesheets.filter((t) => inScope(scope, t) && t.status === "pending_approval")
     if (toApprove.length) {
-      const shifts = new Set(toApprove.map((t) => t.groupId)).size
+      const flagged = toApprove.filter((t) => timesheetChecks(t).length > 0).length
+      const hours = round2(toApprove.reduce((s, t) => s + t.hours, 0)).toLocaleString()
       todos.push({
         id: "approve",
         title: `${plural(toApprove.length, "timesheet")} to approve`,
-        description: `${round2(toApprove.reduce((s, t) => s + t.hours, 0)).toLocaleString()} hours across ${plural(shifts, "shift")}. Approving them generates the supplier's invoice.`,
+        description: flagged
+          ? `${hours} hours. Iris checked them against the clock and flagged ${flagged} with a proposed fix.`
+          : `${hours} hours, all matching the clock and the schedule.`,
         count: toApprove.length,
-        href: "/shifts?filter=hours",
+        href: "/timesheets",
         tone: "warning",
         icon: "clock",
         cta: "Approve hours",
@@ -488,6 +471,22 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
     }
   }
   if (scope.kind === "supplier") {
+    const mine = data.timesheets.filter((t) => t.supplierId === scope.supplierId && withAgency(t))
+    if (mine.length) {
+      const rejected = mine.filter((t) => t.status === "rejected").length
+      todos.push({
+        id: "timesheets",
+        title: `${plural(mine.length, "timesheet")} to submit`,
+        description: rejected
+          ? `${rejected} rejected by the buyer with a reason. Fix and resubmit them so they can be invoiced.`
+          : "Drafts from finished shifts. Check the times and submit them for approval.",
+        count: mine.length,
+        href: "/timesheets",
+        tone: rejected ? "critical" : "warning",
+        icon: "clock",
+        cta: "Submit hours",
+      })
+    }
     const pros = data.pros.filter((p) => p.supplierId === scope.supplierId)
     const onboarding = pros.filter((p) => summaryOf(p) === "onboarding")
     const blocked = pros.filter((p) => summaryOf(p) === "action_needed")
@@ -553,7 +552,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
 
 /* ---------------------------------- Spend ---------------------------------- */
 
-const isPending = (t: Timesheet) => t.status !== "approved"
+const isPending = (t: Timesheet) => t.status !== "approved" && t.status !== "invoiced"
 
 const sumSpend = (rows: Timesheet[]) => round2(rows.reduce((s, t) => s + timesheetAmount(t), 0))
 
