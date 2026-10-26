@@ -11,7 +11,8 @@ export type AgentAction =
   | { label: string; kind: "template"; type: UploadType }
   | { label: string; kind: "upload"; type?: UploadType }
   | { label: string; kind: "review"; type: UploadType; fileName: string; csv: string }
-  | { label: string; kind: "create-shift"; input: BookingInput }
+  /** `key` is made with the draft, so a double click or a retry posts once, and no two drafts share one. */
+  | { label: string; kind: "create-shift"; input: BookingInput; key: string }
   | HoursAction
 
 export interface AgentMessage {

@@ -110,6 +110,7 @@ export class Tenant {
       }
       this.version = version
       this.data = outcome.data
+      if (outcome.replaced) this.recent.clear()
       this.emit({ kind: outcome.replaced ? "reset" : "change", version, changes, notices: outcome.notices })
       return { result: outcome.result, version, changes, replaced: !!outcome.replaced }
     }

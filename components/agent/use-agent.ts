@@ -72,7 +72,7 @@ export function useAgent() {
       add({
         from: "agent",
         text: [
-          "Draft ready — review before posting",
+          "Draft ready",
           `${request.headcount} ${pos.name} · ${formatDateFull(request.date)} · ${formatClock(request.start)}–${formatClock(request.end)}`,
           `${loc.name} · ${hours} paid hours${request.breakMins ? ` · ${request.breakMins}-minute unpaid break` : ""}`,
           `Release order: ${quotes.map(({ supplier: item }, index) => `${index + 1}. ${item.shortName}${index ? ` (+${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h)` : releaseLine ? "" : " (now)"}`).join(" · ")}`,
@@ -80,9 +80,9 @@ export function useAgent() {
           `Estimated total: ${money(Math.min(...totals))}${Math.min(...totals) === Math.max(...totals) ? "" : `–${money(Math.max(...totals))}`}`,
           ...(budgetLine ? [budgetLine] : []),
           ...(releaseLine ? [releaseLine] : []),
-          preview?.needsApproval ? "Nothing goes to agencies until it's approved." : "Nothing will be created until you approve below.",
+          preview?.needsApproval ? "Nothing goes to agencies until it's approved." : "Nothing is booked until you click Create and send.",
         ].join("\n"),
-        actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input }],
+        actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input, key: crypto.randomUUID() }],
       })
     },
     [add, ws.buyerId],
@@ -260,19 +260,22 @@ export function useAgent() {
         return
       }
       if (action.kind === "create-shift") {
-        const ids = await useStore.getState().bookShifts(action.input, messageId ? `agent-${ws.id}-${messageId}` : undefined)
+        const ids = await useStore.getState().bookShifts(action.input, action.key)
         if (!ids.length) return
         if (messageId) dropActions(ws.id, messageId)
         const pos = position(action.input.positionId)
         const created = useStore.getState().data.groups.find((group) => group.id === ids[0])
         const spots = `${action.input.headcount} ${pos.name} spot${action.input.headcount === 1 ? "" : "s"}`
         const approver = created ? approversFor(created.locationId)[0] : undefined
+        const later = (created?.supplierReleases ?? []).slice(1).map((r) => supplier(r.supplierId).shortName)
         const text =
           created?.approval?.status === "pending"
             ? `Sent ${spots} to ${approver?.user.name ?? "your approver"} for approval. Agencies see it the moment it's approved.`
             : created && !created.supplierIds.length && created.supplierReleases?.[0]
               ? `Posted ${spots}. ${supplier(created.supplierId).shortName} sees it ${formatTimestamp(created.supplierReleases[0].releasedAt)}, when ${policyFor(created.buyerId).sector} releases it.`
-              : `Created ${spots}. ${created ? supplier(created.supplierId).shortName : "The first supplier"} received the shift first; later suppliers follow every ${policyFor(created?.buyerId ?? "").tierGapHours} hours only while spots remain.`
+              : `Posted ${spots}. ${created ? supplier(created.supplierId).shortName : "Your first agency"} has them now${
+                  later.length ? `, and ${joinNames(later)} ${later.length === 1 ? "gets" : "get"} whatever's still open, ${policyFor(created?.buyerId ?? "").tierGapHours} hours apart` : ""
+                }.`
         add({ from: "agent", text, actions: [{ label: "View created shift", kind: "link", href: `/shifts/${ids[0]}` }] })
         return
       }
