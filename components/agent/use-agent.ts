@@ -6,6 +6,7 @@ import { NO_MESSAGES, useAgentThreads, type AgentAction } from "@/components/age
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
 import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/lib/agent-hours"
+import { parseReportRequest, reportReply } from "@/lib/agent-report"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
 import { formatClock, formatDateFull, formatDateShort, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
@@ -109,6 +110,12 @@ export function useAgent() {
         }
       }
 
+      const report = parseReportRequest(text, ws)
+      if (report) {
+        add({ from: "agent", ...reportReply(useStore.getState().data, report, ws) })
+        return
+      }
+
       const parsed = ws.kind === "buyer" ? parseAgentShift(text, ws.buyerId!) : undefined
       if (ws.kind === "buyer" && parsed && (parsed.draft || looksLikeShiftRequest(text))) {
         const buyerId = ws.buyerId!
@@ -169,9 +176,12 @@ export function useAgent() {
         return
       }
 
-      add({ from: "agent", text: "I can create a shift from one sentence, give you the right CSV template, or check an attachment before anything is saved. Try one of the suggestions, or describe what you need." })
+      add({
+        from: "agent",
+        text: `I can ${ws.kind === "buyer" ? "create a shift from one sentence, " : ""}build a report from a question like “spend by agency last month”, give you the right CSV template, or check an attachment before anything is saved. Try one of the suggestions, or describe what you need.`,
+      })
     },
-    [add, proposeShift, ws.buyerId, ws.kind],
+    [add, proposeShift, ws],
   )
 
   const attach = useCallback(
