@@ -1,9 +1,7 @@
 import { canWork } from "@/lib/compliance"
-import { addDaysISO, weekEndISO, weekStartISO } from "@/lib/dates"
 import { PROGRAM, SUPPLIERS, location } from "@/lib/reference"
 import { emptyCounters } from "@/lib/seed"
-import { laborAmount } from "@/lib/timesheets"
-import type { ActivityEvent, Counters, DemoData, Invoice, RateCard, ShiftGroup, Timesheet } from "@/lib/types"
+import type { ActivityEvent, Counters, DemoData, RateCard, ShiftGroup } from "@/lib/types"
 
 export const emptyData = (): DemoData => ({
   version: 0,
@@ -102,60 +100,4 @@ export function supplierReleasePlan(supplierIds: string[], createdAt: string) {
     supplierId,
     releasedAt: new Date(start + index * PROGRAM.cascadeHoursBefore * 60 * 60 * 1000).toISOString(),
   }))
-}
-
-/**
- * One invoice per supplier, buyer and work week for approved hours, priced at the hours, overtime, tips and bill rate
- * on each timesheet. The period is the Saturday to Friday week the hours were worked in.
- */
-export function invoicesFor(data: DemoData, approved: Timesheet[], today: string) {
-  const pros = new Map(data.pros.map((p) => [p.id, p]))
-  const byWeek = new Map<string, Timesheet[]>()
-  for (const t of approved) {
-    const key = `${t.supplierId}|${t.buyerId}|${weekStartISO(t.date)}`
-    byWeek.set(key, [...(byWeek.get(key) ?? []), t])
-  }
-  let counter = data.counters.inv
-  const invoiceOf = new Map<string, string>()
-  const invoices: Invoice[] = [...byWeek.values()].map((rows) => {
-    const number = `INV-${counter}`
-    const id = `inv-${counter++}`
-    rows.forEach((t) => invoiceOf.set(t.id, id))
-    return {
-      id,
-      number,
-      supplierId: rows[0].supplierId,
-      buyerId: rows[0].buyerId,
-      periodStart: weekStartISO(rows[0].date),
-      periodEnd: weekEndISO(rows[0].date),
-      issuedOn: today,
-      dueOn: addDaysISO(today, PROGRAM.paymentTermsDays),
-      status: "unpaid",
-      paidAmount: 0,
-      source: "auto",
-      lines: rows.map((t, i) => {
-        const pro = pros.get(t.proId)
-        return {
-          id: `${t.id}-l${i}`,
-          timesheetId: t.id,
-          proId: t.proId,
-          proName: pro ? `${pro.firstName} ${pro.lastName}` : "Unknown Pro",
-          groupId: t.groupId,
-          positionId: t.positionId,
-          locationId: t.locationId,
-          date: t.date,
-          scheduledStart: t.scheduledStart,
-          scheduledEnd: t.scheduledEnd,
-          clockIn: t.clockIn,
-          clockOut: t.clockOut,
-          hours: t.hours,
-          otHours: t.otHours || undefined,
-          billRate: t.billRate,
-          amount: laborAmount(t),
-          tips: t.tips,
-        }
-      }),
-    }
-  })
-  return { invoices, invoiceOf, counter }
 }

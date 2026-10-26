@@ -41,7 +41,7 @@ interface StoreState {
   releasePro: (groupId: string, slotId: string) => Promise<void>
   markNoShow: (groupId: string, slotId: string) => Promise<void>
   setRoster: (buyerId: string, proIds: string[], status: RosterStatus | null) => Promise<void>
-  /** Approves pending hours. A reason approves flagged ones as billed. Hours from a closed week are invoiced right away. */
+  /** Approves pending hours onto this week's open invoice. A reason approves flagged ones as billed. Hours from a closed week are invoiced right away. */
   approveTimesheets: (ids: string[], reason?: string) => Promise<ApproveResult | undefined>
   /** Corrects a pending timesheet's billed times, then approves it. */
   correctTimesheet: (id: string, times: TimesInput, reason: string) => Promise<ApproveResult | undefined>
@@ -55,7 +55,17 @@ interface StoreState {
   removeFromGroup: (invoiceId: string) => Promise<void>
   deleteInvoiceGroup: (groupId: string) => Promise<void>
   payInvoices: (ids: string[]) => Promise<void>
-  reviewInvoice: (id: string, status: "reviewed" | "sent_back", note?: string) => Promise<void>
+  /** Clears an invoice priced above the market for payment. */
+  reviewInvoice: (id: string, note?: string) => Promise<void>
+  /** Asks the agency to review the rates on this invoice that run above the market, and clears it for payment. Resolves to the number of rates. */
+  requestRateReview: (id: string, note?: string) => Promise<number>
+  answerRateReview: (cardId: string, decision: "lower" | "keep", note?: string) => Promise<boolean>
+  /** Sends lines billed above Iris's clock back to the agency for a credit, or accepts them as billed. */
+  decideBilling: (id: string, decision: "send_back" | "accept", note?: string) => Promise<boolean>
+  /** The agency credits what Compass sent back. Resolves to the amount credited. */
+  creditInvoice: (id: string) => Promise<number | undefined>
+  /** Issues this week's open invoices now, for the presenter. Resolves to their numbers. */
+  closeWeekNow: () => Promise<string[]>
   upsertRateCard: (input: RateCardInput) => Promise<void>
   deleteRateCard: (id: string) => Promise<void>
   completeRequirement: (proId: string, requirement: RequirementId) => Promise<void>
@@ -233,7 +243,12 @@ export const useStore = create<StoreState>()((set, get) => {
     removeFromGroup: async (invoiceId) => void (await send("removeFromGroup", { invoiceId })),
     deleteInvoiceGroup: async (groupId) => void (await send("deleteInvoiceGroup", { groupId })),
     payInvoices: async (ids) => void (await send("payInvoices", { ids })),
-    reviewInvoice: async (id, status, note) => void (await send("reviewInvoice", { id, status, note })),
+    reviewInvoice: async (id, note) => void (await send("reviewInvoice", { id, note })),
+    requestRateReview: async (id, note) => (await send("requestRateReview", { id, note })) ?? 0,
+    answerRateReview: async (cardId, decision, note) => (await send("answerRateReview", { id: cardId, decision, note })) !== undefined,
+    decideBilling: async (id, decision, note) => (await send("decideBilling", { id, decision, note })) !== undefined,
+    creditInvoice: async (id) => send("creditInvoice", { id }),
+    closeWeekNow: async () => (await send("closeWeekNow", {} as never)) ?? [],
     upsertRateCard: async (input) => void (await send("upsertRateCard", input)),
     deleteRateCard: async (id) => void (await send("deleteRateCard", { id })),
     completeRequirement: async (proId, requirement) => void (await send("completeRequirement", { proId, requirement })),

@@ -1,6 +1,6 @@
 "use client"
 
-import { ShieldCheck, Undo2 } from "lucide-react"
+import { ShieldCheck, TrendingDown } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -22,14 +22,15 @@ import {
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useData } from "@/hooks/use-app"
-import { money } from "@/lib/format"
+import { formatDateShort } from "@/lib/dates"
+import { money, plural } from "@/lib/format"
 import { ANOMALY_THRESHOLD, invoiceBenchmark } from "@/lib/metrics"
-import { location, supplier } from "@/lib/reference"
+import { buyer, city, location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import type { DemoData, Invoice, InvoiceLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Decision = "reviewed" | "sent_back"
+type Decision = "reviewed" | "rate_review"
 
 /** A peer only quotes the hours it has an active rate for, so its amount is compared with this invoice's labor on those same lines. */
 const hasRate = (data: DemoData, supplierId: string, line: InvoiceLine) => {
@@ -39,9 +40,9 @@ const hasRate = (data: DemoData, supplierId: string, line: InvoiceLine) => {
 
 export function PeerComparison({ invoice }: { invoice: Invoice }) {
   const data = useData()
-  const reviewInvoice = useStore((s) => s.reviewInvoice)
+  const { reviewInvoice, requestRateReview } = useStore.getState()
   const [open, setOpen] = useState(false)
-  const [decision, setDecision] = useState<Decision>("reviewed")
+  const [decision, setDecision] = useState<Decision>("rate_review")
   const [note, setNote] = useState("")
   const b = invoiceBenchmark(data, invoice.id)
   const sup = supplier(invoice.supplierId)
@@ -50,6 +51,8 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
     const base = invoice.lines.reduce((s, l) => (hasRate(data, p.supplierId, l) ? s + l.amount : s), 0)
     return { ...p, delta: base ? p.amount / base - 1 : 0 }
   })
+  const highRates = new Set(invoice.lines.filter((l) => (b.lineDelta.get(l.id) ?? 0) >= ANOMALY_THRESHOLD).map((l) => `${location(l.locationId).cityId}|${l.positionId}`)).size
+  const asked = data.rateCards.filter((c) => c.rateReview?.invoiceId === invoice.id)
 
   const start = (next: Decision) => {
     setDecision(next)
@@ -57,10 +60,14 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
     setOpen(true)
   }
 
-  const confirm = () => {
-    reviewInvoice(invoice.id, decision, note.trim() || undefined)
-    if (decision === "reviewed") toast.success(`${invoice.number} marked reviewed`, { description: "Cleared for payment." })
-    else toast(`${invoice.number} sent back to ${sup.shortName}`)
+  const confirm = async () => {
+    if (decision === "reviewed") {
+      await reviewInvoice(invoice.id, note.trim() || undefined)
+      toast.success(`${invoice.number} marked reviewed`, { description: "Cleared for payment." })
+      return
+    }
+    const n = await requestRateReview(invoice.id, note.trim() || undefined)
+    if (n) toast.success(`Asked ${sup.shortName} to review ${plural(n, "rate")}`, { description: `${invoice.number} is cleared for payment. New shifts price at whatever ${sup.shortName} answers.` })
   }
 
   return (
@@ -69,23 +76,20 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
         title="Compared with other suppliers"
         info={`What the same hours would have cost from the other suppliers with rates for each shift's city and role, weighted by their rating. Invoices ${Math.round(ANOMALY_THRESHOLD * 100)}% or more above it are flagged.`}
         actions={
-          review?.status === "reviewed" ? (
-            <StatusBadge tone="positive">
-              <ShieldCheck className="size-3.5" /> Reviewed by {review.by}
+          review ? (
+            <StatusBadge tone={review.status === "reviewed" ? "positive" : "primary"}>
+              {review.status === "reviewed" ? <ShieldCheck className="size-3.5" /> : <TrendingDown className="size-3.5" />}
+              {review.status === "reviewed" ? `Reviewed by ${review.by}` : "Rate review requested"}
             </StatusBadge>
+          ) : invoice.status === "open" ? (
+            <span className="text-caption-1 text-faded">Review it once Iris issues it on {formatDateShort(invoice.issuedOn)}</span>
           ) : (
             <>
-              {review?.status === "sent_back" ? (
-                <StatusBadge tone="warning">
-                  <Undo2 className="size-3.5" /> Sent back by {review.by}
-                </StatusBadge>
-              ) : (
-                <Button variant="outline" className="h-8 gap-1.5 rounded-lg text-body-3" onClick={() => start("sent_back")}>
-                  <Undo2 className="size-4" /> Send back
-                </Button>
-              )}
-              <Button className="h-8 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => start("reviewed")}>
+              <Button variant="outline" className="h-8 gap-1.5 rounded-lg text-body-3" onClick={() => start("reviewed")}>
                 <ShieldCheck className="size-4" /> Mark reviewed
+              </Button>
+              <Button className="h-8 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => start("rate_review")} data-tour="rate-review">
+                <TrendingDown className="size-4" /> Ask {sup.shortName} to review its rates
               </Button>
             </>
           )
@@ -144,6 +148,23 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
           </tbody>
         </table>
       </div>
+      {asked.length > 0 && (
+        <ul className="mx-5 mb-4 flex flex-col gap-1.5 rounded-lg bg-tint-faded px-3 py-2.5 text-body-3">
+          {asked.map((c) => {
+            const r = c.rateReview!
+            return (
+              <li key={c.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+                <span>
+                  {position(c.positionId).name}, {city(c.cityId).name}: {money(r.fromRate)}/hr against a market of {money(r.marketRate)}/hr
+                </span>
+                <span className={cn("font-medium", r.status === "lowered" ? "text-positive-fg" : "text-faded")}>
+                  {r.status === "requested" ? `Waiting on ${sup.shortName}` : r.status === "lowered" ? `Lowered to ${money(c.billRate)}/hr` : `Kept: “${r.answer}”`}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
       {review?.note && (
         <p className="mx-5 mb-5 rounded-lg bg-tint-faded px-3 py-2 text-body-3 text-faded">
           Note from {review.by}: “{review.note}”
@@ -153,15 +174,17 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{decision === "reviewed" ? `Mark ${invoice.number} reviewed?` : `Send ${invoice.number} back to ${sup.shortName}?`}</AlertDialogTitle>
+            <AlertDialogTitle>{decision === "reviewed" ? `Mark ${invoice.number} reviewed?` : `Ask ${sup.shortName} to review its rates?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              {decision === "reviewed" ? "It's cleared for payment and comes off your to-dos." : `${sup.shortName} is asked to correct it. It comes off your to-dos.`}
+              {decision === "reviewed"
+                ? "It's cleared for payment and comes off your to-dos."
+                : `${invoice.number} is billed at the rates ${buyer(invoice.buyerId).name} agreed to, so it's cleared for payment. ${sup.shortName} is asked to bring ${plural(highRates, "rate")} down to the market or say why not, and new shifts price at its answer.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note (optional)" className="min-h-20 rounded-lg text-body-3" />
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={decision === "reviewed" ? "Add a note (optional)" : `Add a note for ${sup.shortName} (optional)`} className="min-h-20 rounded-lg text-body-3" />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirm}>{decision === "reviewed" ? "Mark reviewed" : "Send back"}</AlertDialogAction>
+            <AlertDialogAction onClick={confirm}>{decision === "reviewed" ? "Mark reviewed" : "Ask for a rate review"}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

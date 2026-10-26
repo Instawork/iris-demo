@@ -120,7 +120,9 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
       return
     }
     toast.success(`Approved ${pro ? fullName(pro) : "the timesheet"}`, {
-      description: result.invoices.length ? `Iris invoiced it on ${result.invoices.join(", ")}.` : `Iris adds it to ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}.`,
+      description: result.invoices.length
+        ? `Iris invoiced it on ${result.invoices.join(", ")}.`
+        : `It's on ${result.open[0] ?? `${sup.shortName}'s invoice`} for this week, which Iris issues on Saturday, ${formatDateShort(closesOn)}.`,
     })
     onDone()
   }
@@ -279,13 +281,14 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                   {invoice.number}
                 </Link>{" "}
                 for the week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}.
+                {invoice.status === "open" && ` Iris issues it on Saturday, ${formatDateShort(invoice.issuedOn)}.`}
               </>
             ) : (
               <>
                 Week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}.{" "}
                 {closed
                   ? "That week has closed, so Iris invoices it as soon as it's approved."
-                  : `Iris adds approved hours to ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}.`}
+                  : `Approved hours go on ${sup.shortName}'s invoice for the week, which Iris issues on Saturday, ${formatDateShort(closesOn)}.`}
               </>
             )}
           </span>

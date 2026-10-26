@@ -1,6 +1,6 @@
 "use client"
 
-import { Copy, ExternalLink, Smartphone } from "lucide-react"
+import { CalendarCheck, Copy, ExternalLink, Smartphone } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -9,16 +9,27 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { useData } from "@/hooks/use-app"
-import { SUPPLIERS } from "@/lib/reference"
+import { plural } from "@/lib/format"
+import { PROGRAM, SUPPLIERS } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
 /** Presenter switches for the shared demo: which agencies Iris staffs on its own, and a live shift to clock out of. */
 export function DemoControlsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const data = useData()
   const setAutoFill = useStore((s) => s.setAgencyAutoFill)
+  const closeWeekNow = useStore((s) => s.closeWeekNow)
   const paused = new Set(data.settings?.pausedAgencies ?? [])
   const [link, setLink] = useState<string>()
   const [starting, setStarting] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const openInvoices = data.invoices.filter((i) => i.status === "open" && i.lines.length > 0)
+
+  const closeWeek = async () => {
+    setClosing(true)
+    const numbers = await closeWeekNow()
+    setClosing(false)
+    if (numbers.length) toast.success(`Iris issued ${plural(numbers.length, "invoice")}`, { description: `${numbers.join(", ")}, due in ${PROGRAM.paymentTermsDays} days.` })
+  }
 
   const startLive = async () => {
     setStarting(true)
@@ -87,6 +98,18 @@ export function DemoControlsDialog({ open, onOpenChange }: { open: boolean; onOp
               {starting ? "Starting…" : "Start a live shift"}
             </Button>
           )}
+        </div>
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <span className="flex items-center gap-2 text-body-3 font-semibold">
+            <CalendarCheck className="size-4 text-faded" /> Close the week
+          </span>
+          <span className="text-caption-1 text-faded">
+            Approved hours collect on each agency&apos;s open invoice until the week closes on Friday, and Iris issues them on Saturday. Close it now to issue{" "}
+            {openInvoices.length ? plural(openInvoices.length, "open invoice") : "this week's invoices"} during the demo.
+          </span>
+          <Button variant="outline" className="h-8 self-start rounded-lg text-caption-1" disabled={closing || !openInvoices.length} onClick={closeWeek}>
+            {closing ? "Issuing…" : openInvoices.length ? "Close the week now" : "No open invoices yet"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -338,21 +338,25 @@ export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, t
   return { text: paragraphs.join("\n\n"), actions }
 }
 
-/** Where the approved hours go: on an invoice now if their week has closed, or on Saturday's invoice. */
+/** Where the approved hours went: this week's open invoice, which Iris issues on Saturday, or an invoice issued now if their week had closed. */
 function invoiceLine(rows: Timesheet[], result: ApproveResult, today: string) {
   const agencies = [...new Set(rows.map((t) => t.supplierId))]
-  const whose = agencies.length === 1 ? `${supplier(agencies[0]).shortName}'s` : "each agency's"
   const saturday = formatDateShort(addDaysISO(weekEndISO(today), 1))
   const closed = rows.filter((t) => weekClosed(t.date, today)).length
-  if (!result.invoices.length || !closed) return `${rows.length === 1 ? "It goes" : "They go"} on ${whose} invoice on Saturday, ${saturday}.`
+  const open = result.open.length
+    ? agencies.length === 1
+      ? `on ${result.open[0]}, ${supplier(agencies[0]).shortName}'s invoice for this week, which Iris issues on Saturday, ${saturday}`
+      : `on this week's invoices, ${joinNames(result.open)}, which Iris issues on Saturday, ${saturday}`
+    : ""
+  if (!result.invoices.length || !closed) return open ? `${rows.length === 1 ? "It's" : "They're"} ${open}.` : ""
   if (closed === rows.length) return `${rows.length === 1 ? "Its week has" : "Their weeks have"} closed, so Iris invoiced ${rows.length === 1 ? "it" : "them"} on ${joinNames(result.invoices)}.`
-  return `Hours from weeks that have closed are on ${joinNames(result.invoices)}. This week's go on ${whose} invoice on Saturday, ${saturday}.`
+  return `Hours from weeks that have closed are on ${joinNames(result.invoices)}. This week's are on ${joinNames(result.open)}, which Iris issues on Saturday, ${saturday}.`
 }
 
 /** The first line after "Approve N timesheets" goes through. `rows` are the ones now approved. */
 export function approvedLine(rows: Timesheet[], result: ApproveResult, today: string) {
   if (!rows.length) return result.flagged ? "Iris flagged those since, so none went through." : "Those were already decided, so nothing changed."
-  return `Approved ${plural(rows.length, "timesheet")}, ${hours(round2(rows.reduce((s, t) => s + t.hours, 0)))}. ${invoiceLine(rows, result, today)}`
+  return `Approved ${plural(rows.length, "timesheet")}, ${hours(round2(rows.reduce((s, t) => s + t.hours, 0)))}. ${invoiceLine(rows, result, today)}`.trim()
 }
 
 /** The first line after accepting Iris's proposal on a flagged timesheet. `before` is the timesheet as the agency billed it. */
@@ -361,5 +365,5 @@ export function correctedLine(before: Timesheet, approvedHours: number, reason: 
   const agency = supplier(before.supplierId).shortName
   const saving = round2((before.hours - approvedHours) * before.billRate)
   const billed = `${agency} billed ${before.hours.toFixed(2)}${saving > 0 ? `, so that's ${money(saving)} off the bill` : ""}`
-  return `Approved ${pro ? fullName(pro) : "the timesheet"} at ${approvedHours.toFixed(2)} hrs, ${reason.toLowerCase()}. ${billed}, and the correction is on the timesheet's history for ${agency} to see. ${invoiceLine([before], result, today)}`
+  return `Approved ${pro ? fullName(pro) : "the timesheet"} at ${approvedHours.toFixed(2)} hrs, ${reason.toLowerCase()}. ${billed}, and the correction is on the timesheet's history for ${agency} to see. ${invoiceLine([before], result, today)}`.trim()
 }

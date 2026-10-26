@@ -176,11 +176,13 @@ const ACTION: Record<TimesheetAction, string> = {
   rejected: "Rejected",
   removed: "Removed",
   invoiced: "Invoiced",
+  credited: "Credited",
 }
 
 const DOT: Partial<Record<TimesheetAction, string>> = {
   approved: "bg-positive",
   invoiced: "bg-positive",
+  credited: "bg-warning",
   rejected: "bg-critical",
   corrected: "bg-warning",
   removed: "bg-border-strong",
@@ -191,7 +193,7 @@ function derived(t: Timesheet, invoice?: Invoice): TimesheetChange[] {
   const entries: TimesheetChange[] = []
   if (t.submittedAt) entries.push({ at: t.submittedAt, by: t.source === "app" ? "Agency app" : "Agency", action: "submitted" })
   if (t.approvedAt) entries.push({ at: t.approvedAt, by: t.approvedBy ?? "Buyer", action: "approved" })
-  if (invoice) entries.push({ at: `${invoice.issuedOn}T07:00:00.000Z`, by: "Iris", action: "invoiced", note: invoice.number })
+  if (invoice && invoice.status !== "open") entries.push({ at: `${invoice.issuedOn}T07:00:00.000Z`, by: "Iris", action: "invoiced", note: invoice.number })
   return entries
 }
 

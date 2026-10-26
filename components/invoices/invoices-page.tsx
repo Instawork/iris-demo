@@ -40,24 +40,24 @@ import type { Invoice, InvoiceGroup, PersonaKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type Tab = "groups" | "invoices"
-type Quick = "all" | "flagged" | "outstanding" | "overdue" | "paid"
+type Quick = "all" | "flagged" | "open" | "outstanding" | "overdue" | "paid"
 type GroupRow = InvoiceGroup & ReturnType<typeof groupTotals>
 
 const QUICK: Record<PersonaKind, Quick[]> = {
-  compass: ["all", "flagged", "outstanding", "paid"],
-  buyer: ["all", "outstanding", "overdue", "paid"],
-  supplier: ["all", "outstanding", "overdue", "paid"],
+  compass: ["all", "flagged", "open", "outstanding", "paid"],
+  buyer: ["all", "open", "outstanding", "overdue", "paid"],
+  supplier: ["all", "open", "outstanding", "overdue", "paid"],
 }
 
-const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", outstanding: "Outstanding", overdue: "Overdue", paid: "Paid" }
+const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", overdue: "Overdue", paid: "Paid" }
 
 const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
-    "Every invoice and invoice group in the program. Iris builds each invoice from approved hours, tips and the supplier's bill rate, and flags it when it costs well above what other suppliers would have charged.",
-  buyer: "Invoices for your locations. Iris builds each one from the hours you approve, so there's nothing to upload.",
-  supplier: "What you're owed. Iris builds an invoice from your bill rates whenever a buyer approves your hours.",
+    "Every invoice in the program, built from approved hours at each agency's rates. Iris flags hours billed above its clock, which go back to the agency for a credit, and invoices priced well above what other agencies charge.",
+  buyer: "Each agency's invoice for the week fills as you approve hours. Iris issues them on Saturday in one consolidated invoice for the week, so there's nothing to upload.",
+  supplier: "What you're owed. Your invoice for the week fills as the buyer approves your hours, and Iris issues it on Saturday.",
 }
 
 const when = <T,>(show: boolean, column: Column<T>) => (show ? [column] : [])
@@ -108,6 +108,7 @@ export function InvoicesPage() {
     () => ({
       all: () => true,
       flagged: (i) => needsReview(data, i),
+      open: (i) => invoiceStatus(i) === "open",
       outstanding: (i) => OUTSTANDING.includes(invoiceStatus(i)),
       overdue: (i) => invoiceStatus(i) === "overdue",
       paid: (i) => invoiceStatus(i) === "paid",
@@ -130,7 +131,7 @@ export function InvoicesPage() {
   const billed = rows.reduce((s, i) => s + invoiceTotal(i), 0)
   const open = rows.reduce((s, i) => s + invoiceBalance(i), 0)
   const chosen = rows.filter((i) => selected.has(i.id))
-  const payable = ws.kind === "buyer" ? chosen.filter((i) => invoiceBalance(i) > 0 && invoiceStatus(i) !== "in_process") : []
+  const payable = ws.kind === "buyer" ? chosen.filter((i) => invoiceBalance(i) > 0 && invoiceStatus(i) !== "in_process" && invoiceStatus(i) !== "open") : []
   const payTotal = payable.reduce((s, i) => s + invoiceBalance(i), 0)
 
   const columns: Column<Invoice>[] = [
@@ -212,6 +213,7 @@ export function InvoicesPage() {
       sortValue: (i) => i.dueOn,
       cell: (i) => {
         const s = invoiceStatus(i)
+        if (s === "open") return <span className="text-faded">Issues {formatDateShort(i.issuedOn)}</span>
         return <span className={cn(s === "overdue" && "font-semibold text-critical-fg", s === "paid" && "text-faded")}>{formatDateShort(i.dueOn)}</span>
       },
     },
@@ -220,7 +222,7 @@ export function InvoicesPage() {
   const groupColumns: Column<GroupRow>[] = [
     {
       id: "code",
-      header: "Invoice group",
+      header: "Consolidated invoice",
       sortValue: (g) => g.code,
       cell: (g) => (
         <span className="flex flex-col">
@@ -366,7 +368,7 @@ export function InvoicesPage() {
                 setParams({ tab: v === "groups" ? "groups" : undefined })
               }}
               items={[
-                { value: "groups", label: "Invoice groups", count: groupRows.length, tooltip: "Consolidated invoices: several invoices reviewed and paid together" },
+                { value: "groups", label: "Consolidated", count: groupRows.length, tooltip: "One invoice for each buyer's week across every agency, reviewed and paid as one" },
                 { value: "invoices", label: "Invoices", count: mine.length },
               ]}
             />
@@ -433,8 +435,8 @@ export function InvoicesPage() {
             empty={
               <EmptyState
                 icon={Layers}
-                title="No invoice groups yet"
-                description={canSelect ? "Select invoices on the Invoices tab and choose Group to pay them as one." : "When your invoices are grouped into a consolidated invoice, it shows up here."}
+                title="No consolidated invoices yet"
+                description="Iris starts one for each buyer's week as soon as hours are approved."
                 actions={
                   canSelect ? (
                     <Button variant="outline" onClick={() => setParams({ tab: undefined })}>

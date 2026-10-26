@@ -6,8 +6,8 @@ import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase } from "@/hooks/use-tour"
 import { requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
-import { fullName } from "@/lib/format"
-import { filledCount, invoiceBenchmark, needsReview } from "@/lib/metrics"
+import { fullName, money, plural } from "@/lib/format"
+import { billingFindings, billingToReview, filledCount, invoiceBenchmark, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
@@ -79,7 +79,7 @@ export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep |
 export const CHAPTERS: Record<ChapterId, { number: number; label: string; icon: LucideIcon; blurb: string }> = {
   control: { number: 1, label: "Control", icon: SlidersHorizontal, blurb: "Book staff in one sentence and release it to your agencies in order." },
   compliance: { number: 2, label: "Compliance", icon: ShieldCheck, blurb: "See why a Pro is off the schedule, and clear them." },
-  cost: { number: 3, label: "Cost", icon: ReceiptText, blurb: "Approve hours checked against the clock, then catch an overpriced invoice." },
+  cost: { number: 3, label: "Cost", icon: ReceiptText, blurb: "Approve hours checked against the clock, then send back what an invoice gets wrong." },
 }
 
 const LEVY = "ws-levy"
@@ -102,7 +102,9 @@ const booked = (ctx: TourContext) =>
     .filter((g) => g.buyerId === "levy-chi" && serial(g.id) >= ctx.base.sg)
     .sort((a, b) => serial(b.id) - serial(a.id))[0]
 
-const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv)
+const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv && i.status !== "open")
+
+const openInvoices = (ctx: TourContext) => ctx.data.invoices.filter((i) => i.buyerId === "levy-chi" && i.status === "open")
 
 /** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
 const paddedSheet = (data: DemoData) =>
@@ -131,8 +133,13 @@ const chosenPro = (ctx: TourContext): Pro | undefined => ctx.data.pros.find((p) 
 
 const blocker = (pro?: Pro) => (pro ? requirementRows(pro).find((r) => BLOCKING.includes(r.state)) : undefined)
 
+/** Waiting on Compass, the ones with hours billed above the clock first. */
 const flagged = (data: DemoData) =>
-  data.invoices.filter((i) => needsReview(data, i)).sort((a, b) => b.issuedOn.localeCompare(a.issuedOn) || b.number.localeCompare(a.number))
+  data.invoices
+    .filter((i) => needsReview(data, i))
+    .sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || b.issuedOn.localeCompare(a.issuedOn) || b.number.localeCompare(a.number))
+
+const tourInvoice = (ctx: TourContext) => ctx.data.invoices.find((i) => i.id === ctx.invoiceId)
 
 const pct = (value: number) => `${Math.trunc(value * 100)}%`
 
@@ -395,12 +402,15 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: "Approve the clean ones together",
-    body: "Everything else matches the clock and the schedule. Last week's hours go straight onto the agency's invoice; this week's wait for Friday's close.",
+    body: "Everything else matches the clock and the schedule. This week's hours go straight onto each agency's open invoice for the week, which Iris issues on Saturday.",
     action: "Click Approve",
     targets: () => [one('[data-tour="approve-clean"]')],
     placement: "bottom",
     done: (ctx) => !ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && !timesheetChecks(t).length),
-    success: (ctx) => (generated(ctx).length ? `Approved. Iris invoiced last week's hours on ${generated(ctx).map((i) => i.number).join(" and ")}` : "Approved. They go on the invoice when the week closes"),
+    success: (ctx) =>
+      generated(ctx).length
+        ? `Approved. Iris invoiced last week's hours on ${generated(ctx).map((i) => i.number).join(" and ")}`
+        : `Approved. They're on ${plural(openInvoices(ctx).length, "open invoice")} for the week`,
     skip: () => click('[data-tour="approve-clean"]'),
   },
 
@@ -412,7 +422,7 @@ export const SCRIPT: TourItem[] = [
     line: "Then Iris shows you where to cut it.",
     wsId: COMPASS,
     href: "/",
-    mission: "Every agency's invoices land with you. Catch the one priced above the market.",
+    mission: "Every agency's invoices land with you. Send back hours the clock doesn't support, and push back on rates above the market.",
   },
   {
     kind: "step",
@@ -435,7 +445,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Where to cut",
-    body: "Iris prices every invoice against what the other agencies would charge for the same hours, weighted by how well each one performs.",
+    body: "Iris checks every invoice two ways: against its own clock, and against what the other agencies would charge for the same hours, weighted by how well each one performs.",
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-anomalies"]')],
     placement: "bottom",
@@ -452,14 +462,18 @@ export const SCRIPT: TourItem[] = [
     title: "Open the top one",
     body: (ctx) => {
       const inv = flagged(ctx.data)[0]
-      if (!inv) return "Open a flagged invoice to see how it compares."
-      return `${inv.number} from ${supplier(inv.supplierId).shortName} came in ${pct(invoiceBenchmark(ctx.data, inv.id).deltaPct)} above its rating-weighted benchmark.`
+      if (!inv) return "Open a flagged invoice to see what Iris found."
+      const market = invoiceBenchmark(ctx.data, inv.id)
+      const sup = supplier(inv.supplierId).shortName
+      if (!billingToReview(ctx.data, inv)) return `${inv.number} from ${sup} came in ${pct(market.deltaPct)} above its rating-weighted benchmark.`
+      return `${inv.number} from ${sup} has hours billed above Iris's clock${market.anomalous ? `, and it's priced ${pct(market.deltaPct)} above its benchmark` : ""}.`
     },
     action: "Click the highlighted invoice",
     targets: (ctx) => {
       if (ctx.path !== "/invoices") return []
       if (ctx.params.get("filter") !== "flagged") return [one('[role="tab"][data-value="flagged"]')]
-      return [one("tbody tr[data-row-id]")]
+      const top = flagged(ctx.data)[0]
+      return [(top && one(`tbody tr[data-row-id="${top.id}"]`)) || one("tbody tr[data-row-id]")]
     },
     placement: "bottom",
     done: (ctx) => {
@@ -477,24 +491,90 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
+    id: "send-back",
+    chapter: "cost",
+    wsId: COMPASS,
+    path: /^\/invoices\/inv-/,
+    href: (ctx) => (ctx.invoiceId ? `/invoices/${ctx.invoiceId}` : "/invoices?filter=flagged"),
+    title: "Hours billed above the clock",
+    body: (ctx) => {
+      const inv = tourInvoice(ctx)
+      const f = inv ? billingFindings(ctx.data, inv.id)[0] : undefined
+      if (!inv || !f) return "Iris lines every invoice up against its clock. Send back what the clock doesn't support, and the agency credits it."
+      return `${f.approvedBy} approved ${f.proName}'s hours as billed, ${f.hours} hours past Iris's clock. Send them back and ${supplier(inv.supplierId).shortName} credits ${money(f.amount)}.`
+    },
+    action: "Click Send back for a credit",
+    targets: () => [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')],
+    anchor: () => one('[data-tour="billing-review"]'),
+    placement: "bottom",
+    done: (ctx) => {
+      const inv = tourInvoice(ctx)
+      return !inv || !!inv.billingReview || !billingFindings(ctx.data, inv.id).length
+    },
+    success: (ctx) => {
+      const inv = tourInvoice(ctx)
+      if (!inv?.billingReview) return "Nothing billed above the clock here"
+      return inv.billingReview.status === "accepted" ? "Accepted as billed" : `Sent back to ${supplier(inv.supplierId).shortName}`
+    },
+    back: "open-invoice",
+    skip: (ctx) => {
+      if (ctx.invoiceId) void useStore.getState().decideBilling(ctx.invoiceId, "send_back")
+    },
+  },
+  {
+    kind: "step",
+    id: "credit",
+    chapter: "cost",
+    wsId: COMPASS,
+    path: /^\/invoices\/inv-/,
+    href: (ctx) => (ctx.invoiceId ? `/invoices/${ctx.invoiceId}` : "/invoices?filter=flagged"),
+    title: "The agency credits it",
+    body: (ctx) => {
+      const inv = tourInvoice(ctx)
+      const sup = inv ? supplier(inv.supplierId).shortName : "The agency"
+      if (inv?.billingReview?.status === "accepted") return "Accepted as billed, so the hours stay on the invoice as they are."
+      return `${sup}'s system answers on its own. The credit comes off this invoice, and the timesheet is revised to the clock where ${sup} and Levy can both see it.`
+    },
+    targets: () => [one('[data-tour="billing-review"]')],
+    placement: "bottom",
+    status: (ctx) => {
+      const inv = tourInvoice(ctx)
+      const r = inv?.billingReview
+      if (!inv || !r) return undefined
+      const sup = supplier(inv.supplierId).shortName
+      return r.status === "credited" ? `${sup} credited ${money(r.amount)}` : r.status === "sent_back" ? `Waiting on ${sup}` : undefined
+    },
+    skip: () => undefined,
+  },
+  {
+    kind: "step",
     id: "review-invoice",
     chapter: "cost",
     wsId: COMPASS,
     path: /^\/invoices\/inv-/,
     href: (ctx) => (ctx.invoiceId ? `/invoices/${ctx.invoiceId}` : "/invoices?filter=flagged"),
-    title: "Send it back, or clear it",
-    body: "The benchmark prices the same hours at the other agencies' rates, weighted by rating. Send it back for correction, or mark it reviewed.",
-    action: "Choose Send back or Mark reviewed",
-    targets: () => [one('[data-tour="peer"]')],
-    placement: "bottom",
-    done: (ctx) => !!ctx.data.invoices.find((i) => i.id === ctx.invoiceId)?.review,
+    title: "Priced above the market",
+    body: (ctx) => {
+      const inv = tourInvoice(ctx)
+      const sup = inv ? supplier(inv.supplierId).shortName : "The agency"
+      const delta = inv ? pct(invoiceBenchmark(ctx.data, inv.id).deltaPct) : "well"
+      return `${sup} also bills ${delta} above what the other agencies charge for the same hours. That's the rate Levy agreed to, so the lever is the rate: ask ${sup} to review it, or clear the invoice as it is.`
+    },
+    action: "Choose Ask to review its rates or Mark reviewed",
+    targets: () => [one('[data-tour="rate-review"]') ?? one('[data-tour="peer"]')],
+    anchor: () => one('[data-tour="peer"]'),
+    placement: "top",
+    done: (ctx) => {
+      const inv = tourInvoice(ctx)
+      return !inv || !!inv.review || !invoiceBenchmark(ctx.data, inv.id).anomalous
+    },
     success: (ctx) => {
-      const inv = ctx.data.invoices.find((i) => i.id === ctx.invoiceId)
-      return inv?.review?.status === "sent_back" ? `Sent back to ${supplier(inv.supplierId).shortName}` : "Cleared for payment"
+      const inv = tourInvoice(ctx)
+      return inv?.review?.status === "rate_review" ? `Asked ${supplier(inv.supplierId).shortName} to review its rates` : "Cleared for payment"
     },
     back: "open-invoice",
     skip: (ctx) => {
-      if (ctx.invoiceId) useStore.getState().reviewInvoice(ctx.invoiceId, "sent_back", "Rates are above the program benchmark for these hours.")
+      if (ctx.invoiceId) void useStore.getState().requestRateReview(ctx.invoiceId)
     },
   },
 
@@ -511,5 +591,6 @@ export const RECAP: { label: string; step: string }[] = [
   { label: "Released it to your agencies in order", step: "watch" },
   { label: "Cleared a Pro with an expired document", step: "renew" },
   { label: "Approved hours checked against the clock", step: "approve" },
-  { label: "Caught an invoice priced above the market", step: "review-invoice" },
+  { label: "Sent back hours billed above the clock", step: "send-back" },
+  { label: "Pushed back on rates above the market", step: "review-invoice" },
 ]

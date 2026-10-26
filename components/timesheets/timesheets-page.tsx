@@ -25,7 +25,7 @@ import { addDaysISO, formatDateShort, formatDay, todayISO, weekEndISO, weekStart
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
-import { useStore } from "@/lib/store"
+import { joinNames, useStore } from "@/lib/store"
 import { STATUS_LABEL, timesheetAmount, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -164,10 +164,9 @@ export function TimesheetsPage() {
     setBusy(false)
     setSelected(new Set())
     if (!result?.approved) return
+    const open = result.open.length ? `This week's are on ${joinNames(result.open)}, issued Saturday.` : ""
     toast.success(`Approved ${plural(result.approved, "timesheet")}`, {
-      description: result.invoices.length
-        ? `Iris invoiced last week's hours on ${result.invoices.join(", ")}.`
-        : "They go on each agency's invoice when the week closes.",
+      description: result.invoices.length ? `Iris invoiced last week's hours on ${result.invoices.join(", ")}. ${open}`.trim() : open || "They go on each agency's invoice for the week.",
     })
   }
 

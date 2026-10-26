@@ -124,7 +124,10 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
     [group, data.pros, data.timesheets, data.roster, ws.buyerId, ws.kind, ws.supplierId],
   )
 
-  const activity = useMemo(() => buildTimeline(group, data.pros, data.timesheets, data.invoices.map((i) => ({ id: i.id, number: i.number, issuedOn: i.issuedOn }))), [group, data.pros, data.timesheets, data.invoices])
+  const activity = useMemo(
+    () => buildTimeline(group, data.pros, data.timesheets, data.invoices.filter((i) => i.status !== "open").map((i) => ({ id: i.id, number: i.number, issuedOn: i.issuedOn }))),
+    [group, data.pros, data.timesheets, data.invoices],
+  )
 
   const exportRoster = () => {
     downloadCsv(

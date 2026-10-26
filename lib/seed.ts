@@ -4,6 +4,7 @@ import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartI
 import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, location, position, requirementsFor, supplier } from "@/lib/reference"
+import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
 import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
   ActivityEvent,
@@ -12,8 +13,6 @@ import type {
   Counters,
   DemoData,
   Invoice,
-  InvoiceGroup,
-  InvoiceLine,
   Pro,
   ProReview,
   RateCard,
@@ -26,7 +25,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 12
+export const DATA_VERSION = 13
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -522,6 +521,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   plantRejections(r, timesheets, today)
   const sheets = withOvertime(timesheets)
   const { invoices, invoiceGroups } = generateInvoices(counters, sheets, pros, today)
+  plantBillingError(sheets, invoices, today)
   const uploads = generateUploads(counters, today)
   const roster = generateRoster(r, sheets, pros, today)
   const reviews = generateReviews(r, counters, sheets, pros)
@@ -782,29 +782,6 @@ const supplierName = (id: string) => {
   return s ? (s.integration === "api" ? `${s.shortName} app` : s.contactName) : id
 }
 
-function lineFrom(t: Timesheet, pros: Map<string, Pro>, idx: number): InvoiceLine {
-  const pro = pros.get(t.proId)
-  return {
-    id: `${t.id}-l${idx}`,
-    timesheetId: t.id,
-    proId: t.proId,
-    proName: pro ? `${pro.firstName} ${pro.lastName}` : "Unknown Pro",
-    groupId: t.groupId,
-    positionId: t.positionId,
-    locationId: t.locationId,
-    date: t.date,
-    scheduledStart: t.scheduledStart,
-    scheduledEnd: t.scheduledEnd,
-    clockIn: t.clockIn,
-    clockOut: t.clockOut,
-    hours: t.hours,
-    otHours: t.otHours || undefined,
-    billRate: t.billRate,
-    amount: laborAmount(t),
-    tips: t.tips,
-  }
-}
-
 function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro[], today: string) {
   const proMap = new Map(pros.map((p) => [p.id, p]))
   const invoices: Invoice[] = []
@@ -821,7 +798,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
         if (!rows.length) continue
         const id = `inv-${counters.inv}`
         const number = `INV-${counters.inv++}`
-        const lines = rows.map((t, i) => lineFrom(t, proMap, i))
+        const lines = rows.map((t) => lineOf(t, proMap))
         let status: Invoice["status"] = weeksAgo > 3 ? "paid" : "unpaid"
         if (weeksAgo === 3) status = s.id === "metro" ? "unpaid" : s.id === "crewline" && buyerId === "levy-chi" ? "partial" : "paid"
         if (weeksAgo === 2) status = s.id === "instawork" ? "in_process" : s.id === "crewline" ? "paid" : "unpaid"
@@ -855,32 +832,43 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
     .sort((a, b) => a.periodStart.localeCompare(b.periodStart))[0]
   if (oldestMetro) oldestMetro.dueOn = addDaysISO(today, -3)
 
-  const invoiceGroups: InvoiceGroup[] = []
-  const groupWeek = (weeksAgo: number, buyerId: string, name: string) => {
-    const periodStart = addDaysISO(thisWeek, -7 * weeksAgo)
-    const members = invoices.filter((i) => i.buyerId === buyerId && i.periodStart === periodStart)
-    if (!members.length) return
-    const code = `IG-2026-${String(counters.ig++).padStart(3, "0")}`
-    const group: InvoiceGroup = {
-      id: code.toLowerCase(),
-      code,
-      name,
-      buyerId,
-      createdOn: addDaysISO(periodStart, 8),
-      createdBy: "Priya Raman",
-      invoiceIds: members.map((m) => m.id),
-    }
-    members.forEach((m) => (m.groupId = group.id))
-    invoiceGroups.push(group)
-  }
-  const label = (weeksAgo: number) => {
-    const d = new Date(`${addDaysISO(thisWeek, -7 * weeksAgo)}T12:00:00`)
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-  }
-  groupWeek(3, "levy-chi", `Levy · Chicago, week of ${label(3)}`)
-  groupWeek(3, "chartwells-south", `Chartwells · South, week of ${label(3)}`)
-  groupWeek(2, "levy-chi", `Levy · Chicago, week of ${label(2)}`)
+  const { groups: invoiceGroups, counter } = weeklyGroups(invoices, counters.ig)
+  counters.ig = counter
   return { invoices, invoiceGroups }
+}
+
+/**
+ * Last week Jordan approved a Harbor bartender's timesheet as billed, 75 minutes past Iris's clock, on the bar manager's
+ * word. It sits on Harbor's issued invoice, where Compass's review finds it.
+ */
+function plantBillingError(timesheets: Timesheet[], invoices: Invoice[], today: string) {
+  const lastWeek = addDaysISO(weekStartISO(today), -7)
+  const inv = invoices.find((i) => i.supplierId === "harbor" && i.buyerId === "levy-chi" && i.periodStart === lastWeek)
+  if (!inv) return
+  const sheets = new Map(timesheets.map((t) => [t.id, t]))
+  const clocked = inv.lines.filter((l) => {
+    const t = l.timesheetId ? sheets.get(l.timesheetId) : undefined
+    return !!t?.clock?.in && !!t.clock.out && t.clock.out > t.clock.in
+  })
+  const line = [...clocked].reverse().find((l) => l.positionId === "bartender") ?? clocked[clocked.length - 1]
+  if (!line) return
+  const t = sheets.get(line.timesheetId!)!
+  const clock = t.clock!
+  const next = addDaysISO(t.date, 1)
+  t.clockIn = clock.in
+  t.clockOut = hhmmFromMinutes(minutesOf(clock.out!) + 75)
+  t.breakMins = clock.breakMins
+  t.hours = paidHours(t.clockIn!, t.clockOut, t.breakMins)
+  t.submittedAt = isoAt(next, "07:40")
+  t.approvedAt = isoAt(next, "09:20")
+  t.approvedBy = "Jordan Ellis"
+  t.history = [
+    change(isoAt(next, "01:00"), "Iris", "created", { note: "From the clock" }),
+    change(t.submittedAt, "Renee Park", "submitted", { note: "From the agency's CSV" }),
+    change(t.approvedAt, "Jordan Ellis", "approved", { reason: "The bar manager says the bar stayed open late after the game." }),
+    change(isoAt(inv.issuedOn, "06:00"), "Iris", "invoiced", { note: inv.number }),
+  ]
+  Object.assign(line, { clockIn: t.clockIn, clockOut: t.clockOut, hours: t.hours, amount: laborAmount(t) })
 }
 
 function invoiceTotalRaw(inv: Invoice) {

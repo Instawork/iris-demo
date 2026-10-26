@@ -17,6 +17,7 @@ import { Surface } from "@/components/common/surface"
 import { SupplierProfileDialog } from "@/components/home/supplier-profile-dialog"
 import { RateDialog } from "@/components/rates/rate-dialog"
 import { RateEquation } from "@/components/rates/rate-equation"
+import { RateReviews } from "@/components/rates/rate-reviews"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useData, useWorkspace } from "@/hooks/use-app"
@@ -72,6 +73,7 @@ function MyRates() {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const cards = useMemo(() => data.rateCards.filter((c) => c.supplierId === sup.id), [data.rateCards, sup.id])
+  const reviews = useMemo(() => cards.filter((c) => c.rateReview?.status === "requested"), [cards])
   const rows = useMemo(
     () => cards.filter((c) => (cityId === "all" || c.cityId === cityId) && position(c.positionId).name.toLowerCase().includes(query.toLowerCase())),
     [cards, cityId, query],
@@ -172,6 +174,7 @@ function MyRates() {
           </>
         }
       />
+      {reviews.length > 0 && <RateReviews cards={reviews} />}
       <RateEquation example={{ pro: 20, markup: sup.profile.markupPct }} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PillTabs

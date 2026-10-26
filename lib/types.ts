@@ -183,6 +183,23 @@ export interface RateCard {
   updatedAt: string
   source: "manual" | "upload" | "api"
   uploadId?: string
+  rateReview?: RateReview
+}
+
+/** Compass asking an agency to review a rate that runs above what the other agencies charge for the same city and role. */
+export interface RateReview {
+  status: "requested" | "lowered" | "kept"
+  requestedAt: string
+  requestedBy: string
+  /** The rating-weighted rate the other agencies charge, scaled to this agency's score. */
+  marketRate: number
+  /** The bill rate when Compass asked. */
+  fromRate: number
+  invoiceId?: string
+  note?: string
+  answeredAt?: string
+  answeredBy?: string
+  answer?: string
 }
 
 export type SlotStatus = "open" | "confirmed" | "completed" | "no_show"
@@ -258,7 +275,7 @@ export interface BilledTimes {
   hours: number
 }
 
-export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "approved" | "rejected" | "removed" | "invoiced"
+export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "approved" | "rejected" | "removed" | "invoiced" | "credited"
 
 export interface TimesheetChange {
   at: string
@@ -312,7 +329,8 @@ export interface Timesheet {
   invoiceId?: string
 }
 
-export type InvoiceStatus = "unpaid" | "paid" | "partial" | "in_process"
+/** "open" is this week's invoice: Iris adds approved hours to it until the week closes, then issues it. */
+export type InvoiceStatus = "open" | "unpaid" | "paid" | "partial" | "in_process"
 
 export interface InvoiceLine {
   id: string
@@ -334,11 +352,38 @@ export interface InvoiceLine {
   tips: number
 }
 
+/** Compass's decision on an invoice priced above the market. Either way it's cleared for payment; a rate review also asks the agency to look at its rates. */
 export interface InvoiceReview {
-  status: "reviewed" | "sent_back"
+  status: "reviewed" | "rate_review"
   by: string
   at: string
   note?: string
+}
+
+/** Compass's decision on lines Iris found billed above its own records, and the agency's credit when it sends them back. */
+export interface InvoiceBillingReview {
+  status: "sent_back" | "credited" | "accepted"
+  lineIds: string[]
+  amount: number
+  at: string
+  by: string
+  note?: string
+  creditedAt?: string
+  creditedBy?: string
+}
+
+/** Takes billed hours off an invoice line, the way a revised time sheet does in Fieldglass. */
+export interface InvoiceCredit {
+  id: string
+  lineId: string
+  timesheetId?: string
+  proName: string
+  date: string
+  hours: number
+  amount: number
+  reason: string
+  at: string
+  by: string
 }
 
 export interface Invoice {
@@ -357,6 +402,8 @@ export interface Invoice {
   source: "auto" | "upload"
   uploadId?: string
   review?: InvoiceReview
+  billingReview?: InvoiceBillingReview
+  credits?: InvoiceCredit[]
 }
 
 export interface InvoiceGroup {
@@ -364,6 +411,8 @@ export interface InvoiceGroup {
   code: string
   name: string
   buyerId?: string
+  /** Set on the consolidated invoice Iris keeps for each buyer's week. Groups made by hand have none. */
+  weekStart?: string
   createdOn: string
   createdBy: string
   invoiceIds: string[]

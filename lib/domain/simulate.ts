@@ -1,6 +1,7 @@
 import { addDaysISO, hhmmFromMinutes, instantAt, minutesOf, spanMinutes, wallClock } from "@/lib/dates"
-import { eligiblePros, event, invoicesFor, joinNames, merge } from "@/lib/domain/core"
-import type { Notice } from "@/lib/domain/commands"
+import { credited, type Notice } from "@/lib/domain/commands"
+import { eligiblePros, event, joinNames, merge } from "@/lib/domain/core"
+import { invoiceApproved, issueOpen } from "@/lib/domain/invoicing"
 import { filledCount, groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { location, position, supplier } from "@/lib/reference"
@@ -31,7 +32,8 @@ export function advance(data: DemoData, options: AdvanceOptions): { data: DemoDa
   const filled = fill(data, options)
   const closed = closeShifts(filled.data, options)
   const invoiced = closeWeeks(closed.data, options.now)
-  return { data: invoiced.data, notices: [...filled.notices, ...closed.notices, ...invoiced.notices] }
+  const credits = answerSendBacks(invoiced.data, options)
+  return { data: credits.data, notices: [...filled.notices, ...closed.notices, ...invoiced.notices, ...credits.notices] }
 }
 
 /* ------------------------------- Timesheets ------------------------------- */
@@ -187,24 +189,42 @@ function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data
 /** Approved hours from a week that has ended go on each agency's invoice for that week. */
 function closeWeeks(data: DemoData, now: Date): { data: DemoData; notices: Notice[] } {
   const today = wallClock(now).date
-  const due = data.timesheets.filter((t) => t.status === "approved" && weekClosed(t.date, today))
-  if (!due.length) return { data, notices: [] }
   const nowISO = now.toISOString()
-  const { invoices, invoiceOf, counter } = invoicesFor(data, due, today)
-  const numberOf = new Map(invoices.map((i) => [i.id, i.number]))
-  const next = merge(data, {
-    timesheets: data.timesheets.map((t) => {
-      const invoiceId = invoiceOf.get(t.id)
-      return invoiceId ? { ...t, status: "invoiced" as const, invoiceId, history: [...t.history, change(nowISO, "Iris", "invoiced", { note: numberOf.get(invoiceId) })] } : t
-    }),
-    invoices: [...invoices, ...data.invoices],
-    counters: { inv: counter },
-  })
-  const text = `Iris invoiced the week's approved hours on ${invoices.map((i) => i.number).join(", ")}`
-  return {
-    data: merge(next, event(next, { text, actor: "Iris", tone: "positive", buyerId: invoices[0].buyerId }, nowISO)),
-    notices: invoices.map((i) => ({ text: `${i.number}: last week's approved hours, invoiced`, tone: "success", supplierId: i.supplierId })),
+  const notices: Notice[] = []
+  let next = data
+  const issued = issueOpen(next, today, nowISO)
+  if (issued) {
+    next = merge(next, issued.patch)
+    const text = `The week closed, so Iris issued ${joinNames(issued.issued.map((i) => i.number))}`
+    next = merge(next, event(next, { text, actor: "Iris", tone: "positive" }, nowISO))
+    notices.push(...issued.issued.map((i) => ({ text: `${i.number}: last week's approved hours, invoiced`, tone: "success" as const, supplierId: i.supplierId })))
   }
+  const stray = new Set(next.timesheets.filter((t) => t.status === "approved" && !t.invoiceId && weekClosed(t.date, today)).map((t) => t.id))
+  const placed = stray.size ? invoiceApproved(next, stray, today, nowISO) : undefined
+  if (placed?.issued.length) {
+    next = merge(next, placed.patch)
+    next = merge(next, event(next, { text: `Iris invoiced the week's approved hours on ${joinNames(placed.issued.map((i) => i.number))}`, actor: "Iris", tone: "positive" }, nowISO))
+  }
+  return { data: next, notices }
+}
+
+/** Seconds a simulated agency takes to credit what Compass sent back. */
+const CREDIT_AFTER_SECONDS = 12
+
+/** Agencies nobody is playing credit send-backs on their own, a few seconds after Compass sends them. */
+function answerSendBacks(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+  const due = data.invoices.filter(
+    (i) => i.billingReview?.status === "sent_back" && simulated(i.supplierId) && now.getTime() - Date.parse(i.billingReview.at) >= CREDIT_AFTER_SECONDS * 1000,
+  )
+  let next = data
+  const notices: Notice[] = []
+  for (const inv of due) {
+    const out = credited(next, inv.id, supplier(inv.supplierId).contactName, now.toISOString())
+    if (!out) continue
+    next = out.data
+    notices.push(...(out.notices ?? []))
+  }
+  return { data: next, notices }
 }
 
 /* --------------------------------- Filling -------------------------------- */

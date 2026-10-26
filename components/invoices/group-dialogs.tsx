@@ -106,7 +106,7 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
   const t = live ? groupTotals(live, data.invoices.filter((i) => inScope(scope, i))) : undefined
   if (!live || !t?.members.length) return <Dialog open={false} onOpenChange={onOpenChange} />
   const canManage = ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
-  const payable = ws.kind === "buyer" ? t.members.filter((m) => invoiceBalance(m) > 0 && invoiceStatus(m) !== "in_process") : []
+  const payable = ws.kind === "buyer" ? t.members.filter((m) => invoiceBalance(m) > 0 && invoiceStatus(m) !== "in_process" && invoiceStatus(m) !== "open") : []
   const payTotal = payable.reduce((s, m) => s + invoiceBalance(m), 0)
   const download = () =>
     downloadCsv(
@@ -138,7 +138,12 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
             <StatusBadge tone={INVOICE_STATUS[t.status].tone}>{INVOICE_STATUS[t.status].label}</StatusBadge>
           </div>
           <DialogDescription className="text-body-3">
-            <code className="font-mono">{live.code}</code> · {plural(t.members.length, "invoice")} · {formatDateShort(t.from)} – {formatDateShort(t.to)} · created by {live.createdBy}
+            <code className="font-mono">{live.code}</code> · {plural(t.members.length, "invoice")} · {formatDateShort(t.from)} – {formatDateShort(t.to)} ·{" "}
+            {t.status === "open"
+              ? `open: Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}`
+              : live.weekStart
+                ? "kept by Iris for the week"
+                : `created by ${live.createdBy}`}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[52svh] overflow-y-auto scrollbar-thin">
@@ -150,7 +155,7 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
                   {m.number} · {supplier(m.supplierId).shortName}
                 </span>
                 <span className="text-caption-1 text-faded">
-                  {plural(m.lines.length, "line")} · due {formatDateShort(m.dueOn)}
+                  {plural(m.lines.length, "line")} · {invoiceStatus(m) === "open" ? `issues ${formatDateShort(m.issuedOn)}` : `due ${formatDateShort(m.dueOn)}`}
                 </span>
               </Link>
               {ws.kind === "compass" && <AnomalyFlag invoice={m} />}

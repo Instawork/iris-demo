@@ -3,7 +3,7 @@ import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO,
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
-import { timesheetAmount, timesheetChecks, withAgency } from "@/lib/timesheets"
+import { timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
 import type { DemoData, Invoice, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
@@ -81,17 +81,21 @@ export { timesheetAmount }
 
 export const invoiceSubtotal = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.amount, 0))
 export const invoiceTips = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.tips, 0))
-export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invoiceTips(inv))
+export const invoiceCredits = (inv: Invoice) => round2((inv.credits ?? []).reduce((s, c) => s + c.amount, 0))
+export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invoiceTips(inv) - invoiceCredits(inv))
 export const invoiceBalance = (inv: Invoice) => round2(Math.max(0, invoiceTotal(inv) - inv.paidAmount))
-export const invoiceHours = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.hours, 0))
+export const invoiceHours = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.hours, 0) - (inv.credits ?? []).reduce((s, c) => s + c.hours, 0))
 
-export type InvoiceDisplayStatus = "paid" | "unpaid" | "partial" | "in_process" | "overdue"
+export type InvoiceDisplayStatus = "open" | "paid" | "unpaid" | "partial" | "in_process" | "overdue"
 
 export function invoiceStatus(inv: Invoice): InvoiceDisplayStatus {
   if (inv.status === "paid") return "paid"
   if ((inv.status === "unpaid" || inv.status === "partial") && inv.dueOn < todayISO()) return "overdue"
   return inv.status
 }
+
+/** An open invoice can't be paid until Iris issues it, and a paid or paying one can't take a credit. */
+export const canCredit = (inv: Invoice) => inv.status === "open" || inv.status === "unpaid" || inv.status === "partial"
 
 /** An invoice is anomalous when it costs this much more than other suppliers would have charged for the same hours, weighted by rating. */
 export const ANOMALY_THRESHOLD = 0.15
@@ -163,9 +167,75 @@ export const flaggedLineIds = (data: DemoData, invoiceId: string) => {
   return new Set([...b.lineDelta.entries()].filter(([, d]) => d >= ANOMALY_THRESHOLD).map(([id]) => id))
 }
 
-export const isFlagged = (data: DemoData, inv: Invoice) => invoiceBenchmark(data, inv.id).anomalous
+export interface BillingFinding {
+  lineId: string
+  timesheetId: string
+  proName: string
+  date: string
+  label: string
+  detail: string
+  /** Who approved it as billed, and the reason they gave. */
+  approvedBy: string
+  reason: string
+  hours: number
+  amount: number
+  /** The billed times Iris's records support. A credit revises the timesheet to them. */
+  proposal: Proposal
+}
 
-export const needsReview = (data: DemoData, inv: Invoice) => isFlagged(data, inv) && !inv.review
+const sheetsByPro = memo((data: DemoData) => {
+  const byPro = new Map<string, Timesheet[]>()
+  for (const t of data.timesheets) byPro.set(t.proId, [...(byPro.get(t.proId) ?? []), t])
+  return byPro
+})
+
+const sheetsById = memo((data: DemoData) => new Map(data.timesheets.map((t) => [t.id, t])))
+
+/**
+ * Lines a unit approved as billed even though Iris's checks proposed fewer hours: the billing errors Compass can send
+ * back for a credit. Credited lines drop off.
+ */
+export const billingFindings = memo((data: DemoData, invoiceId: string): BillingFinding[] => {
+  const inv = data.invoices.find((i) => i.id === invoiceId)
+  if (!inv) return []
+  const credited = new Set((inv.credits ?? []).map((c) => c.lineId))
+  const sheets = sheetsById(data, "")
+  const findings: BillingFinding[] = []
+  for (const line of inv.lines) {
+    const t = line.timesheetId && !credited.has(line.id) ? sheets.get(line.timesheetId) : undefined
+    const approval = t ? [...t.history].reverse().find((h) => h.action === "approved") : undefined
+    if (!t || !approval?.reason) continue
+    const check = timesheetChecks(t, sheetsByPro(data, "").get(t.proId)).find((c) => c.proposal && c.proposal.hours < t.hours)
+    if (!check?.proposal) continue
+    const hours = round2(t.hours - check.proposal.hours)
+    findings.push({
+      lineId: line.id,
+      timesheetId: t.id,
+      proName: line.proName,
+      date: line.date,
+      label: check.label,
+      detail: check.detail,
+      approvedBy: approval.by,
+      reason: approval.reason,
+      hours,
+      amount: round2(hours * line.billRate),
+      proposal: check.proposal,
+    })
+  }
+  return findings
+})
+
+export const creditDue = (data: DemoData, inv: Invoice) => round2(billingFindings(data, inv.id).reduce((s, f) => s + f.amount, 0))
+
+/** Lines Iris found billed above its records, waiting on Compass to send them back or accept them. */
+export const billingToReview = (data: DemoData, inv: Invoice) => canCredit(inv) && !inv.billingReview && billingFindings(data, inv.id).length > 0
+
+/** An issued, unpaid invoice priced above the market that Compass hasn't reviewed. */
+export const marketToReview = (data: DemoData, inv: Invoice) => (inv.status === "unpaid" || inv.status === "partial") && !inv.review && invoiceBenchmark(data, inv.id).anomalous
+
+export const isFlagged = (data: DemoData, inv: Invoice) => invoiceBenchmark(data, inv.id).anomalous || billingFindings(data, inv.id).length > 0
+
+export const needsReview = (data: DemoData, inv: Invoice) => billingToReview(data, inv) || marketToReview(data, inv)
 
 /** What the invoice costs above its rating-weighted benchmark. */
 export const amountAtRisk = (data: DemoData, inv: Invoice) => {
@@ -454,7 +524,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
         cta: "Approve hours",
       })
     }
-    const open = data.invoices.filter((i) => inScope(scope, i) && invoiceStatus(i) !== "paid" && invoiceStatus(i) !== "in_process")
+    const open = data.invoices.filter((i) => inScope(scope, i) && !["paid", "in_process", "open"].includes(invoiceStatus(i)))
     if (open.length) {
       const overdue = open.filter((i) => invoiceStatus(i) === "overdue")
       const balance = round2(open.reduce((s, i) => s + invoiceBalance(i), 0))
@@ -471,6 +541,33 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
     }
   }
   if (scope.kind === "supplier") {
+    const sentBack = data.invoices.filter((i) => i.supplierId === scope.supplierId && i.billingReview?.status === "sent_back")
+    if (sentBack.length) {
+      const amount = round2(sentBack.reduce((s, i) => s + i.billingReview!.amount, 0))
+      todos.push({
+        id: "send-backs",
+        title: `${plural(sentBack.length, "invoice")} sent back for a credit`,
+        description: `Compass found ${money(amount)} billed above Iris's clock. Credit it so the invoice can be paid.`,
+        count: sentBack.length,
+        href: sentBack.length === 1 ? `/invoices/${sentBack[0].id}` : "/invoices",
+        tone: "critical",
+        icon: "dispute",
+        cta: "Issue the credit",
+      })
+    }
+    const reviews = data.rateCards.filter((c) => c.supplierId === scope.supplierId && c.rateReview?.status === "requested")
+    if (reviews.length) {
+      todos.push({
+        id: "rate-reviews",
+        title: `${plural(reviews.length, "rate")} Compass asked you to review`,
+        description: "These bill rates run above what other agencies charge for the same city and role.",
+        count: reviews.length,
+        href: "/rates",
+        tone: "warning",
+        icon: "rate",
+        cta: "Review rates",
+      })
+    }
     const mine = data.timesheets.filter((t) => t.supplierId === scope.supplierId && withAgency(t))
     if (mine.length) {
       const rejected = mine.filter((t) => t.status === "rejected").length
@@ -518,11 +615,19 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
   if (scope.kind === "compass") {
     const flagged = data.invoices.filter((i) => needsReview(data, i))
     if (flagged.length) {
-      const risk = round2(flagged.reduce((s, i) => s + amountAtRisk(data, i), 0))
+      const billing = flagged.filter((i) => billingToReview(data, i))
+      const market = flagged.filter((i) => marketToReview(data, i))
+      const due = round2(billing.reduce((s, i) => s + creditDue(data, i), 0))
+      const risk = round2(market.reduce((s, i) => s + amountAtRisk(data, i), 0))
       todos.push({
         id: "anomalies",
-        title: `${plural(flagged.length, "anomalous invoice")} to review`,
-        description: `${money(risk)} above what other suppliers would have charged for the same hours, weighted by rating.`,
+        title: `${plural(flagged.length, "invoice")} to review`,
+        description: [
+          billing.length && `${plural(billing.length, "invoice")} with hours billed above Iris's clock, ${money(due)} to credit.`,
+          market.length && `${market.length} priced ${money(risk)} above what other agencies would charge, weighted by rating.`,
+        ]
+          .filter(Boolean)
+          .join(" "),
         count: flagged.length,
         href: "/invoices?filter=flagged",
         tone: "critical",

@@ -7,6 +7,7 @@ import { groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
 import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/domain/core"
+import { tipsOpen, withTips } from "@/lib/domain/invoicing"
 import { billedOf, change, clockHours, hoursFor, overtimeKey, withOvertime } from "@/lib/timesheets"
 import type {
   BusinessActivity,
@@ -388,7 +389,7 @@ function timesheetRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[
 }
 
 function tipRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
-  const open = data.timesheets.filter((t) => inWorkspace(ws, t) && !t.invoiceId)
+  const open = data.timesheets.filter((t) => inWorkspace(ws, t) && tipsOpen(data, t))
   const tipped = open.filter((t) => ["bartender", "barback", "server", "suite"].includes(t.positionId))
   const rows = (tipped.length >= 6 ? tipped : open).slice(0, 10).map((t) => ({
     shift_group_id: groupCode(data, t.groupId),
@@ -891,7 +892,7 @@ function planTips(rows: Row[], ctx: Ctx): Planned {
     const ts = g && pro ? ctx.data.timesheets.find((t) => t.groupId === g.id && t.proId === pro.id) : undefined
     if (g && pro && !ts) issues.push(problem(n, "pro_id", `No hours for this Pro on ${g.code}`))
     if (ts && ctx.ws.kind === "supplier" && ts.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your Pros"))
-    if (ts?.invoiceId) issues.push(problem(n, undefined, "Already invoiced, so tips can't change", REMOVE_ROW))
+    if (ts && !tipsOpen(ctx.data, ts)) issues.push(problem(n, undefined, "Already invoiced, so tips can't change", REMOVE_ROW))
     const amount = parseNumber(row.tip_amount ?? "")
     if (row.tip_amount && (amount === undefined || amount < 0 || amount > 1000)) issues.push(problem(n, "tip_amount", "Use an amount from $0 to $1,000"))
     const ok = !hasErrors(issues)
@@ -903,7 +904,7 @@ function planTips(rows: Row[], ctx: Ctx): Planned {
     rows: results,
     ...tally(results),
     summary: tips.size ? `${money(total)} in tips added to ${plural(tips.size, "timesheet")}` : "No tips added",
-    apply: tips.size ? (data) => ({ timesheets: data.timesheets.map((ts) => (tips.has(ts.id) && !ts.invoiceId ? { ...ts, tips: tips.get(ts.id)! } : ts)) }) : undefined,
+    apply: tips.size ? (data) => withTips(data, tips) : undefined,
   }
 }
 

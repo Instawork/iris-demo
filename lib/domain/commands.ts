@@ -1,13 +1,14 @@
 import { planImport } from "@/lib/csv"
 import { addDaysISO, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock } from "@/lib/dates"
 import { budgetCheck, releasePlan } from "@/lib/domain/budget"
-import { eligiblePros, event, invoicesFor, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
+import { eligiblePros, event, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
+import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
-import { billFrom, round2 } from "@/lib/format"
-import { awaitingApproval, groupPhase, isOpenTo } from "@/lib/metrics"
-import { PROGRAM, SUPPLIERS, approversFor, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
+import { billFrom, money, round2 } from "@/lib/format"
+import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
+import { PROGRAM, SUPPLIERS, approversFor, city, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
 import { generateDemoData } from "@/lib/seed"
-import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, weekClosed, withAgency, withOvertime } from "@/lib/timesheets"
+import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import type { ApprovalRequest, DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Timesheet, Upload, Workspace } from "@/lib/types"
 
 export class CommandError extends Error {
@@ -438,10 +439,13 @@ export interface ApproveResult {
   approved: number
   /** Flagged timesheets left waiting, because they need a decision. */
   flagged: number
+  /** Invoices issued for hours whose week had closed. */
   invoices: string[]
+  /** This week's open invoices the hours went on. */
+  open: string[]
 }
 
-/** Approves the rows. Hours from a week that has closed go on that week's invoice now; this week's wait for it to close. */
+/** Approves the rows. This week's hours go on the agency's open invoice for the week; hours from a week that has closed are invoiced now. */
 function approve(data: DemoData, ctx: CommandContext, rows: Timesheet[], reason?: string): Outcome<ApproveResult> {
   const today = todayISO()
   const by = actorName(ctx)
@@ -453,32 +457,23 @@ function approve(data: DemoData, ctx: CommandContext, rows: Timesheet[], reason?
     history: [...t.history, change(ctx.now, by, "approved", reason ? { reason } : undefined)],
   }))
   const ids = new Set(approved.map((t) => t.id))
-  let sheets = replaceSheets(data, approved)
-  const due = sheets.filter((t) => ids.has(t.id) && weekClosed(t.date, today))
-  const { invoices, invoiceOf, counter } = invoicesFor(data, due, today)
-  const numberOf = new Map(invoices.map((i) => [i.id, i.number]))
-  sheets = sheets.map((t) => {
-    const invoiceId = invoiceOf.get(t.id)
-    return invoiceId ? { ...t, status: "invoiced" as const, invoiceId, history: [...t.history, change(ctx.now, "Iris", "invoiced", { note: numberOf.get(invoiceId) })] } : t
-  })
+  const sheets = replaceSheets(data, approved)
+  const placed = invoiceApproved({ ...data, timesheets: sheets }, ids, today, ctx.now)
   const worked = new Map<string, number>()
   for (const t of approved) worked.set(t.proId, (worked.get(t.proId) ?? 0) + 1)
-  const numbers = invoices.map((i) => i.number)
+  const numbers = placed?.issued.map((i) => i.number) ?? []
+  const open = placed?.open.map((i) => i.number) ?? []
   const what = plural(approved.length, "timesheet")
   return {
     ...done(
       data,
-      { approved: approved.length, flagged: 0, invoices: numbers },
-      {
-        timesheets: sheets,
-        pros: data.pros.map((p) => (worked.has(p.id) ? { ...p, shiftsWorked: p.shiftsWorked + worked.get(p.id)! } : p)),
-        invoices: [...invoices, ...data.invoices],
-        counters: { inv: counter },
-      },
+      { approved: approved.length, flagged: 0, invoices: numbers, open },
+      placed?.patch ?? { timesheets: sheets },
+      { pros: data.pros.map((p) => (worked.has(p.id) ? { ...p, shiftsWorked: p.shiftsWorked + worked.get(p.id)! } : p)) },
       event(
         data,
         {
-          text: `${by} approved ${what} from ${agenciesOf(approved)}. ${numbers.length ? `Iris invoiced them on ${numbers.join(", ")}` : "They go on the agency's invoice when the week closes"}`,
+          text: `${by} approved ${what} from ${agenciesOf(approved)}. ${numbers.length ? `Iris invoiced them on ${numbers.join(", ")}` : `They're on ${joinNames(open)}, this week's ${open.length === 1 ? "invoice" : "invoices"}`}`,
           actor: by,
           tone: "positive",
           buyerId: approved[0].buyerId,
@@ -500,7 +495,7 @@ function approveTimesheets(data: DemoData, ctx: CommandContext, input: { ids: st
   const checks = checksFor(data, pending)
   const flagged = pending.filter((t) => checks.get(t.id)!.length > 0)
   const ready = reason ? pending : pending.filter((t) => !checks.get(t.id)!.length)
-  if (!ready.length) return done(data, { approved: 0, flagged: flagged.length, invoices: [] })
+  if (!ready.length) return done(data, { approved: 0, flagged: flagged.length, invoices: [], open: [] })
   const out = approve(data, ctx, ready, reason)
   return { ...out, result: { ...out.result, flagged: reason ? 0 : flagged.length } }
 }
@@ -662,7 +657,7 @@ function setTips(data: DemoData, ctx: CommandContext, input: { entries: { timesh
   const entries = Array.isArray(input?.entries) ? input.entries.slice(0, 2000) : fail("Tips are required")
   const map = new Map(entries.map((e) => [e.timesheetId, round2(Math.max(0, Number(e.tips) || 0))]))
   for (const t of data.timesheets) if (map.has(t.id) && !ownsBuyer(ctx.ws, t.buyerId) && !isSupplier(ctx.ws, t.supplierId)) forbid()
-  return done(data, null, { timesheets: data.timesheets.map((t) => (map.has(t.id) && !t.invoiceId ? { ...t, tips: map.get(t.id)! } : t)) })
+  return done(data, null, withTips(data, map))
 }
 
 /* --------------------------------- Invoices -------------------------------- */
@@ -728,7 +723,7 @@ function deleteInvoiceGroup(data: DemoData, ctx: CommandContext, input: { groupI
 }
 
 function payInvoices(data: DemoData, ctx: CommandContext, input: { ids: string[] }): Outcome<null> {
-  const rows = invoiceAccess(data, ctx, strList(input?.ids, "Invoices", 500)).filter((i) => i.status !== "paid")
+  const rows = invoiceAccess(data, ctx, strList(input?.ids, "Invoices", 500)).filter((i) => i.status !== "paid" && i.status !== "open")
   if (!rows.length) return done(data, null)
   const ids = new Set(rows.map((i) => i.id))
   return done(
@@ -739,30 +734,181 @@ function payInvoices(data: DemoData, ctx: CommandContext, input: { ids: string[]
   )
 }
 
-function reviewInvoice(data: DemoData, ctx: CommandContext, input: { id: string; status: "reviewed" | "sent_back"; note?: string }): Outcome<null> {
+/** Compass clears an invoice priced above the market for payment. */
+function reviewInvoice(data: DemoData, ctx: CommandContext, input: { id: string; note?: string }): Outcome<null> {
   const [inv] = invoiceAccess(data, ctx, [str(input?.id, "Invoice")])
   if (!inv) return fail("That invoice doesn't exist", 404)
-  const status = input.status === "sent_back" ? "sent_back" : "reviewed"
   return done(
     data,
     null,
-    { invoices: data.invoices.map((i) => (i.id === inv.id ? { ...i, review: { status, note: optStr(input.note, 1000), by: actorName(ctx), at: ctx.now } } : i)) },
+    { invoices: data.invoices.map((i) => (i.id === inv.id ? { ...i, review: { status: "reviewed" as const, note: optStr(input.note, 1000), by: actorName(ctx), at: ctx.now } } : i)) },
     event(
       data,
-      {
-        text:
-          status === "reviewed"
-            ? `${actorName(ctx)} reviewed ${inv.number} and cleared it for payment`
-            : `${actorName(ctx)} sent ${inv.number} back to ${supplier(inv.supplierId).shortName} for correction`,
-        actor: actorName(ctx),
-        tone: status === "reviewed" ? "positive" : "warning",
-        buyerId: inv.buyerId,
-        supplierId: inv.supplierId,
-        invoiceId: inv.id,
-      },
+      { text: `${actorName(ctx)} reviewed ${inv.number} and cleared it for payment`, actor: actorName(ctx), tone: "positive", buyerId: inv.buyerId, supplierId: inv.supplierId, invoiceId: inv.id },
       ctx.now,
     ),
   )
+}
+
+/**
+ * Compass asks the agency to review the rates on this invoice that run above the market, and clears the invoice for
+ * payment: it's billed at the rates the buyer agreed to, so the lever is the rate, not this invoice.
+ */
+function requestRateReview(data: DemoData, ctx: CommandContext, input: { id: string; note?: string }): Outcome<number> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass asks agencies to review their rates.")
+  const inv = need(data.invoices.find((i) => i.id === input?.id), "That invoice doesn't exist")
+  const benchmark = invoiceBenchmark(data, inv.id)
+  if (!benchmark.anomalous) fail("This invoice isn't priced above the market.")
+  const market = new Map<string, number>()
+  for (const line of inv.lines) {
+    const delta = benchmark.lineDelta.get(line.id) ?? 0
+    if (delta < ANOMALY_THRESHOLD) continue
+    const cityId = location(line.locationId).cityId
+    const card = data.rateCards.find((c) => c.supplierId === inv.supplierId && c.cityId === cityId && c.positionId === line.positionId && c.status === "active")
+    if (card && !market.has(card.id)) market.set(card.id, round2(line.billRate / (1 + delta)))
+  }
+  if (!market.size) fail("None of the rates on this invoice is active anymore.")
+  const by = actorName(ctx)
+  const note = optStr(input.note, 1000)
+  const sup = supplier(inv.supplierId).shortName
+  const rates = plural(market.size, "rate")
+  return {
+    ...done(
+      data,
+      market.size,
+      {
+        rateCards: data.rateCards.map((c) =>
+          market.has(c.id) ? { ...c, rateReview: { status: "requested" as const, requestedAt: ctx.now, requestedBy: by, marketRate: market.get(c.id)!, fromRate: c.billRate, invoiceId: inv.id, note } } : c,
+        ),
+        invoices: data.invoices.map((i) => (i.id === inv.id ? { ...i, review: { status: "rate_review" as const, by, at: ctx.now, note } } : i)),
+      },
+      event(
+        data,
+        { text: `${by} asked ${sup} to review ${rates} that run above the market and cleared ${inv.number} for payment`, actor: by, tone: "primary", buyerId: inv.buyerId, supplierId: inv.supplierId, invoiceId: inv.id },
+        ctx.now,
+      ),
+    ),
+    notices: [{ text: `Compass asked you to review ${rates} that run above what other agencies charge`, tone: "warning", supplierId: inv.supplierId }],
+  }
+}
+
+/** The agency answers a rate review: lower the bill rate to the market, or keep it with a note. New shifts price at the answer. */
+function answerRateReview(data: DemoData, ctx: CommandContext, input: { id: string; decision: "lower" | "keep"; note?: string }): Outcome<null> {
+  const card = need(data.rateCards.find((c) => c.id === input?.id), "That rate doesn't exist")
+  if (!isSupplier(ctx.ws, card.supplierId)) forbid("Only the agency answers a rate review.")
+  const review = card.rateReview
+  if (review?.status !== "requested") return fail("Compass hasn't asked for a review of this rate.")
+  const lower = input.decision === "lower"
+  const note = optStr(input.note, 1000)
+  if (!lower && !note) fail("Say why the rate should stay.")
+  const billRate = lower ? round2(Math.max(review.marketRate, card.proRate)) : card.billRate
+  const by = actorName(ctx)
+  const where = `${position(card.positionId).name} rate in ${city(card.cityId).name}`
+  return {
+    ...done(
+      data,
+      null,
+      {
+        rateCards: data.rateCards.map((c) =>
+          c.id === card.id
+            ? {
+                ...c,
+                billRate,
+                markupPct: lower ? round2(Math.max(0, (billRate / c.proRate - 1) * 100)) : c.markupPct,
+                effectiveFrom: lower ? todayISO() : c.effectiveFrom,
+                updatedAt: lower ? ctx.now : c.updatedAt,
+                rateReview: { ...review, status: lower ? ("lowered" as const) : ("kept" as const), answeredAt: ctx.now, answeredBy: by, answer: note },
+              }
+            : c,
+        ),
+      },
+      event(
+        data,
+        {
+          text: lower
+            ? `${supplier(card.supplierId).shortName} lowered its ${where} from ${money(card.billRate)} to ${money(billRate)}/hr`
+            : `${supplier(card.supplierId).shortName} kept its ${where} at ${money(card.billRate)}/hr: “${note}”`,
+          actor: by,
+          tone: lower ? "positive" : "neutral",
+          supplierId: card.supplierId,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: [{ text: lower ? `${supplier(card.supplierId).shortName} lowered its ${where} to ${money(billRate)}/hr` : `${supplier(card.supplierId).shortName} kept its ${where}`, tone: lower ? "success" : "info", workspaceIds: ["ws-compass"] }],
+  }
+}
+
+/** Compass sends lines billed above Iris's records back to the agency for a credit, or accepts them as billed. */
+function decideBilling(data: DemoData, ctx: CommandContext, input: { id: string; decision: "send_back" | "accept"; note?: string }): Outcome<null> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass reviews invoices for billing errors.")
+  const inv = need(data.invoices.find((i) => i.id === input?.id), "That invoice doesn't exist")
+  if (!canCredit(inv)) fail("This invoice is already paid or being paid.")
+  if (inv.billingReview) fail("These hours were already decided.")
+  const findings = billingFindings(data, inv.id)
+  if (!findings.length) fail("Iris found nothing billed above its records on this invoice.")
+  const send = input.decision === "send_back"
+  const amount = round2(findings.reduce((s, f) => s + f.amount, 0))
+  const by = actorName(ctx)
+  const sup = supplier(inv.supplierId).shortName
+  const lines = plural(findings.length, "line")
+  const billingReview = { status: send ? ("sent_back" as const) : ("accepted" as const), lineIds: findings.map((f) => f.lineId), amount, at: ctx.now, by, note: optStr(input.note, 1000) }
+  return {
+    ...done(
+      data,
+      null,
+      { invoices: data.invoices.map((i) => (i.id === inv.id ? { ...i, billingReview } : i)) },
+      event(
+        data,
+        {
+          text: send ? `${by} sent ${inv.number} back to ${sup}: ${lines} billed ${money(amount)} above Iris's clock` : `${by} accepted the ${lines} on ${inv.number} as billed`,
+          actor: by,
+          tone: send ? "warning" : "neutral",
+          buyerId: inv.buyerId,
+          supplierId: inv.supplierId,
+          invoiceId: inv.id,
+        },
+        ctx.now,
+      ),
+    ),
+    notices: send ? [{ text: `Compass sent ${inv.number} back: ${lines} billed above Iris's clock, ${money(amount)} to credit`, tone: "warning", supplierId: inv.supplierId }] : [],
+  }
+}
+
+/** The agency credits what Compass sent back. Simulated agencies do this on their own. */
+function creditInvoice(data: DemoData, ctx: CommandContext, input: { id: string }): Outcome<number> {
+  const inv = need(data.invoices.find((i) => i.id === input?.id), "That invoice doesn't exist")
+  if (!isSupplier(ctx.ws, inv.supplierId)) forbid("Only the agency credits its invoice.")
+  return credited(data, inv.id, actorName(ctx), ctx.now) ?? fail("Nothing on this invoice is waiting for a credit.")
+}
+
+/** The credit, its activity line and its notices, for the agency's command and the scheduler alike. */
+export function credited(data: DemoData, invoiceId: string, by: string, now: string): Outcome<number> | undefined {
+  const out = creditSentBack(data, invoiceId, by, now)
+  if (!out) return undefined
+  const inv = out.invoice
+  const sup = supplier(inv.supplierId).shortName
+  const text = `${sup} credited ${money(out.amount)} on ${inv.number} for hours billed above Iris's clock`
+  return {
+    ...done(data, out.amount, out.patch, event(data, { text, actor: by, tone: "positive", buyerId: inv.buyerId, supplierId: inv.supplierId, invoiceId: inv.id }, now)),
+    notices: [{ text, tone: "success", buyerId: inv.buyerId }],
+  }
+}
+
+/** The presenter closes the week early: Iris issues every open invoice now instead of on Saturday. */
+function closeWeekNow(data: DemoData, ctx: CommandContext): Outcome<string[]> {
+  const out = issueOpen(data, todayISO(), ctx.now, true)
+  if (!out) return fail("There are no open invoices to issue.")
+  const numbers = out.issued.map((i) => i.number)
+  return {
+    ...done(
+      data,
+      numbers,
+      out.patch,
+      event(data, { text: `${actorName(ctx)} closed the week early, so Iris issued ${joinNames(numbers)}`, actor: actorName(ctx), tone: "positive" }, ctx.now),
+    ),
+    notices: out.issued.map((i) => ({ text: `${i.number}: this week's approved hours, invoiced`, tone: "success" as const, supplierId: i.supplierId })),
+  }
 }
 
 /* ---------------------------------- Rates ---------------------------------- */
@@ -966,6 +1112,11 @@ export const COMMANDS = {
   deleteInvoiceGroup,
   payInvoices,
   reviewInvoice,
+  requestRateReview,
+  answerRateReview,
+  decideBilling,
+  creditInvoice,
+  closeWeekNow,
   upsertRateCard,
   deleteRateCard,
   completeRequirement,
