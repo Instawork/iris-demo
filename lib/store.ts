@@ -104,6 +104,14 @@ export const useStore = create<StoreState>()((set, get) => {
         resyncing = undefined
       }))
 
+  /**
+   * Waits until this device holds every change up to `version`, so whoever sent a command reads its effects next. A
+   * reload already in flight may predate the command, hence the second try.
+   */
+  const caughtUp = async (version: number) => {
+    for (let attempt = 0; attempt < 3 && get().version < version; attempt++) await resync()
+  }
+
   const relevant = (notice: Notice) => {
     const ws = workspace(get().workspaceId)
     if (notice.workspaceIds) return notice.workspaceIds.includes(ws.id)
@@ -129,6 +137,7 @@ export const useStore = create<StoreState>()((set, get) => {
     const { version, data } = get()
     if (event.version <= version) return
     if (event.version !== version + 1 || !event.changes) {
+      announce(event.notices)
       void resync()
       return
     }
@@ -166,7 +175,10 @@ export const useStore = create<StoreState>()((set, get) => {
         return undefined
       }
       if (body.replaced) await resync()
-      else if (body.changes && body.version) receive({ version: body.version, changes: body.changes }, "change")
+      else if (body.changes && body.version) {
+        receive({ version: body.version, changes: body.changes }, "change")
+        await caughtUp(body.version)
+      }
       return body.result
     } catch {
       toast.error("Iris is offline. Check the connection and try again.")
