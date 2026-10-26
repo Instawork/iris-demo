@@ -691,6 +691,7 @@ function planShifts(rows: Row[], ctx: Ctx): Planned {
     if (date && date < ctx.today) issues.push(problem(n, "date", "Date is in the past"))
     const start = row.start_time ? timeCell(row.start_time, n, "start_time", issues) : undefined
     const end = row.end_time ? timeCell(row.end_time, n, "end_time", issues) : undefined
+    if (start && end && start === end) issues.push(problem(n, "end_time", "Same as the start time"))
     const headcount = parseNumber(row.pros_needed ?? "")
     if (row.pros_needed && (headcount === undefined || headcount < 1 || headcount > 60 || !Number.isInteger(headcount))) issues.push(problem(n, "pros_needed", "Use a whole number from 1 to 60"))
     let breakMins = parseNumber(row.break_minutes ?? "")
@@ -796,6 +797,7 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
     if (slot?.status === "no_show") issues.push(problem(n, "pro_id", "Marked as a no-show on this shift"))
     const clockIn = row.clock_in ? timeCell(row.clock_in, n, "clock_in", issues) : undefined
     const clockOut = row.clock_out ? timeCell(row.clock_out, n, "clock_out", issues) : undefined
+    if (clockIn && clockOut && clockIn === clockOut) issues.push(problem(n, "clock_out", "Same as the clock-in time"))
     let breakMins = parseNumber(row.break_minutes ?? "")
     if (!row.break_minutes) {
       issues.push(problem(n, "break_minutes", "Missing", g ? fixTo(String(g.breakMins), `${g.breakMins} min, as scheduled`) : undefined))

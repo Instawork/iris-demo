@@ -65,10 +65,10 @@ export const hhmmFromMinutes = (mins: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
 }
 
-/** Shift length in minutes, wrapping past midnight. */
+/** Shift length in minutes, wrapping past midnight. The same time twice is zero minutes, not a full day. */
 export const spanMinutes = (start: string, end: string) => {
   let diff = minutesOf(end) - minutesOf(start)
-  if (diff <= 0) diff += 1440
+  if (diff < 0) diff += 1440
   return diff
 }
 
