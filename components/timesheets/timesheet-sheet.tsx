@@ -13,12 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { addDaysISO, formatClock, formatDateLong, formatDateShort, formatInterval, timeAgo, weekEndISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, formatClock, formatDateLong, formatDateShort, formatInterval, timeAgo, todayISO, weekEndISO, weekStartISO } from "@/lib/dates"
 import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { city, location, position, supplier } from "@/lib/reference"
 import { useStore, type TimesInput } from "@/lib/store"
-import { OVERTIME_RATE, clockHours, hoursFor, laborAmount, primaryProposal, scheduledHours, timesheetAmount, type Proposal } from "@/lib/timesheets"
+import { OVERTIME_RATE, clockHours, hoursFor, laborAmount, primaryProposal, scheduledHours, timesheetAmount, weekClosed, type Proposal } from "@/lib/timesheets"
 import type { Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -93,6 +93,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const isAgency = kind === "supplier" && ws.supplierId === t.supplierId
   const weekEnd = weekEndISO(t.date)
   const closesOn = addDaysISO(weekEnd, 1)
+  const closed = weekClosed(t.date, todayISO())
   const onClock = clockHours(t.clock)
   const scheduled = scheduledHours(t)
   const flagged = checks.length > 0
@@ -119,7 +120,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
       return
     }
     toast.success(`Approved ${pro ? fullName(pro) : "the timesheet"}`, {
-      description: result.invoices.length ? `Iris invoiced it on ${result.invoices.join(", ")}.` : `It goes on ${sup.shortName}'s invoice when the week closes on ${formatDateShort(closesOn)}.`,
+      description: result.invoices.length ? `Iris invoiced it on ${result.invoices.join(", ")}.` : `Iris adds it to ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}.`,
     })
     onDone()
   }
@@ -281,7 +282,10 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               </>
             ) : (
               <>
-                Week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}. Approved hours go on {sup.shortName}&apos;s invoice when the week closes on {formatDateShort(closesOn)}.
+                Week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}.{" "}
+                {closed
+                  ? "That week has closed, so Iris invoices it as soon as it's approved."
+                  : `Iris adds approved hours to ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}.`}
               </>
             )}
           </span>
