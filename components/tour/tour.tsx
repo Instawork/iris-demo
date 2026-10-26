@@ -178,7 +178,8 @@ function StepScreen({ step }: { step: TourStep }) {
   useStore((s) => s.data)
   useStore((s) => s.workspaceId)
   const [view, setView] = useState<{ step: string; view: View }>({ step: step.id, view: { mode: "pending" } })
-  const [celebrate, setCelebrate] = useState<{ step: string; message: string; kept: boolean }>()
+  const enteredAt = useTour((s) => s.enteredAt)
+  const [celebrate, setCelebrate] = useState<{ step: string; at?: string; message: string; kept: boolean }>()
   const vp = useViewport()
   const [cardRef, cardSize] = useSize<HTMLDivElement>()
 
@@ -208,7 +209,7 @@ function StepScreen({ step }: { step: TourStep }) {
             useTour.getState().finish(step.id, "done")
             return
           }
-          setCelebrate({ step: step.id, message: step.success(ctx), kept: !!step.targets(ctx)[0]?.isConnected })
+          setCelebrate({ step: step.id, at: useTour.getState().enteredAt, message: step.success(ctx), kept: !!step.targets(ctx)[0]?.isConnected })
           timer = window.setTimeout(() => useTour.getState().finish(step.id, "done"), 1150)
           return
         }
@@ -262,7 +263,7 @@ function StepScreen({ step }: { step: TourStep }) {
   const mine = view.step === step.id
   const mode = mine ? view.view.mode : "pending"
   const ready = view.view.mode === "ready" ? view.view : undefined
-  const party = celebrate?.step === step.id ? celebrate : undefined
+  const party = celebrate?.step === step.id && celebrate.at === enteredAt ? celebrate : undefined
   const done = party?.message
   const look = !step.action
   const showCard = mode === "ready" || mode === "lost" || mode === "away"
@@ -640,7 +641,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
         <span className="relative inline-flex items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-semibold tracking-[0.06em] text-background uppercase">
-          <Play className="size-3 fill-current" /> Guided tour · about 3 minutes
+          <Play className="size-3 fill-current" /> Guided tour · about 5 minutes
         </span>
         <h2 id="tour-card-title" className="relative mt-4 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
           Run a day of staffing on Iris

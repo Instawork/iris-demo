@@ -106,9 +106,11 @@ const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i
 
 const openInvoices = (ctx: TourContext) => ctx.data.invoices.filter((i) => i.buyerId === "levy-chi" && i.status === "open")
 
-/** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
+/** Last night's Harbor bartender billed above the clock, while it's still waiting for approval: the newest such timesheet, the one the table lists first. */
 const paddedSheet = (data: DemoData) =>
-  data.timesheets.find((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && timesheetChecks(t).some((c) => c.id === "above_clock"))
+  data.timesheets
+    .filter((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && timesheetChecks(t).some((c) => c.id === "above_clock"))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart))[0]
 
 const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
 

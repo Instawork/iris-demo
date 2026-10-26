@@ -107,7 +107,7 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
               <span className="hidden lg:inline">Guided tour</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">A 3-minute walkthrough of Iris</TooltipContent>
+          <TooltipContent side="bottom">A 5-minute walkthrough of Iris</TooltipContent>
         </Tooltip>
         <ThemeToggle />
         <Tooltip>

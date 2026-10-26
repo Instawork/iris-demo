@@ -22,6 +22,7 @@ import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatDateShort, todayISO } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import {
+  billingToReview,
   inScope,
   invoiceBalance,
   invoiceBenchmark,
@@ -115,7 +116,11 @@ export function InvoicesPage() {
     }),
     [data],
   )
-  const rows = useMemo(() => filtered.filter(matches[quick]).sort(newestFirst), [filtered, matches, quick])
+  const rows = useMemo(() => {
+    const list = filtered.filter(matches[quick])
+    if (quick !== "flagged") return list.sort(newestFirst)
+    return list.sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || newestFirst(a, b))
+  }, [data, filtered, matches, quick])
   const groupRows = useMemo<GroupRow[]>(
     () => data.invoiceGroups.map((g) => ({ ...g, ...groupTotals(g, mine) })).filter((g) => g.members.length > 0),
     [data.invoiceGroups, mine],

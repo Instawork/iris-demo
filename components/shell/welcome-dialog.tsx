@@ -74,7 +74,7 @@ export function WelcomeDialog() {
                 useTour.getState().open()
               }}
             >
-              <Play className="size-3.5 fill-current" /> Take the 3-minute tour
+              <Play className="size-3.5 fill-current" /> Take the 5-minute tour
             </Button>
           </div>
         </div>
