@@ -5,9 +5,10 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
-import type { AgentAction, AgentMessage } from "@/components/agent/agent-store"
+import type { AgentAction, AgentMessage, ShiftDraft } from "@/components/agent/agent-store"
 import { AGENT_FILE_ACCEPT } from "@/components/agent/use-agent"
 import { LogoMark } from "@/components/brand/logo"
+import { SupplierLogo } from "@/components/brand/org-avatar"
 import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -56,6 +57,58 @@ function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: 
   )
 }
 
+/** A drafted order laid out the way a buyer checks one: what, when, what it costs, and who sees it in what order. */
+function DraftCard({ draft }: { draft: ShiftDraft }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card text-body-3 shadow-raised">
+      <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
+        <span className="flex min-w-0 flex-col">
+          <span className="text-caption-1 font-medium text-faded">Draft shift</span>
+          <span className="text-body-1 font-semibold">
+            {draft.headcount} {draft.position}
+            {draft.headcount === 1 ? "" : "s"}
+          </span>
+          <span className="text-caption-1 text-faded">{draft.location}</span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end">
+          <span className="text-caption-1 font-medium text-faded">Estimated</span>
+          <span className="text-body-1 font-semibold tabular">{draft.total}</span>
+        </span>
+      </div>
+      <dl className="grid gap-3 px-4 py-3 sm:grid-cols-3">
+        <div className="flex flex-col">
+          <dt className="text-caption-1 text-faded">When</dt>
+          <dd className="font-medium">{draft.when}</dd>
+          <dd className="text-caption-1 text-faded">{draft.time}</dd>
+        </div>
+        <div className="flex flex-col">
+          <dt className="text-caption-1 text-faded">Paid hours</dt>
+          <dd className="font-medium">{draft.hours} per Pro</dd>
+          <dd className="text-caption-1 text-faded">{draft.breakMins ? `${draft.breakMins}-minute unpaid break` : "No break"}</dd>
+        </div>
+        <div className="flex flex-col">
+          <dt className="text-caption-1 text-faded">Budget</dt>
+          <dd className={cn("text-caption-1", draft.budget?.over ? "font-medium text-critical-fg" : "text-faded")}>{draft.budget?.text ?? "No weekly budget set"}</dd>
+        </div>
+      </dl>
+      <div className="border-t border-border px-4 py-3">
+        <span className="text-caption-1 text-faded">Release order</span>
+        <ol className="mt-2 flex flex-col gap-1.5">
+          {draft.release.map((r) => (
+            <li key={r.supplierId} className="flex items-center gap-2.5">
+              <span className="w-10 text-caption-1 text-faded tabular">{r.at}</span>
+              <SupplierLogo supplierId={r.supplierId} size="sm" />
+              <span className="font-medium">{r.name}</span>
+              <span className="ml-auto tabular text-faded">${r.rate.toFixed(2)}/hr</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      {draft.note && <p className="border-t border-border px-4 py-2.5 text-caption-1 text-faded">{draft.note}</p>}
+    </div>
+  )
+}
+
 /** The conversation itself. Agent replies read as prose next to Iris's mark; the user's turns sit in bubbles. */
 export function AgentMessages({ messages, onRun, compact }: { messages: AgentMessage[]; onRun: RunAction; compact?: boolean }) {
   const reduce = useReducedMotion()
@@ -87,6 +140,7 @@ export function AgentMessages({ messages, onRun, compact }: { messages: AgentMes
                 </span>
               )}
               <p className="whitespace-pre-wrap text-pretty">{message.text}</p>
+              {message.draft && <DraftCard draft={message.draft} />}
               {message.actions && (
                 <div className="flex flex-wrap gap-2">
                   {message.actions.map((action) => (

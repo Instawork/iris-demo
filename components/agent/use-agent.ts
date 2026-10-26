@@ -9,7 +9,7 @@ import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/l
 import { parseReportRequest, reportReply } from "@/lib/agent-report"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
-import { formatClock, formatDateFull, formatDateShort, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
+import { formatClockShort, formatDateShort, formatDay, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
 import { previewOrder } from "@/lib/domain/order"
 import { money, moneyWhole, round2 } from "@/lib/format"
 import { PROGRAM, approversFor, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
@@ -61,28 +61,41 @@ export function useAgent() {
       }
       const preview = previewOrder(data, input)
       const week = preview?.check.worst
-      const budgetLine = !week?.budget
+      const budget = !week?.budget
         ? undefined
         : preview?.needsApproval
-          ? `Budget: ${loc.name} has ${moneyWhole(week.committed)} of its ${moneyWhole(week.budget)} budget committed the week of ${formatDateShort(week.weekStart)}. This makes it ${(week.overPct * 100).toFixed(1)}% over, so ${joinNames(preview.approvers.map((a) => `${a.user.name} (${a.user.title})`))} approves it before agencies see it.`
-          : `Budget: fits the week's ${moneyWhole(week.budget)} budget (${moneyWhole(week.committed + week.adding)} with this order).`
-      const releaseLine =
-        preview?.held && preview.firstRelease
-          ? `${preview.policy.sector} releases orders ${preview.policy.releaseLeadHours} hours before the shift: ${quotes[0].supplier.shortName} sees it ${formatTimestamp(preview.firstRelease.toISOString())}.`
-          : undefined
+          ? {
+              over: true,
+              text: `${(week.overPct * 100).toFixed(1)}% over ${loc.name}'s ${moneyWhole(week.budget)} for the week of ${formatDateShort(week.weekStart)}, so ${joinNames(preview.approvers.map((a) => a.user.name))} approves it first`,
+            }
+          : { over: false, text: `Fits the week's ${moneyWhole(week.budget)} (${moneyWhole(week.committed + week.adding)} with this order)` }
+      const held = preview?.held && preview.firstRelease
+      const gap = preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore
+      const low = Math.min(...totals)
+      const high = Math.max(...totals)
       add({
         from: "agent",
-        text: [
-          "Draft ready",
-          `${request.headcount} ${pos.name} · ${formatDateFull(request.date)} · ${formatClock(request.start)}–${formatClock(request.end)}`,
-          `${loc.name} · ${hours} paid hours${request.breakMins ? ` · ${request.breakMins}-minute unpaid break` : ""}`,
-          `Release order: ${quotes.map(({ supplier: item }, index) => `${index + 1}. ${item.shortName}${index ? ` (+${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h)` : releaseLine ? "" : " (now)"}`).join(" · ")}`,
-          `Bill rates: ${quotes.map(({ supplier: item, card }) => `${item.shortName} ${money(card.billRate)}/hr`).join(" · ")}`,
-          `Estimated total: ${money(Math.min(...totals))}${Math.min(...totals) === Math.max(...totals) ? "" : `–${money(Math.max(...totals))}`}`,
-          ...(budgetLine ? [budgetLine] : []),
-          ...(releaseLine ? [releaseLine] : []),
-          preview?.needsApproval ? "Nothing goes to agencies until it's approved." : "Nothing is booked until you click Create and send.",
-        ].join("\n"),
+        text: preview?.needsApproval ? "Here's the draft. It goes for approval before any agency sees it." : "Here's the draft. Nothing is booked until you click Create and send.",
+        draft: {
+          headcount: request.headcount,
+          position: pos.name,
+          location: loc.name,
+          when: formatDay(request.date, "EEE, MMM d"),
+          time: `${formatClockShort(request.start)}–${formatClockShort(request.end)}`,
+          hours,
+          breakMins: request.breakMins,
+          release: quotes.map(({ supplier: item, card }, index) => ({
+            supplierId: item.id,
+            name: item.shortName,
+            rate: card.billRate,
+            at: index ? `+${index * gap}h` : held ? "First" : "Now",
+          })),
+          total: `${money(low)}${low === high ? "" : `–${money(high)}`}`,
+          ...(budget ? { budget } : {}),
+          ...(held
+            ? { note: `${preview.policy.sector} holds orders until ${preview.policy.releaseLeadHours} hours before the shift, so ${quotes[0].supplier.shortName} sees it ${formatTimestamp(preview.firstRelease!.toISOString())}.` }
+            : {}),
+        },
         actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input, key: crypto.randomUUID() }],
       })
     },

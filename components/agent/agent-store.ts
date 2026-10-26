@@ -15,10 +15,26 @@ export type AgentAction =
   | { label: string; kind: "create-shift"; input: BookingInput; key: string }
   | HoursAction
 
+/** A shift order Iris drafted from a sentence, shown as a card above its actions. */
+export interface ShiftDraft {
+  headcount: number
+  position: string
+  location: string
+  when: string
+  time: string
+  hours: number
+  breakMins: number
+  release: { supplierId: string; name: string; rate: number; at: string }[]
+  total: string
+  budget?: { text: string; over: boolean }
+  note?: string
+}
+
 export interface AgentMessage {
   id: number
   from: "agent" | "user"
   text: string
+  draft?: ShiftDraft
   actions?: AgentAction[]
   fileName?: string
 }
