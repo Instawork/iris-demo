@@ -139,7 +139,7 @@ export function BillingReview({ invoice }: { invoice: Invoice }) {
             <AlertDialogTitle>{decision === "send_back" ? `Send ${invoice.number} back to ${sup}?` : `Accept these hours on ${invoice.number} as billed?`}</AlertDialogTitle>
             <AlertDialogDescription>
               {decision === "send_back"
-                ? `${sup} is asked to credit ${money(due)} for ${plural(findings.length, "line")} billed above Iris's clock. The credit comes off this invoice, and the timesheets are revised to the clock.`
+                ? `${sup} is asked to credit ${money(due)} for ${plural(findings.length, "line")} billed above Iris's clock. The credit comes off this invoice, and ${findings.length === 1 ? "the timesheet is" : "the timesheets are"} revised to the clock.`
                 : `The ${plural(findings.length, "line")} stay as billed and the invoice is cleared for payment.`}
             </AlertDialogDescription>
           </AlertDialogHeader>

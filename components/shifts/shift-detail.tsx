@@ -265,7 +265,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <Surface elevated data-tour="roster">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
               <div className="flex items-center gap-3">
-                <h3 className="text-body-2 font-bold">Timesheets</h3>
+                <h3 className="text-body-2 font-bold">{phase === "past" ? "Timesheets" : "Pros"}</h3>
                 <span className="inline-flex items-center gap-2 rounded-lg bg-tint-faded px-2 py-1 text-caption-1 font-semibold">
                   <FillPipe ratio={fillRatio(group)} tone={fillTone(group)} className="h-4 w-1.5" />
                   {filled} of {total} filled
