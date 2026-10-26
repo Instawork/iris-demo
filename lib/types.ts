@@ -209,6 +209,31 @@ export interface RateCard {
   rateReview?: RateReview
 }
 
+export interface RateValues {
+  proRate: number
+  billRate: number
+  markupPct: number
+  status: RateCard["status"]
+}
+
+/** One change to one rate card, kept even after the card is gone. */
+export interface RateChange {
+  id: string
+  at: string
+  by: string
+  cardId: string
+  supplierId: string
+  cityId: string
+  positionId: string
+  action: "added" | "changed" | "removed"
+  /** Where it came from: typed in, a CSV upload, the agency's system, onboarding, or an answer to Compass's review. */
+  source: "manual" | "upload" | "api" | "onboarding" | "review"
+  from?: RateValues
+  to?: RateValues
+  uploadId?: string
+  note?: string
+}
+
 /** Compass asking an agency to review a rate that runs above what the other agencies charge for the same city and role. */
 export interface RateReview {
   status: "requested" | "lowered" | "kept"
@@ -570,6 +595,7 @@ export interface Counters {
   rev: number
   act: number
   rep: number
+  rlog: number
 }
 
 export interface DemoData {
@@ -579,6 +605,8 @@ export interface DemoData {
   seededAt?: string
   pros: Pro[]
   rateCards: RateCard[]
+  /** Every rate card change, newest first. */
+  rateLog: RateChange[]
   groups: ShiftGroup[]
   timesheets: Timesheet[]
   invoices: Invoice[]

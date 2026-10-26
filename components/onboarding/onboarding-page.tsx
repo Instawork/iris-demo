@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Building2, MapPinned, Plus, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
@@ -248,7 +249,16 @@ export function OnboardingPage() {
       {ws.kind === "compass" && (
         <p className="flex items-center gap-1.5 text-caption-1 text-faded">
           <Plus className="size-3.5" />
-          Units can also come from the buyer: its admin adds one from Settings, Work locations.
+          {tab === "units" ? (
+            "Units can also come from the buyer: its admin adds one from Settings, Work locations."
+          ) : (
+            <>
+              Every change to an agency&apos;s rates, with who made it and how, is in
+              <Link href="/rates#changes" className="font-medium text-foreground underline-offset-4 hover:underline">
+                Supplier Rates
+              </Link>
+            </>
+          )}
         </p>
       )}
       <UnitDialog open={adding === "units"} onOpenChange={(open) => !open && setAdding(undefined)} />

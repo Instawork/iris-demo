@@ -8,6 +8,7 @@ export const emptyData = (): DemoData => ({
   seededOn: "",
   pros: [],
   rateCards: [],
+  rateLog: [],
   groups: [],
   timesheets: [],
   invoices: [],

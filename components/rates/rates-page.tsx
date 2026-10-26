@@ -15,6 +15,7 @@ import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { SupplierProfileDialog } from "@/components/home/supplier-profile-dialog"
+import { RateChanges } from "@/components/rates/rate-changes"
 import { RateDialog } from "@/components/rates/rate-dialog"
 import { RateEquation } from "@/components/rates/rate-equation"
 import { RateReviews } from "@/components/rates/rate-reviews"
@@ -197,6 +198,7 @@ function MyRates() {
           empty={<EmptyState icon={MapPin} title="No rates here yet" description="Add a rate or upload a CSV to start receiving shifts in this city." compact />}
         />
       </Surface>
+      <RateChanges />
       <RateDialog open={dialogOpen} onOpenChange={setDialogOpen} supplierId={sup.id} card={editing} />
     </>
   )
@@ -377,6 +379,7 @@ function RateComparison() {
           </Link>
         </p>
       )}
+      <RateChanges />
       <SupplierProfileDialog supplierId={profile} onOpenChange={(open) => !open && setProfile(undefined)} />
     </>
   )

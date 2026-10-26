@@ -5,6 +5,7 @@ import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, emptyDirectory, location, position, requirementsFor, supplier, syncDirectory } from "@/lib/reference"
 import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
+import { seedRateLog } from "@/lib/rate-log"
 import { defaultReports } from "@/lib/reports"
 import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
@@ -26,7 +27,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 15
+export const DATA_VERSION = 16
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -180,7 +181,7 @@ const historyStart = (today: string) => {
 }
 
 export function emptyCounters(): Counters {
-  return { sg: 48200, inv: 20400, ig: 37, upl: 1030, pro: 10230, rate: 1, ts: 1, ev: 1, rev: 1, act: 1, rep: 1 }
+  return { sg: 48200, inv: 20400, ig: 37, upl: 1030, pro: 10230, rate: 1, ts: 1, ev: 1, rev: 1, act: 1, rep: 1, rlog: 1 }
 }
 
 function makeCompliance(r: Random, supplierId: string, positionIds: string[], joinedOn: string, onboarding: boolean, today: string) {
@@ -383,6 +384,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   const pros = generatePros(r, counters, today)
   plantExpiredCert(pros, today)
   const rateCards = generateRateCards(r, counters, today)
+  const rateLog = seedRateLog(rateCards, counters, today)
   const groups: ShiftGroup[] = []
   const timesheets: Timesheet[] = []
   const busy = new Map<string, Set<string>>()
@@ -581,6 +583,7 @@ export function generateDemoData(today = todayISO()): DemoData {
     seededAt: nowISO,
     pros,
     rateCards,
+    rateLog,
     groups,
     timesheets: sheets,
     invoices,

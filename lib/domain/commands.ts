@@ -26,6 +26,7 @@ import {
   position,
   supplier,
 } from "@/lib/reference"
+import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
@@ -36,6 +37,7 @@ import type {
   InvoiceGroup,
   Location,
   RateCard,
+  RateChange,
   ReportSchedule,
   ReportSpec,
   RequirementId,
@@ -1422,9 +1424,31 @@ export type CommandResult<N extends CommandName> = ReturnType<(typeof COMMANDS)[
 
 export const isCommandName = (value: unknown): value is CommandName => typeof value === "string" && Object.hasOwn(COMMANDS, value)
 
+const RATE_SOURCE: Partial<Record<CommandName, RateChange["source"]>> = {
+  commitUpload: "upload",
+  resolveUpload: "upload",
+  answerRateReview: "review",
+  onboardAgency: "onboarding",
+}
+
+/** Whatever a command did to rate cards goes in the rate log, with who did it and how. */
+function withRateLog<R>(name: CommandName, before: DemoData, outcome: Outcome<R>, ctx: CommandContext): Outcome<R> {
+  if (outcome.replaced) return outcome
+  const after = outcome.data
+  const entries = rateChanges(before.rateCards, after.rateCards, {
+    at: ctx.now,
+    by: actorName(ctx),
+    firstId: after.counters.rlog,
+    source: (card) => RATE_SOURCE[name] ?? (card.source === "api" ? "api" : "manual"),
+    note: (card) => (name === "answerRateReview" && card.rateReview?.status === "lowered" ? (card.rateReview.answer ?? "Lowered to the market after Compass's review") : undefined),
+  })
+  if (!entries.length) return outcome
+  return { ...outcome, data: merge(after, { rateLog: [...entries, ...after.rateLog], counters: { rlog: after.counters.rlog + entries.length } }) }
+}
+
 export function runCommand<N extends CommandName>(name: N, data: DemoData, ctx: CommandContext, input: CommandInput<N>): Outcome<CommandResult<N>> {
   const handler = COMMANDS[name] as unknown as (data: DemoData, ctx: CommandContext, input: unknown) => Outcome<CommandResult<N>>
-  return handler(data, ctx, input)
+  return withRateLog(name, data, handler(data, ctx, input), ctx)
 }
 
 export const KNOWN_SUPPLIER_IDS = SUPPLIERS.map((s) => s.id)
