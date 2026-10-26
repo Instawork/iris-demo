@@ -13,10 +13,10 @@ export interface FilterOption {
   icon?: React.ReactNode
 }
 
-const triggerClass =
+export const triggerClass =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-dashed border-border-strong bg-background px-2.5 text-body-3 text-foreground transition-colors duration-100 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/30 data-[state=open]:bg-hover"
 
-const activeClass = "border-solid border-foreground/20 bg-foreground/[0.03]"
+export const activeClass = "border-solid border-foreground/20 bg-foreground/[0.03]"
 
 /** Inline multi-select filter. Empty selection means all. */
 export function MultiSelectFilter({

@@ -6,10 +6,25 @@ import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/doma
 import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, money, round2 } from "@/lib/format"
 import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
-import { PROGRAM, SUPPLIERS, approversFor, city, findLocation, findPosition, findSupplier, location, policyFor, position, supplier } from "@/lib/reference"
+import { PROGRAM, SUPPLIERS, approversFor, city, findLocation, findPosition, findSupplier, location, orgOf, policyFor, position, supplier } from "@/lib/reference"
+import { cleanSpec } from "@/lib/reports"
 import { generateDemoData } from "@/lib/seed"
 import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
-import type { ApprovalRequest, DemoData, InvoiceGroup, RateCard, RequirementId, RosterStatus, ShiftGroup, Timesheet, Upload, Workspace } from "@/lib/types"
+import type {
+  ApprovalRequest,
+  DemoData,
+  InvoiceGroup,
+  RateCard,
+  ReportSchedule,
+  ReportSpec,
+  RequirementId,
+  RosterStatus,
+  SavedReport,
+  ShiftGroup,
+  Timesheet,
+  Upload,
+  Workspace,
+} from "@/lib/types"
 
 export class CommandError extends Error {
   constructor(
@@ -1085,6 +1100,57 @@ function setAgencyAutoFill(data: DemoData, ctx: CommandContext, input: { supplie
   )
 }
 
+/* --------------------------------- Reports --------------------------------- */
+
+const reportOf = (data: DemoData, ws: Workspace, id: unknown): SavedReport => {
+  const report = need(
+    data.reports.find((r) => r.id === id),
+    "Report not found",
+  )
+  if (report.org !== orgOf(ws)) forbid("That report belongs to another organization.")
+  return report
+}
+
+const replaceReport = (data: DemoData, next: SavedReport): Patch => ({ reports: data.reports.map((r) => (r.id === next.id ? next : r)) })
+
+/** Saves the builder's report, as a new one or over one this organization already has. */
+function saveReport(data: DemoData, ctx: CommandContext, input: { id?: string; name: string; description?: string; spec: ReportSpec }): Outcome<string> {
+  const name = str(input?.name, "A name", 80).trim()
+  const spec = cleanSpec(input?.spec) ?? fail("Pick at least one measure and how to group it.")
+  const description = optStr(input?.description, 240)
+  if (input?.id) {
+    const report = reportOf(data, ctx.ws, input.id)
+    return done(data, report.id, replaceReport(data, { ...report, name, description, spec, updatedAt: ctx.now }))
+  }
+  const report: SavedReport = { id: `rep-${data.counters.rep}`, name, description, org: orgOf(ctx.ws), spec, createdBy: actorName(ctx), createdAt: ctx.now, updatedAt: ctx.now }
+  return done(data, report.id, { reports: [...data.reports, report], counters: { rep: data.counters.rep + 1 } })
+}
+
+function deleteReport(data: DemoData, ctx: CommandContext, input: { id: string }): Outcome<null> {
+  const report = reportOf(data, ctx.ws, input?.id)
+  return done(data, null, { reports: data.reports.filter((r) => r.id !== report.id) })
+}
+
+/** Sets or clears when Iris emails a report, and to whom. */
+function scheduleReport(data: DemoData, ctx: CommandContext, input: { id: string; schedule: Omit<ReportSchedule, "lastSentAt"> | null }): Outcome<null> {
+  const report = reportOf(data, ctx.ws, input?.id)
+  if (!input?.schedule) return done(data, null, replaceReport(data, { ...report, schedule: undefined, updatedAt: ctx.now }))
+  const cadence = (["daily", "weekly", "monthly"] as const).find((c) => c === input.schedule!.cadence) ?? fail("Pick how often it goes out")
+  const recipients = [...new Set(strList(input.schedule.recipients, "Recipients", 20).map((r) => r.trim().slice(0, 120)).filter(Boolean))]
+  if (!recipients.length) fail("Add at least one recipient")
+  const schedule: ReportSchedule = { cadence, time: time(input.schedule.time, "The time"), recipients, ...(report.schedule?.lastSentAt ? { lastSentAt: report.schedule.lastSentAt } : {}) }
+  return done(data, null, replaceReport(data, { ...report, schedule, updatedAt: ctx.now }))
+}
+
+/** Emails the report now: to the people given, its schedule's recipients, or the person asking. Resolves to how many it went to. */
+function sendReport(data: DemoData, ctx: CommandContext, input: { id: string; recipients?: string[] }): Outcome<number> {
+  const report = reportOf(data, ctx.ws, input?.id)
+  const given = input?.recipients === undefined ? [] : strList(input.recipients, "Recipients", 20).map((r) => r.trim()).filter(Boolean)
+  const recipients = given.length ? given : (report.schedule?.recipients ?? [actorName(ctx)])
+  const next = report.schedule ? { ...report, schedule: { ...report.schedule, lastSentAt: ctx.now } } : report
+  return done(data, recipients.length, replaceReport(data, next))
+}
+
 /* -------------------------------- Registry --------------------------------- */
 
 export const COMMANDS = {
@@ -1125,6 +1191,10 @@ export const COMMANDS = {
   resolveUpload,
   resetDemo,
   setAgencyAutoFill,
+  saveReport,
+  deleteReport,
+  scheduleReport,
+  sendReport,
 }
 
 export type CommandName = keyof typeof COMMANDS

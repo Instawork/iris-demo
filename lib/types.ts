@@ -493,6 +493,48 @@ export interface ActivityEvent {
   invoiceId?: string
 }
 
+export type ReportMeasure = "spend" | "hours" | "workers" | "costPerHour" | "aboveClock" | "shifts" | "spots" | "fillRate" | "noShowRate" | "timeToFill"
+
+export type ReportDimension = "week" | "month" | "buyer" | "location" | "market" | "agency" | "position"
+
+export type ReportPeriod = "last_7" | "last_28" | "last_90" | "this_month" | "last_month" | "custom"
+
+export type ReportFilterKey = "buyer" | "location" | "market" | "agency" | "position"
+
+/** What a report shows. Saved reports, links and the chat all carry one. */
+export interface ReportSpec {
+  measures: ReportMeasure[]
+  groupBy: ReportDimension
+  splitBy?: ReportDimension
+  period: ReportPeriod
+  /** Only for a custom period. */
+  from?: string
+  to?: string
+  /** Empty or missing means all. */
+  filters: Partial<Record<ReportFilterKey, string[]>>
+}
+
+export interface ReportSchedule {
+  cadence: "daily" | "weekly" | "monthly"
+  /** HH:MM in the program's time zone. Weekly goes out on Mondays, monthly on the 1st. */
+  time: string
+  recipients: string[]
+  lastSentAt?: string
+}
+
+export interface SavedReport {
+  id: string
+  name: string
+  description?: string
+  /** Who shares it: "compass", "buyer:<id>" or "supplier:<id>". */
+  org: string
+  spec: ReportSpec
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  schedule?: ReportSchedule
+}
+
 export interface Counters {
   sg: number
   inv: number
@@ -504,6 +546,7 @@ export interface Counters {
   ev: number
   rev: number
   act: number
+  rep: number
 }
 
 export interface DemoData {
@@ -525,6 +568,7 @@ export interface DemoData {
   reviews: ProReview[]
   businessActivity: BusinessActivity[]
   budgets: UnitBudget[]
+  reports: SavedReport[]
   /** Presenter controls for the demo tenant. */
   settings?: { pausedAgencies?: string[] }
   counters: Counters

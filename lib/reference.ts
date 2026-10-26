@@ -427,6 +427,46 @@ export const WORKSPACES: Workspace[] = [
 
 export const DEFAULT_WORKSPACE_ID = "ws-levy"
 
+/** The organization a workspace belongs to: "compass", "buyer:<id>" or "supplier:<id>". */
+export const orgOf = (ws: Pick<Workspace, "kind" | "buyerId" | "supplierId">) =>
+  ws.kind === "compass" ? "compass" : ws.kind === "buyer" ? `buyer:${ws.buyerId}` : `supplier:${ws.supplierId}`
+
+export interface TeamMember {
+  name: string
+  title: string
+  role: string
+}
+
+const TEAMS: Record<string, TeamMember[]> = {
+  "buyer:levy-chi": [
+    { name: "Jordan Ellis", title: "Director of Operations", role: "Admin" },
+    { name: "Dana Ruiz", title: "District Manager", role: "Approves orders" },
+    { name: "Sam Whitfield", title: "Venue Manager, Lakefront Stadium", role: "Can book" },
+    { name: "Erin Cho", title: "Supervisor, West Loop Arena", role: "Can approve hours" },
+    { name: "Marco Ruiz", title: "Controller", role: "Finance" },
+  ],
+  "buyer:chartwells-south": [
+    { name: "Alicia Moreno", title: "Regional Dining Manager", role: "Admin" },
+    { name: "Devin Hart", title: "Executive Chef, Peachtree", role: "Can book" },
+    { name: "Priya Nair", title: "Finance Manager", role: "Finance" },
+  ],
+  compass: [
+    { name: "Priya Raman", title: "Flexible Labor Program Manager", role: "Program admin" },
+    { name: "Tom Becker", title: "Accounts Payable Lead", role: "Finance" },
+    { name: "Lena Ortiz", title: "Compliance Manager", role: "Compliance" },
+  ],
+}
+
+export function teamFor(ws: Workspace): TeamMember[] {
+  return (
+    TEAMS[orgOf(ws)] ?? [
+      { name: ws.user.name, title: ws.user.title, role: "Admin" },
+      { name: "Jamie Park", title: "Staffing Coordinator", role: "Operations" },
+      { name: "Chris Valdez", title: "Billing Specialist", role: "Finance" },
+    ]
+  )
+}
+
 const byId = <T extends { id: string }>(list: T[]) => new Map(list.map((x) => [x.id, x]))
 
 const cityMap = byId(CITIES)

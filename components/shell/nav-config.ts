@@ -1,4 +1,4 @@
-import { BadgeCheck, BadgeDollarSign, Calendar, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
+import { BadgeCheck, BadgeDollarSign, Calendar, ChartColumn, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
@@ -118,6 +118,18 @@ export function navFor(ws: Workspace): NavItem[] {
             : undefined,
     },
     {
+      id: "reports",
+      label: "Reports",
+      href: "/reports",
+      icon: ChartColumn,
+      tooltip:
+        kind === "compass"
+          ? "Spend, fill and reliability across the program, your way"
+          : kind === "buyer"
+            ? "Spend, hours and agency performance at your locations"
+            : "What you billed and how you filled, by buyer and week",
+    },
+    {
       id: "uploads",
       label: "Uploads",
       href: "/uploads",
@@ -141,6 +153,7 @@ export const SECTION_LABELS: Record<string, string> = {
   professionals: "Professionals",
   rates: "Supplier Rates",
   invoices: "Invoices",
+  reports: "Reports",
   uploads: "Uploads",
   settings: "Settings",
 }

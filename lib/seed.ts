@@ -5,6 +5,7 @@ import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, location, position, requirementsFor, supplier } from "@/lib/reference"
 import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
+import { defaultReports } from "@/lib/reports"
 import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
   ActivityEvent,
@@ -25,7 +26,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 13
+export const DATA_VERSION = 14
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -179,7 +180,7 @@ const historyStart = (today: string) => {
 }
 
 export function emptyCounters(): Counters {
-  return { sg: 48200, inv: 20400, ig: 37, upl: 1030, pro: 10230, rate: 1, ts: 1, ev: 1, rev: 1, act: 1 }
+  return { sg: 48200, inv: 20400, ig: 37, upl: 1030, pro: 10230, rate: 1, ts: 1, ev: 1, rev: 1, act: 1, rep: 1 }
 }
 
 function makeCompliance(r: Random, supplierId: string, positionIds: string[], joinedOn: string, onboarding: boolean, today: string) {
@@ -526,6 +527,8 @@ export function generateDemoData(today = todayISO()): DemoData {
   const roster = generateRoster(r, sheets, pros, today)
   const reviews = generateReviews(r, counters, sheets, pros)
   const activity = generateActivity(counters, groups, invoices, uploads, pros, today)
+  const reports = defaultReports(nowISO)
+  counters.rep = reports.length + 1
 
   return {
     version: DATA_VERSION,
@@ -544,6 +547,7 @@ export function generateDemoData(today = todayISO()): DemoData {
     reviews,
     businessActivity: [],
     budgets: generateBudgets(groups, today),
+    reports,
     counters,
   }
 }

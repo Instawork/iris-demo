@@ -7,7 +7,7 @@ import { emptyData, type BookingInput, type RateCardInput } from "@/lib/domain/c
 import type { ApproveResult, CommandInput, CommandName, CommandResult, Notice, UploadApply } from "@/lib/domain/commands"
 import { applyChanges, type Changes } from "@/lib/domain/sync"
 import { DEFAULT_WORKSPACE_ID, workspace } from "@/lib/reference"
-import type { DemoData, RequirementId, RosterStatus, Upload } from "@/lib/types"
+import type { DemoData, ReportSchedule, ReportSpec, RequirementId, RosterStatus, Upload } from "@/lib/types"
 
 export { eligiblePros, emptyData, joinNames, notifiedSuppliers, supplierReleasePlan } from "@/lib/domain/core"
 export type { BookingInput, Patch, RateCardInput } from "@/lib/domain/core"
@@ -28,6 +28,12 @@ interface StoreState {
   connect: () => void
   resetDemo: () => Promise<void>
   setAgencyAutoFill: (supplierId: string, enabled: boolean) => Promise<void>
+  /** Saves a new report, or over `id`. Resolves to its id. */
+  saveReport: (input: { id?: string; name: string; description?: string; spec: ReportSpec }) => Promise<string | undefined>
+  deleteReport: (id: string) => Promise<boolean>
+  scheduleReport: (id: string, schedule: Omit<ReportSchedule, "lastSentAt"> | null) => Promise<boolean>
+  /** Emails a report now, to these people or its schedule's. Resolves to how many it went to. */
+  sendReport: (id: string, recipients?: string[]) => Promise<number>
   signOut: () => Promise<void>
   setWorkspace: (id: string) => Promise<void>
   bookShifts: (input: BookingInput, key?: string) => Promise<string[]>
@@ -211,6 +217,10 @@ export const useStore = create<StoreState>()((set, get) => {
     },
 
     setAgencyAutoFill: async (supplierId, enabled) => void (await send("setAgencyAutoFill", { supplierId, enabled })),
+    saveReport: async (input) => send("saveReport", input),
+    deleteReport: async (id) => (await send("deleteReport", { id })) !== undefined,
+    scheduleReport: async (id, schedule) => (await send("scheduleReport", { id, schedule })) !== undefined,
+    sendReport: async (id, recipients) => (await send("sendReport", { id, recipients })) ?? 0,
 
     signOut: async () => {
       source?.close()

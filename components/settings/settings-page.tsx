@@ -22,46 +22,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, specsFor, templateCsv } from "@/lib/csv"
-import { PROGRAM, POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier } from "@/lib/reference"
+import { PROGRAM, POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier, teamFor } from "@/lib/reference"
 import type { Location, Position, Workspace } from "@/lib/types"
-
-const TEAMS: Record<string, { name: string; title: string; role: string }[]> = {
-  "ws-levy": [
-    { name: "Jordan Ellis", title: "Director of Operations", role: "Admin" },
-    { name: "Sam Whitfield", title: "Venue Manager, Lakefront Stadium", role: "Can book" },
-    { name: "Erin Cho", title: "Supervisor, West Loop Arena", role: "Can approve hours" },
-    { name: "Marco Ruiz", title: "Controller", role: "Finance" },
-  ],
-  "ws-chartwells": [
-    { name: "Alicia Moreno", title: "Regional Dining Manager", role: "Admin" },
-    { name: "Devin Hart", title: "Executive Chef, Peachtree", role: "Can book" },
-    { name: "Priya Nair", title: "Finance Manager", role: "Finance" },
-  ],
-  "ws-compass": [
-    { name: "Priya Raman", title: "Flexible Labor Program Manager", role: "Program admin" },
-    { name: "Tom Becker", title: "Accounts Payable Lead", role: "Finance" },
-    { name: "Lena Ortiz", title: "Compliance Manager", role: "Compliance" },
-  ],
-}
 
 const ROLE_HINT: Record<string, string> = {
   Admin: "Everything, including team and billing settings",
   "Program admin": "Rates, suppliers, policies and every buyer",
+  "Approves orders": "Approves orders that run over a unit's budget",
   "Can book": "Book and edit shifts at assigned locations",
   "Can approve hours": "Approve, edit and dispute timesheets",
   Finance: "Invoices, invoice groups and payments",
   Compliance: "Pro compliance and supplier insurance",
   Operations: "Fill shifts, manage Pros and submit hours",
-}
-
-function teamFor(ws: Workspace) {
-  return (
-    TEAMS[ws.id] ?? [
-      { name: ws.user.name, title: ws.user.title, role: "Admin" },
-      { name: "Jamie Park", title: "Staffing Coordinator", role: "Operations" },
-      { name: "Chris Valdez", title: "Billing Specialist", role: "Finance" },
-    ]
-  )
 }
 
 export function SettingsPage({ section }: { section: string }) {

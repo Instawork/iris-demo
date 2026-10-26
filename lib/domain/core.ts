@@ -19,6 +19,7 @@ export const emptyData = (): DemoData => ({
   reviews: [],
   businessActivity: [],
   budgets: [],
+  reports: [],
   counters: emptyCounters(),
 })
 

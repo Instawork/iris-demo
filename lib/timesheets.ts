@@ -45,6 +45,14 @@ export const laborAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate">
 
 export const timesheetAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate" | "tips">) => round2(laborAmount(t) + t.tips)
 
+/** Billed hours past what Iris's own clock supports. Under a quarter hour is rounding, not a finding. */
+export function hoursAboveClock(t: Pick<Timesheet, "hours" | "clock" | "sentHome" | "status">) {
+  const c = t.clock
+  if (!c?.in || !c.out || t.status === "removed") return 0
+  const over = round2(t.hours - hoursFor(c.in, c.out, c.breakMins, t.sentHome))
+  return over >= 0.25 ? over : 0
+}
+
 /** The agency has to act: complete and submit a draft, or fix a rejected one. */
 export const withAgency = (t: Timesheet) => t.status === "draft" || t.status === "rejected"
 
@@ -130,7 +138,7 @@ export function timesheetChecks(t: Timesheet, others: Timesheet[] = []): Timeshe
   if (checks.length) return checks
 
   const onClock = clockHours(clock)
-  if (clockComplete && onClock !== undefined && t.hours - hoursFor(clock!.in, clock!.out, clock!.breakMins, t.sentHome) >= 0.25) {
+  if (clockComplete && onClock !== undefined && hoursAboveClock(t) > 0) {
     checks.push({
       id: "above_clock",
       label: "Billed above the clock",
