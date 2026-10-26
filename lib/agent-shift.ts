@@ -64,6 +64,12 @@ const roleOf = (phrase: string) => {
   return ROLE_WORDS.find((r) => r.words.some((w) => p === w || p.endsWith(w)))?.positionId
 }
 
+/** The role a sentence names, if any: "bartenders", "line cook". */
+export const roleIn = (lower: string) => {
+  const match = lower.match(new RegExp(`\\b(${ROLE_PATTERN})(?:es|s)?\\b`))
+  return match ? roleOf(match[1]) : undefined
+}
+
 const clock = (hourText: string, minuteText: string | undefined, period: "am" | "pm") => {
   let hour = Number(hourText) % 12
   if (period === "pm") hour += 12
@@ -107,7 +113,7 @@ function parseDate(lower: string, today: string): { date?: string; invalid?: boo
 }
 
 /** "Riverside" or "west loop" is enough: a location matches on its full name, first two words, or a distinctive first word. */
-function locationIn(lower: string, buyerId: string) {
+export function locationIn(lower: string, buyerId: string) {
   const locations = locationsFor(buyerId)
   const words = (name: string) => name.toLowerCase().split(" ")
   return (

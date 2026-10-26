@@ -1,13 +1,14 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 
 import { NO_MESSAGES, useAgentThreads, type AgentAction } from "@/components/agent/agent-store"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
+import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/lib/agent-hours"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
-import { formatClock, formatDateFull, formatDateShort, formatTimestamp, paidHours } from "@/lib/dates"
+import { formatClock, formatDateFull, formatDateShort, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
 import { previewOrder } from "@/lib/domain/order"
 import { money, moneyWhole, round2 } from "@/lib/format"
 import { PROGRAM, approversFor, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
@@ -28,6 +29,7 @@ export function useAgent() {
   const setOpen = useUi((state) => state.setAgentOpen)
   const openUpload = useUi((state) => state.openUpload)
   const stageUpload = useUi((state) => state.stageUpload)
+  const approving = useRef(new Set<number>())
 
   const add = useCallback((message: Parameters<typeof push>[1]) => push(ws.id, message), [push, ws.id])
 
@@ -93,6 +95,20 @@ export function useAgent() {
       add({ from: "user", text })
       const lower = text.toLowerCase()
 
+      if (ws.kind === "buyer") {
+        const data = useStore.getState().data
+        const request = parseHoursApproval(text, data, ws.buyerId!, todayISO())
+        if (request?.ambiguous.length) {
+          const names = request.ambiguous
+          add({ from: "agent", text: `${joinNames(names)} ${names.length === 2 ? "both" : "all"} have timesheets with you. Which one did you mean?` })
+          return
+        }
+        if (request) {
+          add({ from: "agent", ...hoursReply(data, ws.buyerId!, request.scope, todayISO()) })
+          return
+        }
+      }
+
       const parsed = ws.kind === "buyer" ? parseAgentShift(text, ws.buyerId!) : undefined
       if (ws.kind === "buyer" && parsed && (parsed.draft || looksLikeShiftRequest(text))) {
         const buyerId = ws.buyerId!
@@ -138,7 +154,13 @@ export function useAgent() {
       }
 
       if (lower.includes("hour") || lower.includes("timesheet")) {
-        add({ from: "agent", text: "Every timesheet is checked against Iris's clock. Approve the clean ones together, or attach a timesheet CSV and Iris will check it.", actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }, { label: "Upload timesheets", kind: "upload", type: "timesheets" }] })
+        const reply =
+          ws.kind === "buyer"
+            ? "Every timesheet is checked against Iris's clock. Ask me to approve them, like “approve yesterday's hours” or “approve Harbor's timesheets for this week”, or attach a timesheet CSV and Iris will check it."
+            : ws.kind === "supplier"
+              ? "The buyer approves hours, after Iris checks them against its clock. Submit your drafts in Timesheets, or attach a timesheet CSV and Iris will check it."
+              : "Each buyer approves its own hours, after Iris checks them against its clock. Open Timesheets to see them across the program."
+        add({ from: "agent", text: reply, actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }, { label: "Upload timesheets", kind: "upload", type: "timesheets" }] })
         return
       }
 
@@ -207,6 +229,34 @@ export function useAgent() {
         stageUpload({ id: `upload-${useAgentThreads.getState().nextId}`, type: action.type, fileName: action.fileName, csv: action.csv })
         setOpen(false)
         openUpload(action.type)
+        return
+      }
+      if (action.kind === "approve-timesheets" || action.kind === "accept-proposal") {
+        const key = messageId ?? 0
+        if (approving.current.has(key)) return
+        approving.current.add(key)
+        try {
+          const store = useStore.getState()
+          const ids = action.kind === "approve-timesheets" ? action.ids : [action.id]
+          const before = store.data.timesheets.filter((t) => ids.includes(t.id) && t.status === "pending_approval")
+          const result = action.kind === "approve-timesheets" ? await store.approveTimesheets(action.ids) : await store.correctTimesheet(action.id, action.times, action.reason)
+          if (!result) return
+          if (messageId) dropActions(ws.id, messageId)
+          const data = useStore.getState().data
+          const today = todayISO()
+          const lead =
+            action.kind === "accept-proposal" && before[0]
+              ? correctedLine(before[0], action.hours, action.reason, data, result, today)
+              : approvedLine(
+                  data.timesheets.filter((t) => before.some((b) => b.id === t.id) && (t.status === "approved" || t.status === "invoiced")),
+                  result,
+                  today,
+                )
+          const next = hoursReply(data, ws.buyerId!, action.scope, today, true)
+          add({ from: "agent", text: `${lead}\n\n${next.text}`, actions: next.actions })
+        } finally {
+          approving.current.delete(key)
+        }
         return
       }
       if (action.kind === "create-shift") {

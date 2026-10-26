@@ -57,7 +57,7 @@ const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIc
   buyer: [
     { label: "Create a shift", prompt: "Create a shift", icon: CalendarPlus },
     { label: "Upload shifts", prompt: "Upload shifts", icon: Upload },
-    { label: "Approve hours", prompt: "Confirm hours", icon: CheckCheck },
+    { label: "Approve hours", prompt: "Approve hours", icon: CheckCheck },
   ],
   supplier: [
     { label: "Assign Pros", prompt: "Assign Pros", icon: UsersRound },
@@ -73,7 +73,7 @@ const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIc
 
 const examplesFor = (kind: PersonaKind) => {
   const soon = formatDay(addDaysISO(todayISO(), 9), "MMMM do")
-  if (kind === "buyer") return [`Create 3 line cook shifts on ${soon} from 8am to 4pm`, "Upload next month’s shifts", "Confirm this week’s hours", "Download the shift template"]
+  if (kind === "buyer") return [`Create 3 line cook shifts on ${soon} from 8am to 4pm`, "Upload next month’s shifts", "Approve yesterday’s hours", "Download the shift template"]
   if (kind === "supplier") return ["Assign Pros to this weekend’s shifts", "Upload a new rate card", "Submit hours for last week", "Download the Pros template"]
   return ["Review flagged invoices", "Show safety exceptions", "Download the activity template"]
 }

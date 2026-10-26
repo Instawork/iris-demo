@@ -13,14 +13,14 @@ import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
 
 export const AGENT_PROMPTS = {
-  buyer: ["Create a shift", "Upload shifts", "Download shift template", "Confirm hours"],
+  buyer: ["Create a shift", "Upload shifts", "Download shift template", "Approve hours"],
   supplier: ["Upload rate card", "Upload professionals", "Assign Pros", "Submit hours"],
   compass: ["Review flagged invoices", "Show safety exceptions", "Download activity template"],
 }
 
 const INTRO = {
   compass: "I can help you investigate spend, flagged invoices and workforce safety across the Compass program.",
-  buyer: "I can create or upload shifts, provide the right CSV template, and guide you through hours approval.",
+  buyer: "I can create or upload shifts, approve hours that match the clock, and provide the right CSV template.",
   supplier: "I can help upload rates and Pros, assign Pros to shifts, and submit hours or tips.",
 }
 

@@ -2,6 +2,7 @@
 
 import { create } from "zustand"
 
+import type { HoursAction } from "@/lib/agent-hours"
 import type { BookingInput } from "@/lib/store"
 import type { UploadType } from "@/lib/types"
 
@@ -11,6 +12,7 @@ export type AgentAction =
   | { label: string; kind: "upload"; type?: UploadType }
   | { label: string; kind: "review"; type: UploadType; fileName: string; csv: string }
   | { label: string; kind: "create-shift"; input: BookingInput }
+  | HoursAction
 
 export interface AgentMessage {
   id: number

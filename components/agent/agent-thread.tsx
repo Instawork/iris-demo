@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowUp, CalendarPlus, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
+import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage } from "@/components/agent/agent-store"
@@ -31,12 +31,22 @@ function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: 
         <Link href={action.href}>{action.label}</Link>
       </Button>
     )
-  const Icon = action.kind === "template" ? Download : action.kind === "create-shift" ? CalendarPlus : Upload
+  const Icon =
+    action.kind === "template"
+      ? Download
+      : action.kind === "create-shift"
+        ? CalendarPlus
+        : action.kind === "approve-timesheets"
+          ? CheckCheck
+          : action.kind === "accept-proposal"
+            ? Check
+            : Upload
+  const primary = action.kind === "create-shift" || action.kind === "approve-timesheets"
   return (
     <Button
-      variant={action.kind === "create-shift" ? "default" : "outline"}
+      variant={primary ? "default" : "outline"}
       size="sm"
-      className={cn(action.kind !== "create-shift" && "bg-background")}
+      className={cn(!primary && "bg-background")}
       onClick={() => onRun(action)}
       data-tour={`agent-${action.kind}`}
     >
