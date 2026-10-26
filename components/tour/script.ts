@@ -311,7 +311,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/professionals$/,
     href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
     title: "Renew it",
-    body: (ctx) => `Add the new document and Iris clears ${chosenPro(ctx)?.firstName ?? "them"} for shifts again.`,
+    body: (ctx) => `Attach the new document. Iris reads it, you attest it, and Iris checks it with the issuer before clearing ${chosenPro(ctx)?.firstName ?? "them"}.`,
     action: "Click the highlighted button",
     targets: () => [
       one('[data-tour="doc-action"][data-doc-state="expired"]') ??

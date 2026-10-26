@@ -4,7 +4,7 @@ import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
-import { billFrom, money, round2 } from "@/lib/format"
+import { billFrom, fullName, money, round2 } from "@/lib/format"
 import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
 import {
   BUYERS,
@@ -24,18 +24,22 @@ import {
   orgOf,
   policyFor,
   position,
+  requirementLabel,
   supplier,
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
+  ComplianceItem,
   DemoData,
   Integration,
   InvoiceGroup,
   Location,
+  Pro,
   RateCard,
   RateChange,
   ReportSchedule,
@@ -47,6 +51,7 @@ import type {
   Supplier,
   Timesheet,
   Upload,
+  Verification,
   Workspace,
 } from "@/lib/types"
 
@@ -1002,16 +1007,81 @@ function completeRequirement(data: DemoData, ctx: CommandContext, input: { proId
   const today = todayISO()
   const renews = requirement === "background" ? 365 : requirement === "foodHandler" || requirement === "alcohol" ? 365 * 3 : 0
   const expiresOn = renews ? addDaysISO(today, renews) : undefined
-  return done(data, null, {
-    pros: data.pros.map((p) => {
-      if (p.id !== pro.id) return p
-      const compliance = { ...p.compliance, [requirement]: { status: "complete" as const, completedOn: today, expiresOn } }
-      const next = { ...p, compliance }
-      const required = Object.keys(compliance) as RequirementId[]
-      const allDone = required.every((r) => compliance[r]?.status === "complete")
-      return allDone && p.status === "onboarding" ? { ...next, status: "active" as const, rating: 0 } : next
-    }),
-  })
+  return done(data, null, { pros: data.pros.map((p) => (p.id === pro.id ? withItem(p, requirement, { status: "complete", completedOn: today, expiresOn }) : p)) })
+}
+
+/** A Pro with one document updated. Onboarding ends once every document they hold is complete. */
+function withItem(p: Pro, requirement: RequirementId, item: ComplianceItem): Pro {
+  const compliance = { ...p.compliance, [requirement]: item }
+  const allDone = (Object.keys(compliance) as RequirementId[]).every((r) => compliance[r]?.status === "complete")
+  return allDone && p.status === "onboarding" ? { ...p, compliance, status: "active", rating: 0 } : { ...p, compliance }
+}
+
+/**
+ * The agency attests a document and Iris checks it with whoever issued it. A match clears the Pro. Anything Iris
+ * can't confirm stays pending, so the Pro is held off shifts, until Compass compliance looks at it.
+ */
+function verifyRequirement(
+  data: DemoData,
+  ctx: CommandContext,
+  input: { proId: string; requirement: RequirementId; provider: string; reference: string; issuedOn: string; expiresOn?: string; file?: string; attested: boolean },
+): Outcome<{ result: Verification["result"]; reason?: string }> {
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
+  if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, pro.supplierId)) forbid("Only the Pro's agency can attest their documents.")
+  const requirement = REQUIREMENT_IDS.includes(input.requirement) ? input.requirement : fail("Unknown requirement")
+  if (input.attested !== true) fail("Attest the document before Iris checks it.")
+  const provider = str(input.provider, "Who issued it", 60)
+  const reference = str(input.reference, "The reference number", 40).trim()
+  const issuedOn = typeof input.issuedOn === "string" && DATE.test(input.issuedOn) ? input.issuedOn : fail("Add the date on the document")
+  const expiresOn = typeof input.expiresOn === "string" && DATE.test(input.expiresOn) ? input.expiresOn : expiryFor(requirement, issuedOn)
+  const check = checkDocument(requirement, { provider, reference, issuedOn, expiresOn }, todayISO())
+  const verification: Verification = {
+    checkedWith: provider,
+    reference,
+    at: ctx.now,
+    result: check.result,
+    ...(check.result === "needs_review" ? { reason: check.reason } : {}),
+    attestedBy: actorName(ctx),
+    ...(optStr(input.file, 120) ? { file: optStr(input.file, 120) } : {}),
+  }
+  const item: ComplianceItem = check.result === "verified" ? { status: "complete", completedOn: issuedOn, ...(expiresOn ? { expiresOn } : {}), verification } : { status: "pending", verification }
+  const label = requirementLabel(requirement)
+  return {
+    ...done(data, { result: check.result, ...(check.result === "needs_review" ? { reason: check.reason } : {}) }, { pros: data.pros.map((p) => (p.id === pro.id ? withItem(p, requirement, item) : p)) }),
+    notices:
+      check.result === "needs_review"
+        ? [{ text: `Iris couldn't verify ${fullName(pro)}'s ${label.toLowerCase()} with ${provider}. It's waiting on Compass compliance.`, tone: "warning", workspaceIds: ["ws-compass"] }]
+        : undefined,
+  }
+}
+
+/** Compass compliance decides on a document Iris couldn't confirm: accept it and clear the Pro, or send it back. */
+function reviewDocument(data: DemoData, ctx: CommandContext, input: { proId: string; requirement: RequirementId; decision: "accept" | "reject"; note?: string }): Outcome<null> {
+  if (!isCompass(ctx.ws)) forbid("Compass compliance reviews the documents Iris couldn't verify.")
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
+  const requirement = REQUIREMENT_IDS.includes(input.requirement) ? input.requirement : fail("Unknown requirement")
+  const current = pro.compliance[requirement]
+  const v = current?.verification
+  if (current?.status !== "pending" || v?.result !== "needs_review") return fail("Nothing is waiting on review for this document.")
+  const note = optStr(input.note, 500)
+  const reviewed = { ...v, reviewedBy: actorName(ctx), ...(note ? { reviewNote: note } : {}) }
+  const accept = input.decision === "accept"
+  if (!accept && !note) fail("Say what the agency needs to fix.")
+  const today = todayISO()
+  const expiresOn = expiryFor(requirement, today)
+  const item: ComplianceItem = accept
+    ? { status: "complete", completedOn: today, ...(expiresOn ? { expiresOn } : {}), verification: { ...reviewed, result: "verified" } }
+    : { status: "missing", verification: { ...reviewed, result: "rejected" } }
+  return {
+    ...done(data, null, { pros: data.pros.map((p) => (p.id === pro.id ? withItem(p, requirement, item) : p)) }),
+    notices: [
+      {
+        text: accept ? `Compass accepted ${fullName(pro)}'s ${requirementLabel(requirement).toLowerCase()}` : `Compass sent back ${fullName(pro)}'s ${requirementLabel(requirement).toLowerCase()}: ${note}`,
+        tone: accept ? "success" : "warning",
+        supplierId: pro.supplierId,
+      },
+    ],
+  }
 }
 
 function addReview(data: DemoData, ctx: CommandContext, input: { proId: string; buyerId: string; groupId?: string; rating: number; text: string }): Outcome<null> {
@@ -1405,6 +1475,8 @@ export const COMMANDS = {
   upsertRateCard,
   deleteRateCard,
   completeRequirement,
+  verifyRequirement,
+  reviewDocument,
   addReview,
   commitUpload,
   resolveUpload,

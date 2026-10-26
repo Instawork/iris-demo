@@ -162,10 +162,26 @@ export interface Directory {
 
 export type RequirementId = "background" | "i9" | "orientation" | "foodHandler" | "alcohol"
 
+/** How Iris confirmed a document: the agency attests it, then Iris checks it with whoever issued it. */
+export interface Verification {
+  checkedWith: string
+  reference: string
+  at: string
+  result: "verified" | "needs_review" | "rejected"
+  /** Why Iris couldn't confirm it. */
+  reason?: string
+  attestedBy: string
+  file?: string
+  /** Compass compliance's call on one Iris couldn't confirm. */
+  reviewedBy?: string
+  reviewNote?: string
+}
+
 export interface ComplianceItem {
   status: "complete" | "pending" | "missing"
   completedOn?: string
   expiresOn?: string
+  verification?: Verification
 }
 
 export type ComplianceState = "complete" | "pending" | "missing" | "expiring" | "expired" | "not_required"

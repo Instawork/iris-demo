@@ -7,7 +7,7 @@ import { emptyData, type BookingInput, type RateCardInput } from "@/lib/domain/c
 import type { AgencyInput, ApproveResult, CommandInput, CommandName, CommandResult, Notice, UnitInput, UploadApply } from "@/lib/domain/commands"
 import { applyChanges, type Changes } from "@/lib/domain/sync"
 import { DEFAULT_WORKSPACE_ID, syncDirectory, workspace } from "@/lib/reference"
-import type { DemoData, ReportSchedule, ReportSpec, RequirementId, RosterStatus, Upload } from "@/lib/types"
+import type { DemoData, ReportSchedule, ReportSpec, RequirementId, RosterStatus, Upload, Verification } from "@/lib/types"
 
 export { eligiblePros, emptyData, joinNames, notifiedSuppliers, supplierReleasePlan } from "@/lib/domain/core"
 export type { BookingInput, Patch, RateCardInput } from "@/lib/domain/core"
@@ -79,6 +79,14 @@ interface StoreState {
   upsertRateCard: (input: RateCardInput) => Promise<void>
   deleteRateCard: (id: string) => Promise<void>
   completeRequirement: (proId: string, requirement: RequirementId) => Promise<void>
+  /** The agency attests a document and Iris checks it with the issuer. Resolves to what the issuer said. */
+  verifyRequirement: (
+    proId: string,
+    requirement: RequirementId,
+    doc: { provider: string; reference: string; issuedOn: string; expiresOn?: string; file?: string },
+  ) => Promise<{ result: Verification["result"]; reason?: string } | undefined>
+  /** Compass compliance accepts or sends back a document Iris couldn't verify. */
+  reviewDocument: (proId: string, requirement: RequirementId, decision: "accept" | "reject", note?: string) => Promise<boolean>
   addReview: (input: { proId: string; buyerId: string; groupId?: string; rating: number; text: string }) => Promise<void>
   /** Saves an upload. `apply` is the reviewed file, which the server checks again and applies. */
   commitUpload: (upload: UploadRecord, apply?: UploadApply) => Promise<Upload | undefined>
@@ -283,6 +291,8 @@ export const useStore = create<StoreState>()((set, get) => {
     upsertRateCard: async (input) => void (await send("upsertRateCard", input)),
     deleteRateCard: async (id) => void (await send("deleteRateCard", { id })),
     completeRequirement: async (proId, requirement) => void (await send("completeRequirement", { proId, requirement })),
+    verifyRequirement: async (proId, requirement, doc) => send("verifyRequirement", { proId, requirement, ...doc, attested: true }),
+    reviewDocument: async (proId, requirement, decision, note) => (await send("reviewDocument", { proId, requirement, decision, note })) !== undefined,
     addReview: async (input) => void (await send("addReview", input)),
     commitUpload: async (upload, apply) => send("commitUpload", { upload, apply }),
     resolveUpload: async (id, patch, apply) => void (await send("resolveUpload", { id, patch, apply })),

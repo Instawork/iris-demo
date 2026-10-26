@@ -635,6 +635,19 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
         cta: "Review",
       })
     }
+    const held = data.pros.filter((p) => Object.values(p.compliance).some((item) => item?.status === "pending" && item.verification?.result === "needs_review"))
+    if (held.length) {
+      todos.push({
+        id: "verify",
+        title: `${plural(held.length, "document")} Iris couldn't verify`,
+        description: "The agency attested them, but the issuer had no matching record. The Pros stay off shifts until you accept or send them back.",
+        count: held.length,
+        href: held.length === 1 ? `/professionals?filter=not_compliant&pro=${held[0].id}` : "/professionals?filter=not_compliant",
+        tone: "critical",
+        icon: "shield",
+        cta: "Review documents",
+      })
+    }
     const safetyExceptions = data.pros.filter((p) => {
       const summary = summaryOf(p)
       return summary === "action_needed" || summary === "onboarding"

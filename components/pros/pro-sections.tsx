@@ -7,15 +7,17 @@ import { toast } from "sonner"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Stars } from "@/components/pros/pro-status"
+import { VerifyDialog } from "@/components/pros/verify-dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useWorkspace } from "@/hooks/use-app"
 import { requirementRows, type RequirementRow } from "@/lib/compliance"
 import { daysFromToday, formatDateFull, formatDay } from "@/lib/dates"
-import { fullName, plural, rate } from "@/lib/format"
-import { onboardingOf, standingOf, type ProInterview, type ProOffer, type ProResume } from "@/lib/pro-profile"
+import { plural, rate } from "@/lib/format"
+import { standingOf, type ProInterview, type ProOffer, type ProResume } from "@/lib/pro-profile"
 import { REQUIREMENTS, buyer, cityLabel, location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
-import type { ComplianceState, Pro, ProReview } from "@/lib/types"
+import type { ComplianceState, Pro, ProReview, RequirementId } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 function Block({ title, info, children }: { title: string; info?: React.ReactNode; children: React.ReactNode }) {
@@ -171,30 +173,49 @@ const DOC_STATE: Record<Exclude<ComplianceState, "not_required">, { label: strin
 }
 
 function docDetail(row: RequirementRow) {
-  const { completedOn, expiresOn } = row.item ?? {}
+  const { completedOn, expiresOn, verification: v } = row.item ?? {}
+  if (v?.result === "rejected") return `Sent back by ${v.reviewedBy}: ${v.reviewNote ?? "needs a new document"}`
   if (row.state === "missing") return "Not received yet"
-  if (row.state === "pending") return "Submitted, waiting on results"
+  if (row.state === "pending") return v?.result === "needs_review" ? `Iris couldn't verify it: ${v.reason}. Waiting on Compass compliance.` : "Submitted, waiting on results"
   if (row.state === "expired") return expiresOn ? `Expired ${formatDateFull(expiresOn)}` : "Expired"
   if (row.state === "expiring" && expiresOn) return `Expires ${formatDateFull(expiresOn)} · in ${plural(daysFromToday(expiresOn), "day")}`
   return [completedOn && `Completed ${formatDateFull(completedOn)}`, expiresOn && `expires ${formatDateFull(expiresOn)}`].filter(Boolean).join(" · ")
 }
 
+/** Who confirmed a document and how, for anyone checking a Pro's file. */
+function proofLine(row: RequirementRow) {
+  const v = row.item?.verification
+  if (!v || v.result !== "verified") return undefined
+  return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : `Verified with ${v.checkedWith}`} · ${v.reference} · attested by ${v.attestedBy}`
+}
+
 export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: boolean }) {
-  const completeRequirement = useStore((s) => s.completeRequirement)
+  const { ws } = useWorkspace()
+  const reviewDocument = useStore((s) => s.reviewDocument)
+  const [renewing, setRenewing] = useState<{ id: RequirementId; blocked: boolean }>()
+  const [sending, setSending] = useState<RequirementId>()
+  const [note, setNote] = useState("")
   const rows = requirementRows(pro).filter((r) => r.state !== "not_required")
   const done = rows.filter((r) => r.state === "complete" || r.state === "expiring").length
+  const reviewer = ws.kind === "compass"
 
-  const complete = async (row: RequirementRow) => {
-    const wasBlocked = standingOf(pro) === "not_compliant"
-    const verb = row.state === "missing" || row.state === "pending" ? "marked complete" : "renewed"
-    await completeRequirement(pro.id, row.id)
+  const finish = (requirement: RequirementId, wasBlocked: boolean, how = "verified") => {
     const next = useStore.getState().data.pros.find((p) => p.id === pro.id)
-    if (!next) return
+    const row = next && requirementRows(next).find((r) => r.id === requirement)
+    if (!next || !row || row.item?.status !== "complete") return
     const cleared = standingOf(next) === "compliant"
-    if (pro.status === "onboarding" && cleared)
-      toast.success(`${pro.firstName} finished onboarding`, { description: "Buyers and Compass now see them as compliant." })
-    else if (wasBlocked && cleared) toast.success(`${pro.firstName} is cleared to work again`, { description: `${row.label} ${verb}.` })
-    else toast.success(`${row.label} ${verb}`, { description: next.status === "onboarding" ? `${fullName(pro)} · ${onboardingOf(next).label}` : fullName(pro) })
+    if (pro.status === "onboarding" && cleared) toast.success(`${pro.firstName} finished onboarding`, { description: "Buyers and Compass now see them as compliant." })
+    else if (wasBlocked && cleared) toast.success(`${pro.firstName} is cleared to work again`, { description: `${row.label} ${how}.` })
+    else toast.success(`${row.label} ${how}`)
+  }
+
+  const decide = async (requirement: RequirementId, decision: "accept" | "reject") => {
+    const wasBlocked = standingOf(pro) === "not_compliant"
+    if (!(await reviewDocument(pro.id, requirement, decision, decision === "reject" ? note.trim() : undefined))) return
+    setSending(undefined)
+    setNote("")
+    if (decision === "accept") finish(requirement, wasBlocked, "accepted")
+    else toast.success(`Sent back to ${supplier(pro.supplierId).shortName}`)
   }
 
   return (
@@ -208,28 +229,79 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
           const meta = DOC_STATE[row.state as keyof typeof DOC_STATE]
           const Icon = meta.icon
           const actionable = canComplete && row.state !== "complete"
+          const held = row.item?.verification?.result === "needs_review" && row.state === "pending"
+          const proof = proofLine(row)
           return (
-            <li key={row.id} className="flex items-center gap-3 px-3 py-2.5">
-              <Icon className={cn("size-4 shrink-0", toneText[meta.tone])} />
-              <Tip content={REQUIREMENTS.find((x) => x.id === row.id)?.description}>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-body-3 font-semibold">{row.label}</span>
-                  <span className="text-caption-1 text-faded">{docDetail(row)}</span>
-                </span>
-              </Tip>
-              {actionable ? (
-                <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => complete(row)} data-tour="doc-action" data-doc-state={row.state}>
-                  {row.state === "missing" || row.state === "pending" ? "Mark complete" : "Renew"}
-                </Button>
-              ) : (
-                <StatusBadge size="sm" tone={meta.tone}>
-                  {meta.label}
-                </StatusBadge>
+            <li key={row.id} className="flex flex-col gap-2 px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <Icon className={cn("size-4 shrink-0", toneText[meta.tone])} />
+                <Tip content={REQUIREMENTS.find((x) => x.id === row.id)?.description}>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-body-3 font-semibold">{row.label}</span>
+                    <span className="text-caption-1 text-faded">{docDetail(row)}</span>
+                    {proof && (
+                      <span className="flex items-center gap-1 text-caption-1 text-positive-fg">
+                        <ShieldCheck className="size-3" /> {proof}
+                      </span>
+                    )}
+                  </span>
+                </Tip>
+                {reviewer && held ? (
+                  <span className="flex shrink-0 gap-1.5">
+                    <Button size="sm" variant="ghost" className="h-7 rounded-md text-caption-1" onClick={() => setSending(sending === row.id ? undefined : row.id)}>
+                      Send back
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => decide(row.id, "accept")}>
+                      Accept
+                    </Button>
+                  </span>
+                ) : actionable ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-md text-caption-1"
+                    onClick={() => setRenewing({ id: row.id, blocked: standingOf(pro) === "not_compliant" })}
+                    data-tour="doc-action"
+                    data-doc-state={row.state}
+                  >
+                    {held ? "Fix it" : row.state === "missing" || row.state === "pending" ? "Add" : "Renew"}
+                  </Button>
+                ) : (
+                  <StatusBadge size="sm" tone={meta.tone}>
+                    {meta.label}
+                  </StatusBadge>
+                )}
+              </div>
+              {sending === row.id && (
+                <div className="flex gap-2 pl-7">
+                  <input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder={`What ${supplier(pro.supplierId).shortName} needs to fix`}
+                    autoFocus
+                    className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2.5 text-body-3 outline-none focus:border-foreground/30"
+                  />
+                  <Button size="sm" className="h-8" disabled={!note.trim()} onClick={() => decide(row.id, "reject")}>
+                    Send
+                  </Button>
+                </div>
               )}
             </li>
           )
         })}
       </ul>
+      {renewing && (
+        <VerifyDialog
+          key={renewing.id}
+          pro={pro}
+          requirement={renewing.id}
+          onOpenChange={(open) => {
+            if (open) return
+            setRenewing(undefined)
+            finish(renewing.id, renewing.blocked)
+          }}
+        />
+      )}
     </div>
   )
 }
