@@ -1,17 +1,37 @@
 "use client"
 
+import { Copy, ExternalLink, Smartphone } from "lucide-react"
+import { useState } from "react"
+import { toast } from "sonner"
+
 import { SupplierLogo } from "@/components/brand/org-avatar"
+import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { useData } from "@/hooks/use-app"
 import { SUPPLIERS } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
-/** Presenter switches for the shared demo: which agencies Iris staffs on its own when nobody is playing them. */
+/** Presenter switches for the shared demo: which agencies Iris staffs on its own, and a live shift to clock out of. */
 export function DemoControlsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const data = useData()
   const setAutoFill = useStore((s) => s.setAgencyAutoFill)
   const paused = new Set(data.settings?.pausedAgencies ?? [])
+  const [link, setLink] = useState<string>()
+  const [starting, setStarting] = useState(false)
+
+  const startLive = async () => {
+    setStarting(true)
+    const res = await fetch("/api/demo/live-shift", { method: "POST" })
+    const body = (await res.json().catch(() => ({}))) as { path?: string; error?: string }
+    setStarting(false)
+    if (!res.ok || !body.path) {
+      toast.error(body.error ?? "Iris couldn't start the live shift.")
+      return
+    }
+    setLink(new URL(body.path, window.location.origin).href)
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -34,6 +54,40 @@ export function DemoControlsDialog({ open, onOpenChange }: { open: boolean; onOp
             </li>
           ))}
         </ul>
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <span className="flex items-center gap-2 text-body-3 font-semibold">
+            <Smartphone className="size-4 text-faded" /> Live check-in
+          </span>
+          <span className="text-caption-1 text-faded">
+            A bartender shift at West Loop Arena that started an hour ago, with a Crewline bartender clocked in. Open the link on a phone and clock out: Iris creates the timesheet from the punch and it lands on Timesheets for Levy.
+          </span>
+          {link ? (
+            <div className="flex flex-col gap-2">
+              <code className="truncate rounded-md bg-tint-faded px-2 py-1.5 font-mono text-caption-1">{link}</code>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="h-8 gap-1.5 rounded-lg text-caption-1"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(link)
+                    toast.success("Check-in link copied")
+                  }}
+                >
+                  <Copy className="size-3.5" /> Copy link
+                </Button>
+                <Button asChild variant="ghost" className="h-8 gap-1.5 rounded-lg text-caption-1">
+                  <a href={link} target="_blank" rel="noreferrer">
+                    <ExternalLink className="size-3.5" /> Open
+                  </a>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" className="h-8 self-start rounded-lg text-caption-1" disabled={starting} onClick={startLive}>
+              {starting ? "Starting…" : "Start a live shift"}
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )

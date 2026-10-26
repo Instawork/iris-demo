@@ -36,7 +36,7 @@ export async function signSession(payload: SessionPayload, secret = sessionSecre
   return `${body}.${base64url(await hmac(secret, body))}`
 }
 
-export async function verifySession(token: string | undefined, secret = sessionSecret()): Promise<SessionPayload | null> {
+async function verified(token: string | undefined, secret: string) {
   if (!token) return null
   const [body, signature] = token.split(".")
   if (!body || !signature) return null
@@ -44,7 +44,23 @@ export async function verifySession(token: string | undefined, secret = sessionS
   if (expected.length !== signature.length) return null
   let diff = 0
   for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i)
-  if (diff !== 0) return null
+  return diff === 0 ? body : null
+}
+
+/** A signed value for links that work without a session, like a worker's check-in page. */
+export async function signValue(value: string, secret = sessionSecret()) {
+  const body = base64url(encoder.encode(value))
+  return `${body}.${base64url(await hmac(secret, body))}`
+}
+
+export async function verifyValue(token: string | undefined, secret = sessionSecret()) {
+  const body = await verified(token, secret)
+  return body ? new TextDecoder().decode(fromBase64url(body)) : null
+}
+
+export async function verifySession(token: string | undefined, secret = sessionSecret()): Promise<SessionPayload | null> {
+  const body = await verified(token, secret)
+  if (!body) return null
   try {
     const payload = JSON.parse(new TextDecoder().decode(fromBase64url(body))) as SessionPayload
     if (typeof payload.ws !== "string" || typeof payload.tenant !== "string") return null
