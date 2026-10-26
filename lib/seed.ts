@@ -3,7 +3,7 @@ import { generateBudgets } from "@/lib/domain/budget"
 import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartISO } from "@/lib/dates"
 import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
-import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, location, position, requirementsFor, supplier } from "@/lib/reference"
+import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, emptyDirectory, location, position, requirementsFor, supplier, syncDirectory } from "@/lib/reference"
 import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
 import { defaultReports } from "@/lib/reports"
 import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
@@ -26,7 +26,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 14
+export const DATA_VERSION = 15
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -215,6 +215,50 @@ function makeCompliance(r: Random, supplierId: string, positionIds: string[], jo
   return compliance
 }
 
+/**
+ * The Pros a newly onboarded agency brings over from its own system: experienced and mostly cleared, with a few
+ * background checks still in progress, so Iris holds those Pros back from day one.
+ */
+export function importedRoster(input: { supplierId: string; domain: string; cityIds: string[]; positionIds: string[]; count: number; firstCode: number; today: string }): Pro[] {
+  const r = createRandom(hashString(input.supplierId))
+  const used = new Set<string>()
+  return Array.from({ length: input.count }, (_, i) => {
+    let firstName = r.pick(FIRST_NAMES)
+    let lastName = r.pick(LAST_NAMES)
+    for (let guard = 0; used.has(`${firstName} ${lastName}`) && guard < 40; guard++) {
+      firstName = r.pick(FIRST_NAMES)
+      lastName = r.pick(LAST_NAMES)
+    }
+    used.add(`${firstName} ${lastName}`)
+    const cityId = input.cityIds[i % input.cityIds.length]
+    const main = input.positionIds[i % input.positionIds.length]
+    const extra = r.pick(input.positionIds)
+    const positionIds = extra === main ? [main] : [main, extra]
+    const joinedOn = addDaysISO(input.today, -r.int(60, 900))
+    const compliance = makeCompliance(r, input.supplierId, positionIds, joinedOn, false, input.today)
+    if (i % 8 === 5) compliance.background = { status: "pending" }
+    const code = `P-${input.firstCode + i}`
+    return {
+      id: code.toLowerCase(),
+      code,
+      supplierId: input.supplierId,
+      firstName,
+      lastName,
+      email: `${firstName}.${lastName}`.toLowerCase() + `@${input.domain}`,
+      phone: `(${cityId === "chi" ? "312" : cityId === "atl" ? "404" : "214"}) 555-${String(r.int(100, 9999)).padStart(4, "0")}`,
+      cityId,
+      positionIds,
+      rating: round2(r.float(4.2, 4.9)),
+      shiftsWorked: r.int(8, 140),
+      reliability: r.int(86, 97),
+      joinedOn,
+      status: "active",
+      level: null,
+      compliance,
+    }
+  })
+}
+
 function generatePros(r: Random, counters: Counters, today: string): Pro[] {
   const pros: Pro[] = []
   const used = new Set<string>()
@@ -333,6 +377,7 @@ const FILL_TARGET: FillTarget = {
 }
 
 export function generateDemoData(today = todayISO()): DemoData {
+  syncDirectory()
   const r = createRandom(20261013)
   const counters = emptyCounters()
   const pros = generatePros(r, counters, today)
@@ -548,6 +593,7 @@ export function generateDemoData(today = todayISO()): DemoData {
     businessActivity: [],
     budgets: generateBudgets(groups, today),
     reports,
+    directory: emptyDirectory(),
     counters,
   }
 }

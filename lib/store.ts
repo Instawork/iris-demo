@@ -4,9 +4,9 @@ import { toast } from "sonner"
 import { create } from "zustand"
 
 import { emptyData, type BookingInput, type RateCardInput } from "@/lib/domain/core"
-import type { ApproveResult, CommandInput, CommandName, CommandResult, Notice, UploadApply } from "@/lib/domain/commands"
+import type { AgencyInput, ApproveResult, CommandInput, CommandName, CommandResult, Notice, UnitInput, UploadApply } from "@/lib/domain/commands"
 import { applyChanges, type Changes } from "@/lib/domain/sync"
-import { DEFAULT_WORKSPACE_ID, workspace } from "@/lib/reference"
+import { DEFAULT_WORKSPACE_ID, syncDirectory, workspace } from "@/lib/reference"
 import type { DemoData, ReportSchedule, ReportSpec, RequirementId, RosterStatus, Upload } from "@/lib/types"
 
 export { eligiblePros, emptyData, joinNames, notifiedSuppliers, supplierReleasePlan } from "@/lib/domain/core"
@@ -34,6 +34,10 @@ interface StoreState {
   scheduleReport: (id: string, schedule: Omit<ReportSchedule, "lastSentAt"> | null) => Promise<boolean>
   /** Emails a report now, to these people or its schedule's. Resolves to how many it went to. */
   sendReport: (id: string, recipients?: string[]) => Promise<number>
+  /** Adds a unit to a buyer. Resolves to its location id. */
+  onboardUnit: (input: UnitInput) => Promise<string | undefined>
+  /** Adds an agency with its rate card and Pros. Resolves to its id. */
+  onboardAgency: (input: AgencyInput) => Promise<string | undefined>
   signOut: () => Promise<void>
   setWorkspace: (id: string) => Promise<void>
   bookShifts: (input: BookingInput, key?: string) => Promise<string[]>
@@ -104,6 +108,7 @@ export const useStore = create<StoreState>()((set, get) => {
         if (res.status === 401) return signInAgain()
         if (!res.ok) throw new Error(`Iris returned ${res.status}`)
         const body = (await res.json()) as { version: number; data: DemoData; workspaceId: string }
+        syncDirectory(body.data.directory)
         set({ data: body.data, version: body.version, workspaceId: body.workspaceId, ready: true })
       })
       .finally(() => {
@@ -147,7 +152,9 @@ export const useStore = create<StoreState>()((set, get) => {
       void resync()
       return
     }
-    set({ data: applyChanges(data, event.changes), version: event.version })
+    const next = applyChanges(data, event.changes)
+    if (next.directory !== data.directory) syncDirectory(next.directory)
+    set({ data: next, version: event.version })
     announce(event.notices)
   }
 
@@ -221,6 +228,8 @@ export const useStore = create<StoreState>()((set, get) => {
     deleteReport: async (id) => (await send("deleteReport", { id })) !== undefined,
     scheduleReport: async (id, schedule) => (await send("scheduleReport", { id, schedule })) !== undefined,
     sendReport: async (id, recipients) => (await send("sendReport", { id, recipients })) ?? 0,
+    onboardUnit: async (input) => send("onboardUnit", input),
+    onboardAgency: async (input) => send("onboardAgency", input),
 
     signOut: async () => {
       source?.close()

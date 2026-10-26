@@ -33,7 +33,7 @@ import { addDaysISO, formatClock, formatDateShort, formatDay, formatTimestamp, p
 import { previewOrder, type OrderPreview } from "@/lib/domain/order"
 import { money, moneyWhole, pct, round2 } from "@/lib/format"
 import { formatTimeToFill, metricsFor, type SupplierMetrics } from "@/lib/metrics"
-import { POSITIONS, PROGRAM, city, location, locationsFor, position } from "@/lib/reference"
+import { POSITIONS, PROGRAM, city, location, locationsFor, position, requirementLabel, requirementsFor } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
 import type { RateCard, Supplier } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -76,8 +76,11 @@ export function BookingWizard() {
   const [draft, setDraft] = useState<Draft>(() => {
     const from = params.get("from")
     const src = from ? data.groups.find((g) => g.id === from) : undefined
-    const loc = src ? src.locationId : locations[0]?.id
-    const posId = src?.positionId ?? (ws.buyerId === "chartwells-south" ? "linecook" : "bartender")
+    const asked = locations.find((l) => l.id === params.get("location"))
+    const loc = src ? src.locationId : (asked ?? locations[0])?.id
+    const usual = ws.buyerId === "chartwells-south" ? "linecook" : "bartender"
+    const roles = asked?.positionIds
+    const posId = src?.positionId ?? (roles?.length && !roles.includes(usual) ? roles[0] : usual)
     return {
       locationId: loc ?? "",
       positionId: posId,
@@ -328,17 +331,24 @@ function ScheduleStep({
   locations: ReturnType<typeof locationsFor>
   hrs: number
 }) {
-  const categories = [...new Set(POSITIONS.map((p) => p.category))]
+  const unit = locations.find((l) => l.id === draft.locationId)
+  const roles = unit?.positionIds?.length ? POSITIONS.filter((p) => unit.positionIds!.includes(p.id)) : POSITIONS
+  const categories = [...new Set(roles.map((p) => p.category))]
+  const pickLocation = (id: string) => {
+    const next = locations.find((l) => l.id === id)?.positionIds
+    if (!next?.length || next.includes(draft.positionId)) return set("locationId", id)
+    setDraft((d) => ({ ...d, locationId: id, positionId: next[0], instructions: position(next[0]).duties, tips: position(next[0]).alcohol }))
+  }
   return (
     <>
       <Surface elevated className="flex flex-col gap-5 p-5">
         <h2 className="flex items-center gap-1.5 text-body-1 font-semibold">
           Work Location
-          <InfoTip>Where and what. Requirements follow the position automatically.</InfoTip>
+          <InfoTip>Where and what. Requirements follow the position and the unit automatically.</InfoTip>
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Location">
-            <Select value={draft.locationId} onValueChange={(v) => set("locationId", v)}>
+            <Select value={draft.locationId} onValueChange={pickLocation}>
               <SelectTrigger className="h-10 w-full rounded-lg">
                 <SelectValue placeholder="Choose a location" />
               </SelectTrigger>
@@ -363,7 +373,7 @@ function ScheduleStep({
                 {categories.map((c) => (
                   <SelectGroup key={c}>
                     <SelectLabel>{c}</SelectLabel>
-                    {POSITIONS.filter((p) => p.category === c).map((p) => (
+                    {roles.filter((p) => p.category === c).map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
                       </SelectItem>
@@ -375,19 +385,16 @@ function ScheduleStep({
           </Field>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {[
-            { on: true, label: "Background check" },
-            { on: true, label: "I-9" },
-            { on: true, label: "Compass orientation" },
-            { on: position(draft.positionId).foodHandler, label: "Food handler card" },
-            { on: position(draft.positionId).alcohol, label: "Alcohol server cert" },
-          ]
-            .filter((r) => r.on)
-            .map((r) => (
-              <StatusBadge key={r.label} tone="positive" size="sm">
-                <ShieldCheck className="size-3" /> {r.label}
-              </StatusBadge>
-            ))}
+          {requirementsFor([draft.positionId], draft.locationId).map((id) => (
+            <StatusBadge key={id} tone="positive" size="sm">
+              <ShieldCheck className="size-3" /> {requirementLabel(id)}
+            </StatusBadge>
+          ))}
+          {unit?.minRating && (
+            <StatusBadge tone="positive" size="sm">
+              <ShieldCheck className="size-3" /> Rated {unit.minRating.toFixed(1)} or higher
+            </StatusBadge>
+          )}
         </div>
       </Surface>
 

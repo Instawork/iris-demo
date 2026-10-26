@@ -14,6 +14,7 @@ import { PillTabs } from "@/components/common/pill-tabs"
 import { ProAvatar } from "@/components/common/pro-avatar"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
+import { UnitDialog } from "@/components/onboarding/unit-dialog"
 import { HubDiagram } from "@/components/shell/hub-diagram"
 import { SETTINGS_LABELS, settingsFor } from "@/components/shell/nav-config"
 import { Button } from "@/components/ui/button"
@@ -150,6 +151,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
 
 function LocationsSection({ ws }: { ws: Workspace }) {
   const data = useData()
+  const [adding, setAdding] = useState(false)
   const locations = locationsFor(ws.kind === "buyer" ? ws.buyerId : undefined)
   const columns: Column<Location>[] = [
     {
@@ -194,7 +196,17 @@ function LocationsSection({ ws }: { ws: Workspace }) {
       cell: (l) => data.groups.filter((g) => g.locationId === l.id && !g.cancelledAt && g.date >= new Date().toISOString().slice(0, 10)).length,
     },
   ]
-  return <DataTable rows={locations} columns={columns} getRowId={(l) => l.id} />
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={() => setAdding(true)}>
+          <Plus /> Add a unit
+        </Button>
+      </div>
+      <DataTable rows={locations} columns={columns} getRowId={(l) => l.id} />
+      <UnitDialog open={adding} onOpenChange={setAdding} />
+    </div>
+  )
 }
 
 function PositionsSection() {

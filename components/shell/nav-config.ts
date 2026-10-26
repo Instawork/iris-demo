@@ -1,4 +1,4 @@
-import { BadgeCheck, BadgeDollarSign, Calendar, ChartColumn, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
+import { BadgeCheck, BadgeDollarSign, Building2, Calendar, ChartColumn, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
@@ -65,6 +65,9 @@ export function navFor(ws: Workspace): NavItem[] {
             : "Your todos, performance and the buyers that approved you",
     },
     ...approvals,
+    ...(kind === "compass"
+      ? [{ id: "onboarding", label: "Onboarding", href: "/onboarding", icon: Building2, tooltip: "Every unit and agency on the program. Add new ones." } satisfies NavItem]
+      : []),
     {
       id: "shifts",
       label: "Shifts",
@@ -148,6 +151,7 @@ export const settingsFor = (ws: Workspace) => SETTINGS_PAGES.filter((p) => !p.ki
 export const SECTION_LABELS: Record<string, string> = {
   "": "Dashboard",
   approvals: "Approvals",
+  onboarding: "Onboarding",
   shifts: "Shifts",
   timesheets: "Timesheets",
   professionals: "Professionals",

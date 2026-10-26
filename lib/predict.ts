@@ -85,7 +85,7 @@ function fillRisks(data: DemoData, supplierId: string): Prediction[] {
       const open = g.slots.length - filledCount(g)
       const loc = location(g.locationId)
       const pos = position(g.positionId)
-      const available = data.pros.filter((p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.get(g.date)?.has(p.id) && canWork(p, g.positionId, g.date).ok).length
+      const available = data.pros.filter((p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.get(g.date)?.has(p.id) && canWork(p, g.positionId, g.date, g.locationId).ok).length
       const short = Math.max(0, open - available)
       return { g, open, available, short, loc, pos }
     })

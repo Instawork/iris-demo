@@ -1,19 +1,40 @@
 import { planImport } from "@/lib/csv"
-import { addDaysISO, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock } from "@/lib/dates"
+import { addDaysISO, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, joinNames, merge, notifiedSuppliers, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, money, round2 } from "@/lib/format"
 import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
-import { PROGRAM, SUPPLIERS, approversFor, city, findLocation, findPosition, findSupplier, location, orgOf, policyFor, position, supplier } from "@/lib/reference"
+import {
+  BUYERS,
+  LOCATIONS,
+  PROGRAM,
+  SUPPLIERS,
+  approversFor,
+  buyer,
+  city,
+  findCity,
+  findLocation,
+  findPosition,
+  findSupplier,
+  findWorkspace,
+  location,
+  marketForZip,
+  orgOf,
+  policyFor,
+  position,
+  supplier,
+} from "@/lib/reference"
 import { cleanSpec } from "@/lib/reports"
-import { generateDemoData } from "@/lib/seed"
+import { generateDemoData, importedRoster } from "@/lib/seed"
 import { billedOf, canEditBilled, change, hoursFor, overtimeKey, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import type {
   ApprovalRequest,
   DemoData,
+  Integration,
   InvoiceGroup,
+  Location,
   RateCard,
   ReportSchedule,
   ReportSpec,
@@ -21,6 +42,7 @@ import type {
   RosterStatus,
   SavedReport,
   ShiftGroup,
+  Supplier,
   Timesheet,
   Upload,
   Workspace,
@@ -97,6 +119,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const loc = need(findLocation(str(input?.locationId, "Location")), "That location doesn't exist")
   if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== loc.buyerId) forbid("Only this location's buyer can post shifts here.")
   const pos = need(findPosition(str(input.positionId, "Position")), "That position doesn't exist")
+  if (loc.positionIds?.length && !loc.positionIds.includes(pos.id)) fail(`${loc.name} doesn't order ${pos.name}s. Add the role to the unit first.`)
   const policy = policyFor(loc.buyerId)
   const dates = [...new Set(strList(input.dates, "Dates", 31))].sort()
   const today = todayISO()
@@ -1100,6 +1123,200 @@ function setAgencyAutoFill(data: DemoData, ctx: CommandContext, input: { supplie
   )
 }
 
+/* -------------------------------- Onboarding ------------------------------- */
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PALETTE = ["var(--chart-2)", "var(--brand-strong)", "var(--warning)", "var(--critical)"]
+
+const slug = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 32)
+
+const freeId = (base: string, taken: (id: string) => boolean) => {
+  let id = base
+  for (let n = 2; taken(id); n++) id = `${base}-${n}`
+  return id
+}
+
+export interface UnitInput {
+  buyerId: string
+  name: string
+  kind: string
+  address: string
+  zip: string
+  costCenter: string
+  positionIds: string[]
+  requires?: RequirementId[]
+  minRating?: number
+  weeklyBudget?: number
+  approverIds?: string[]
+}
+
+/** Adds a unit to a buyer: where it is, what its Pros need, and what it orders. It can book the moment it's added. */
+function onboardUnit(data: DemoData, ctx: CommandContext, input: UnitInput): Outcome<string> {
+  const owner = need(
+    BUYERS.find((b) => b.id === input?.buyerId),
+    "Pick the buyer this unit belongs to",
+  )
+  if (!ownsBuyer(ctx.ws, owner.id)) forbid()
+  const name = str(input.name, "The unit's name", 80).trim()
+  if (LOCATIONS.some((l) => l.name.toLowerCase() === name.toLowerCase())) fail(`${name} is already on Iris.`)
+  const zip = typeof input.zip === "string" && /^\d{5}$/.test(input.zip.trim()) ? input.zip.trim() : fail("The ZIP code needs five digits")
+  const market = marketForZip(zip) ?? fail("No agency on Iris covers that ZIP code yet.")
+  const costCenter = str(input.costCenter, "The cost center", 24).trim().toUpperCase()
+  const clash = LOCATIONS.find((l) => l.costCenter.toUpperCase() === costCenter)
+  if (clash) fail(`Cost center ${costCenter} already belongs to ${clash.name}.`)
+  const positionIds = [...new Set(strList(input.positionIds ?? [], "Positions", 40))].filter((id) => !!findPosition(id))
+  if (!positionIds.length) fail("Pick at least one position this unit orders")
+  const requires = [...new Set(strList(input.requires ?? [], "Requirements", 5))].filter((id): id is RequirementId => id === "foodHandler" || id === "alcohol")
+  const minRating = input.minRating ? round2(num(input.minRating, "The minimum rating", 1, 5)) : undefined
+  const approverIds = strList(input.approverIds ?? [], "Approvers", 10).filter((id) => findWorkspace(id)?.buyerId === owner.id)
+  const weeklyBudget = input.weeklyBudget ? Math.round(num(input.weeklyBudget, "The weekly budget", 100, 5_000_000)) : undefined
+  const id = freeId(`loc-${slug(name)}`, (x) => !!findLocation(x))
+  const unit: Location = {
+    id,
+    buyerId: owner.id,
+    name,
+    kind: str(input.kind, "The kind of unit", 40).trim(),
+    cityId: market.id,
+    address: str(input.address, "The street address", 120).trim(),
+    zip,
+    costCenter,
+    positionIds,
+    ...(requires.length ? { requires } : {}),
+    ...(minRating ? { minRating } : {}),
+    ...(approverIds.length ? { approverIds } : {}),
+    onboarded: { at: ctx.now, by: actorName(ctx) },
+  }
+  const first = weekStartISO(todayISO())
+  const budgets = weeklyBudget ? [0, 1, 2, 3, 4, 5].map((w) => ({ locationId: id, weekStart: addDaysISO(first, w * 7), amount: weeklyBudget })) : []
+  return done(
+    data,
+    id,
+    { directory: { ...data.directory, locations: [...data.directory.locations, unit] }, ...(budgets.length ? { budgets: [...data.budgets, ...budgets] } : {}) },
+    event(data, { text: `${actorName(ctx)} added ${name} to ${owner.name}`, actor: actorName(ctx), tone: "primary", buyerId: owner.id }, ctx.now),
+  )
+}
+
+export interface AgencyInput {
+  name: string
+  shortName?: string
+  contactName: string
+  contactEmail: string
+  integration: Integration
+  cityIds: string[]
+  positionIds: string[]
+  coiExpiresOn: string
+  coiFile?: string
+  msaSigned: boolean
+  rates: { cityId: string; positionId: string; proRate: number; markupPct: number }[]
+  buyerIds: string[]
+  /** Pros to bring over from the agency's own system. */
+  roster: number
+}
+
+/**
+ * Adds an agency: who to call, where and what it staffs, its paperwork, its rate card and its Pros. Each buyer that
+ * approves it adds it to the end of its release order, so it gets shifts the others leave open.
+ */
+function onboardAgency(data: DemoData, ctx: CommandContext, input: AgencyInput): Outcome<string> {
+  if (!isCompass(ctx.ws)) forbid("Only the Compass program office adds agencies.")
+  const name = str(input?.name, "The agency's name", 80).trim()
+  const shortName = (optStr(input.shortName, 24) ?? name.split(/\s+/)[0]).trim()
+  const taken = SUPPLIERS.find((s) => [s.name, s.shortName].some((n) => [name, shortName].some((x) => x.toLowerCase() === n.toLowerCase())))
+  if (taken) fail(`${taken.name} is already on Iris.`)
+  const contactName = str(input.contactName, "A main contact", 80).trim()
+  const contactEmail = typeof input.contactEmail === "string" && EMAIL.test(input.contactEmail.trim()) ? input.contactEmail.trim() : fail("The contact's email doesn't look right")
+  const cityIds = [...new Set(strList(input.cityIds, "Markets", 10))].filter((id) => !!findCity(id))
+  if (!cityIds.length) fail("Pick at least one market")
+  const positionIds = [...new Set(strList(input.positionIds, "Positions", 40))].filter((id) => !!findPosition(id))
+  if (!positionIds.length) fail("Pick at least one position")
+  const today = todayISO()
+  const coiExpiresOn = typeof input.coiExpiresOn === "string" && DATE.test(input.coiExpiresOn) ? input.coiExpiresOn : fail("Add when the certificate of insurance expires")
+  if (coiExpiresOn <= today) fail("That certificate of insurance has already expired.")
+  if (input.msaSigned !== true) fail("The master services agreement has to be signed first.")
+  const id = freeId(slug(shortName), (x) => !!findSupplier(x))
+
+  let rate = data.counters.rate
+  const cards: RateCard[] = []
+  for (const r of Array.isArray(input.rates) ? input.rates.slice(0, 400) : []) {
+    if (!cityIds.includes(r?.cityId) || !positionIds.includes(r?.positionId)) continue
+    const role = position(r.positionId).name
+    const proRate = round2(num(r.proRate, `The ${role} pay rate`, 7.25, 200))
+    const markupPct = round2(num(r.markupPct, `The ${role} markup`, 0, PROGRAM.maxMarkupPct))
+    cards.push({
+      id: `rate-${rate++}`,
+      supplierId: id,
+      cityId: r.cityId,
+      positionId: r.positionId,
+      proRate,
+      billRate: billFrom(proRate, markupPct),
+      markupPct,
+      zips: [...city(r.cityId).zips],
+      zipsAutoFilled: true,
+      status: "active",
+      effectiveFrom: today,
+      updatedAt: ctx.now,
+      source: "manual",
+    })
+  }
+  if (!cards.length) fail("Add at least one rate")
+
+  const onboarded = SUPPLIERS.filter((s) => s.onboarded).length
+  const added: Supplier = {
+    id,
+    name,
+    shortName,
+    initials: shortName.slice(0, 2).toUpperCase(),
+    color: PALETTE[onboarded % PALETTE.length],
+    integration: input.integration === "api" ? "api" : "csv",
+    integrationDetail: input.integration === "api" ? "API connected" : "CSV uploads",
+    syncedUploads: [],
+    isInstawork: false,
+    tagline: `${cityIds.map((c) => city(c).name).join(", ")} · ${plural(positionIds.length, "role")}`,
+    cityIds,
+    coiExpiresInDays: Math.round((Date.parse(`${coiExpiresOn}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000),
+    contactName,
+    contactEmail,
+    profile: { fillRate: 0.88, hoursToFill: 14, noShowRate: 0.03, compliance: 0.9, payIndex: 1, markupPct: round2(cards.reduce((s, c) => s + c.markupPct, 0) / cards.length), share: 0 },
+    onboarded: { at: ctx.now, by: actorName(ctx), coiExpiresOn, ...(optStr(input.coiFile, 120) ? { coiFile: optStr(input.coiFile, 120) } : {}), msaSignedOn: today },
+  }
+  const firstName = contactName.split(/\s+/)[0]
+  const ws: Workspace = {
+    id: freeId(`ws-${id}`, (x) => !!findWorkspace(x)),
+    kind: "supplier",
+    supplierId: id,
+    name,
+    sublabel: `Supplier · ${added.integrationDetail}`,
+    user: { name: contactName, firstName, title: "Account Manager", email: contactEmail },
+  }
+  const count = Math.round(num(input.roster ?? 0, "The roster size", 0, 60))
+  const pros = importedRoster({ supplierId: id, domain: contactEmail.split("@")[1], cityIds, positionIds, count, firstCode: data.counters.pro, today })
+  const approvals = { ...data.approvals }
+  const buyers = strList(input.buyerIds ?? [], "Buyers", 20).filter((b) => LOCATIONS.some((l) => l.buyerId === b && cityIds.includes(l.cityId)))
+  for (const b of buyers) approvals[b] = [...(approvals[b] ?? []).filter((x) => x !== id), id]
+
+  return done(
+    data,
+    id,
+    {
+      directory: { ...data.directory, suppliers: [...data.directory.suppliers, added], workspaces: [...data.directory.workspaces, ws] },
+      rateCards: [...cards, ...data.rateCards],
+      pros: [...data.pros, ...pros],
+      approvals,
+      counters: { rate, pro: data.counters.pro + pros.length },
+    },
+    event(
+      data,
+      { text: `${actorName(ctx)} added ${name}${buyers.length ? `, approved for ${joinNames(buyers.map((b) => buyer(b).name))}` : ""}`, actor: actorName(ctx), tone: "primary", supplierId: id },
+      ctx.now,
+    ),
+  )
+}
+
 /* --------------------------------- Reports --------------------------------- */
 
 const reportOf = (data: DemoData, ws: Workspace, id: unknown): SavedReport => {
@@ -1195,6 +1412,8 @@ export const COMMANDS = {
   deleteReport,
   scheduleReport,
   sendReport,
+  onboardUnit,
+  onboardAgency,
 }
 
 export type CommandName = keyof typeof COMMANDS

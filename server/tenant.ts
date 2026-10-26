@@ -2,7 +2,7 @@ import { PROGRAM_TIME_ZONE } from "@/lib/dates"
 import type { Notice } from "@/lib/domain/commands"
 import { advance } from "@/lib/domain/simulate"
 import { diffData, isEmptyChange, type Changes } from "@/lib/domain/sync"
-import { findWorkspace } from "@/lib/reference"
+import { findWorkspace, syncDirectory } from "@/lib/reference"
 import { DATA_VERSION, generateDemoData } from "@/lib/seed"
 import type { DemoData } from "@/lib/types"
 import { hasDatabase, loadTenantRow, saveTenantRow } from "@/server/db"
@@ -65,7 +65,9 @@ export class Tenant {
     readonly id: string,
     public version: number,
     public data: DemoData,
-  ) {}
+  ) {
+    syncDirectory(data.directory)
+  }
 
   /** Workspaces with a device connected right now. */
   connectedWorkspaces() {
@@ -92,6 +94,7 @@ export class Tenant {
   /** Applies one change at a time, saves it, then tells every connected device. */
   mutate<R>(meta: MutationMeta, fn: (data: DemoData) => Mutation<R>): Promise<Applied<R>> {
     const run = async (): Promise<Applied<R>> => {
+      syncDirectory(this.data.directory)
       const outcome = fn(this.data)
       const unchanged: Applied<R> = { result: outcome.result, version: this.version, replaced: false }
       if (outcome.data === this.data && !outcome.replaced) return unchanged
@@ -110,6 +113,7 @@ export class Tenant {
       }
       this.version = version
       this.data = outcome.data
+      syncDirectory(this.data.directory)
       if (outcome.replaced) this.recent.clear()
       this.emit({ kind: outcome.replaced ? "reset" : "change", version, changes, notices: outcome.notices })
       return { result: outcome.result, version, changes, replaced: !!outcome.replaced }

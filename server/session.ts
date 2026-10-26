@@ -3,21 +3,24 @@ import { cookies } from "next/headers"
 import { findWorkspace } from "@/lib/reference"
 import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, verifySession } from "@/lib/session-token"
 import type { Workspace } from "@/lib/types"
-import { defaultTenantId } from "@/server/tenant"
+import { defaultTenantId, getTenant } from "@/server/tenant"
 
 export interface Session {
   ws: Workspace
   tenantId: string
 }
 
+/** Agencies onboarded in the tenant's data have workspaces too, so the tenant loads before a workspace is looked up. */
 export async function currentSession(): Promise<Session | null> {
   const store = await cookies()
   const payload = await verifySession(store.get(SESSION_COOKIE)?.value)
+  if (payload) await getTenant(payload.tenant)
   const ws = payload && findWorkspace(payload.ws)
   return payload && ws ? { ws, tenantId: payload.tenant } : null
 }
 
 export async function startSession(workspaceId: string) {
+  await getTenant(defaultTenantId())
   const ws = findWorkspace(workspaceId)
   if (!ws) return null
   const token = await signSession({ ws: ws.id, tenant: defaultTenantId(), iat: Math.floor(Date.now() / 1000) })

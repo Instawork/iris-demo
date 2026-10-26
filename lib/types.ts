@@ -82,6 +82,12 @@ export interface Buyer {
   sector: string
 }
 
+/** Who added a unit or an agency to Iris, and when. Missing for the ones Iris shipped with. */
+export interface Onboarded {
+  at: string
+  by: string
+}
+
 export interface Location {
   id: string
   buyerId: string
@@ -91,6 +97,15 @@ export interface Location {
   address: string
   zip: string
   costCenter: string
+  /** Roles this unit orders. Missing means any. */
+  positionIds?: string[]
+  /** Documents this unit requires of every Pro, on top of the program's and each role's own. */
+  requires?: RequirementId[]
+  /** Pros rated below this don't get its shifts. */
+  minRating?: number
+  /** Workspaces that approve its over-budget orders, beside the buyer's district approvers. */
+  approverIds?: string[]
+  onboarded?: Onboarded
 }
 
 export type PositionCategory = "Front of house" | "Back of house" | "Events"
@@ -135,6 +150,14 @@ export interface Supplier {
   contactName: string
   contactEmail: string
   profile: SupplierProfile
+  onboarded?: Onboarded & { coiExpiresOn: string; coiFile?: string; msaSignedOn?: string }
+}
+
+/** Units and agencies onboarded on Iris, beside the ones it shipped with. Every lookup sees both. */
+export interface Directory {
+  locations: Location[]
+  suppliers: Supplier[]
+  workspaces: Workspace[]
 }
 
 export type RequirementId = "background" | "i9" | "orientation" | "foodHandler" | "alcohol"
@@ -569,6 +592,7 @@ export interface DemoData {
   businessActivity: BusinessActivity[]
   budgets: UnitBudget[]
   reports: SavedReport[]
+  directory: Directory
   /** Presenter controls for the demo tenant. */
   settings?: { pausedAgencies?: string[] }
   counters: Counters

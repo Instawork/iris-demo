@@ -36,7 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { useSwitchWorkspace } from "@/hooks/use-switch-workspace"
 import { useUi } from "@/hooks/use-ui"
-import { WORKSPACES } from "@/lib/reference"
+import { WORKSPACES, sublabelOf } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import type { Workspace } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -206,7 +206,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate }: { collapsed: boolean; onNa
               <>
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-body-3 font-semibold">{ws.name}</span>
-                  <span className="truncate text-caption-1 text-faded">{ws.sublabel}</span>
+                  <span className="truncate text-caption-1 text-faded">{sublabelOf(ws)}</span>
                 </span>
                 <ChevronsUpDown className="size-4 shrink-0 text-subtle" />
               </>

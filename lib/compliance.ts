@@ -1,5 +1,5 @@
 import { daysFromToday, parseDate } from "@/lib/dates"
-import { REQUIREMENTS, requirementsFor } from "@/lib/reference"
+import { REQUIREMENTS, findLocation, requirementsFor } from "@/lib/reference"
 import type { ComplianceItem, ComplianceState, Pro, RequirementId } from "@/lib/types"
 import { differenceInCalendarDays } from "date-fns"
 
@@ -58,11 +58,13 @@ export function readiness(pro: Pro, onDate?: string): ProReadiness {
   }
 }
 
-/** The placement gate: same check whether a buyer, supplier or upload assigns the Pro. */
-export function canWork(pro: Pro, positionId: string, date: string): { ok: boolean; reason?: string } {
+/** The placement gate: same check whether a buyer, supplier or upload assigns the Pro. A unit can ask for more. */
+export function canWork(pro: Pro, positionId: string, date: string, locationId?: string): { ok: boolean; reason?: string } {
   if (pro.status !== "active") return { ok: false, reason: "Still onboarding" }
   if (!pro.positionIds.includes(positionId)) return { ok: false, reason: "Not approved for this position" }
-  const required = requirementsFor([positionId])
+  const minRating = locationId ? findLocation(locationId)?.minRating : undefined
+  if (minRating && pro.rating < minRating) return { ok: false, reason: `Rated under ${minRating.toFixed(1)}, this unit's minimum` }
+  const required = requirementsFor([positionId], locationId)
   for (const id of required) {
     const state = itemState(pro.compliance[id], date)
     if (BLOCKING.includes(state)) {

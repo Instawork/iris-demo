@@ -1,5 +1,5 @@
 import { canWork } from "@/lib/compliance"
-import { PROGRAM, SUPPLIERS, location } from "@/lib/reference"
+import { PROGRAM, SUPPLIERS, emptyDirectory, location } from "@/lib/reference"
 import { emptyCounters } from "@/lib/seed"
 import type { ActivityEvent, Counters, DemoData, RateCard, ShiftGroup } from "@/lib/types"
 
@@ -20,6 +20,7 @@ export const emptyData = (): DemoData => ({
   businessActivity: [],
   budgets: [],
   reports: [],
+  directory: emptyDirectory(),
   counters: emptyCounters(),
 })
 
@@ -80,7 +81,7 @@ export function eligiblePros(data: DemoData, g: ShiftGroup, supplierId = g.suppl
   }
   const blocked = new Set(data.roster.filter((r) => r.buyerId === g.buyerId && r.status === "blocked").map((r) => r.proId))
   return data.pros.filter(
-    (p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.has(p.id) && !blocked.has(p.id) && canWork(p, g.positionId, g.date).ok,
+    (p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.has(p.id) && !blocked.has(p.id) && canWork(p, g.positionId, g.date, g.locationId).ok,
   )
 }
 

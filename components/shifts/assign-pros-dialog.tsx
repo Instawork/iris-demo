@@ -41,7 +41,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
         let reason: string | undefined
         if (onThis.has(p.id)) reason = "Already on this shift"
         else if (!eligible.has(p.id)) {
-          const check = canWork(p, group.positionId, group.date)
+          const check = canWork(p, group.positionId, group.date, group.locationId)
           reason = !check.ok ? check.reason : busy.has(p.id) ? "Booked elsewhere that day" : "Blocked by this buyer"
         }
         return { pro: p, reason }

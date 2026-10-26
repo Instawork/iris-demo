@@ -1,4 +1,4 @@
-import type { Buyer, City, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
+import type { Buyer, City, Directory, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
 
 /** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
@@ -73,7 +73,7 @@ export const BUYERS: Buyer[] = [
   { id: "chartwells-south", brand: "Chartwells", region: "South", name: "Chartwells · South", sector: "Higher Education" },
 ]
 
-export const LOCATIONS: Location[] = [
+const SHIPPED_LOCATIONS: Location[] = [
   {
     id: "loc-lfs",
     buyerId: "levy-chi",
@@ -249,7 +249,7 @@ export const POSITIONS: Position[] = [
   },
 ]
 
-export const SUPPLIERS: Supplier[] = [
+const SHIPPED_SUPPLIERS: Supplier[] = [
   {
     id: "instawork",
     name: "Instawork",
@@ -358,7 +358,7 @@ export const REQUIREMENTS: { id: RequirementId; label: string; short: string; de
   },
 ]
 
-export const WORKSPACES: Workspace[] = [
+const SHIPPED_WORKSPACES: Workspace[] = [
   {
     id: "ws-levy",
     kind: "buyer",
@@ -427,6 +427,13 @@ export const WORKSPACES: Workspace[] = [
 
 export const DEFAULT_WORKSPACE_ID = "ws-levy"
 
+/** A buyer's line counts its locations as they are now, onboarded units included. */
+export const sublabelOf = (ws: Workspace) => {
+  if (ws.kind !== "buyer" || ws.approves?.length) return ws.sublabel
+  const n = locationsFor(ws.buyerId).length
+  return `Buyer · ${n} location${n === 1 ? "" : "s"}`
+}
+
 /** The organization a workspace belongs to: "compass", "buyer:<id>" or "supplier:<id>". */
 export const orgOf = (ws: Pick<Workspace, "kind" | "buyerId" | "supplierId">) =>
   ws.kind === "compass" ? "compass" : ws.kind === "buyer" ? `buyer:${ws.buyerId}` : `supplier:${ws.supplierId}`
@@ -469,12 +476,69 @@ export function teamFor(ws: Workspace): TeamMember[] {
 
 const byId = <T extends { id: string }>(list: T[]) => new Map(list.map((x) => [x.id, x]))
 
+interface Registry {
+  locations: Location[]
+  suppliers: Supplier[]
+  workspaces: Workspace[]
+  locationMap: Map<string, Location>
+  supplierMap: Map<string, Supplier>
+  workspaceMap: Map<string, Workspace>
+}
+
+declare global {
+  var __irisRegistry: Registry | undefined
+}
+
+/**
+ * Units, agencies and their workspaces live on one object per process: Next can load this module once per route
+ * bundle, and every copy has to see the same onboarded entries.
+ */
+const registry = (globalThis.__irisRegistry ??= {
+  locations: [...SHIPPED_LOCATIONS],
+  suppliers: [...SHIPPED_SUPPLIERS],
+  workspaces: [...SHIPPED_WORKSPACES],
+  locationMap: byId(SHIPPED_LOCATIONS),
+  supplierMap: byId(SHIPPED_SUPPLIERS),
+  workspaceMap: byId(SHIPPED_WORKSPACES),
+})
+
+export const LOCATIONS: Location[] = registry.locations
+export const SUPPLIERS: Supplier[] = registry.suppliers
+export const WORKSPACES: Workspace[] = registry.workspaces
+
 const cityMap = byId(CITIES)
 const buyerMap = byId(BUYERS)
-const locationMap = byId(LOCATIONS)
 const positionMap = byId(POSITIONS)
-const supplierMap = byId(SUPPLIERS)
-const workspaceMap = byId(WORKSPACES)
+const locationMap = registry.locationMap
+const supplierMap = registry.supplierMap
+const workspaceMap = registry.workspaceMap
+
+const SHIPPED = { locations: SHIPPED_LOCATIONS, suppliers: SHIPPED_SUPPLIERS, workspaces: SHIPPED_WORKSPACES }
+
+const refill = <T extends { id: string }>(list: T[], map: Map<string, T>, shipped: T[], added: T[] = []) => {
+  const known = new Set(shipped.map((x) => x.id))
+  list.length = 0
+  list.push(...shipped, ...added.filter((x) => !known.has(x.id)))
+  map.clear()
+  for (const x of list) map.set(x.id, x)
+}
+
+/**
+ * Points every lookup at the units and agencies onboarded in this data, beside the ones Iris shipped with. The lists
+ * and maps here are module state shared by the whole process, so this runs whenever the data changes: on the server
+ * after each change to the tenant (one tenant per process), and in the browser before new data renders.
+ */
+export function syncDirectory(directory?: Partial<Directory>) {
+  refill(LOCATIONS, locationMap, SHIPPED.locations, directory?.locations)
+  refill(SUPPLIERS, supplierMap, SHIPPED.suppliers, directory?.suppliers)
+  refill(WORKSPACES, workspaceMap, SHIPPED.workspaces, directory?.workspaces)
+}
+
+export const emptyDirectory = (): Directory => ({ locations: [], suppliers: [], workspaces: [] })
+
+/** The market a ZIP code belongs to: listed outright, or sharing its first three digits with one that is. */
+export const marketForZip = (zip: string) =>
+  CITIES.find((c) => c.zips.includes(zip)) ?? CITIES.find((c) => c.zips.some((z) => z.slice(0, 3) === zip.slice(0, 3)))
 
 export const city = (id: string) => cityMap.get(id) ?? CITIES[0]
 export const buyer = (id: string) => buyerMap.get(id) ?? BUYERS[0]
@@ -492,7 +556,8 @@ export const findWorkspace = (id: string) => workspaceMap.get(id)
 export const policyFor = (buyerId: string) => SECTOR_POLICIES.find((p) => p.buyerId === buyerId) ?? SECTOR_POLICIES[0]
 
 /** Who approves over-budget orders at a location. */
-export const approversFor = (locationId: string) => WORKSPACES.filter((w) => w.approves?.includes(locationId))
+export const approversFor = (locationId: string) =>
+  WORKSPACES.filter((w) => w.approves?.includes(locationId) || findLocation(locationId)?.approverIds?.includes(w.id))
 
 export const locationsFor = (buyerId?: string) =>
   buyerId ? LOCATIONS.filter((l) => l.buyerId === buyerId) : LOCATIONS
@@ -507,12 +572,13 @@ export const cityLabel = (id: string) => {
   return `${c.name}, ${c.state}`
 }
 
-/** Positions whose duties need a food handler card or an alcohol cert get those requirements. */
-export const requirementsFor = (positionIds: string[]): RequirementId[] => {
+/** Positions whose duties need a food handler card or an alcohol cert get those requirements, and a unit can add more. */
+export const requirementsFor = (positionIds: string[], locationId?: string): RequirementId[] => {
   const base: RequirementId[] = ["background", "i9", "orientation"]
   const positions = positionIds.map((id) => position(id))
-  if (positions.some((p) => p.foodHandler)) base.push("foodHandler")
-  if (positions.some((p) => p.alcohol)) base.push("alcohol")
+  const unit = locationId ? (findLocation(locationId)?.requires ?? []) : []
+  if (positions.some((p) => p.foodHandler) || unit.includes("foodHandler")) base.push("foodHandler")
+  if (positions.some((p) => p.alcohol) || unit.includes("alcohol")) base.push("alcohol")
   return base
 }
 
