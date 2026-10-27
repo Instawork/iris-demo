@@ -9,7 +9,7 @@ import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
 import { billingFindings, billingToReview, complianceScore, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
-import { SUPPLIERS, city, location, position, supplier } from "@/lib/reference"
+import { SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { eligiblePros, useStore } from "@/lib/store"
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
@@ -359,10 +359,6 @@ const movable = (data: DemoData) => {
   return options.find((o) => o.t.positionId === "concessions" && o.card.positionId === "barback") ?? options[0]
 }
 
-const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a")
-
-const tourSheet = (ctx: TourContext) => ctx.data.timesheets.find((t) => t.id === ctx.sheetId)
-
 const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.movedFrom && t.history.some((h) => h.action === "moved" && h.at >= ctx.base.at))
 
 const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv && i.status !== "open")
@@ -414,7 +410,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/units/,
     href: () => "/units",
     title: "Every unit on the program",
-    body: "Seven units across Levy · Chicago and Chartwells · South. Each carries its cost center, the roles it orders, anything it requires beyond the program, and the agencies that staff it, in release order.",
+    body: "Every unit, with its cost center, roles and agencies.",
     action: "Click Add a unit",
     targets: () => [one('[data-tour="add-unit"]'), one('[data-tour="units-table"]')],
     placement: "bottom",
@@ -425,7 +421,7 @@ export const SCRIPT: TourItem[] = [
     "unit-name",
     "Unit",
     "Name it and give it a cost center",
-    "Levy · Chicago and Stadium are already picked. The cost center is what every invoice line for this unit is charged to.",
+    "The cost center is what every invoice line for this unit is charged to.",
     "Type Soldier Field and LEV-4450, then Next",
     () => {
       fill(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
@@ -436,7 +432,7 @@ export const SCRIPT: TourItem[] = [
     "unit-location",
     "Location",
     "Place it",
-    "From the ZIP code Iris names the market, its time zone, and the agencies with rates there. A ZIP no agency covers stops you here, not after the first order fails.",
+    "From the ZIP, Iris finds the market and the agencies that cover it.",
     "Type the address and ZIP shown in grey, then Next",
     () => {
       fill(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
@@ -447,7 +443,7 @@ export const SCRIPT: TourItem[] = [
     "unit-requirements",
     "Requirements",
     "Say what every Pro here needs",
-    "Background check, I-9 and Compass orientation apply everywhere, and food and bar roles add their certificates. Requiring a food handler card for every role drops the count of Pros who could work here today, before anyone is booked.",
+    "Iris shows right away how many Pros still qualify.",
     "Click Food handler card for every role, then Next",
     () => pressButton(UNIT, "Food handler card for every role"),
   ),
@@ -455,7 +451,7 @@ export const SCRIPT: TourItem[] = [
     "unit-ordering",
     "Ordering",
     "Set what it orders and who signs off",
-    "Stadium roles come preselected. With a weekly budget, any order that takes the week over it waits for Dana Ruiz. Orders go to Levy's agencies in its release order: Instawork, Crewline, then Harbor.",
+    "Orders over the weekly budget wait for Dana Ruiz.",
     "Type 12000 as the weekly budget, then Next",
     () => fill(inside(UNIT, 'input[placeholder="No budget"]'), "12000"),
   ),
@@ -467,7 +463,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/units/,
     href: () => "/units",
     title: "Check it and add it",
-    body: "One summary of what was entered, the agencies that will staff it, and how many Pros qualify today.",
+    body: "Nothing is saved until you add it.",
     action: "Click Add unit",
     targets: () => [one(UNIT)],
     placement: "right",
@@ -484,7 +480,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/units/,
     href: () => "/units",
     title: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} can book now`,
-    body: "Its first order prices from the agencies' rate cards, goes out in Levy's release order, checks the budget, and places only Pros with a current food handler card. Nobody re-keys it anywhere else.",
+    body: "Its first order is priced, released and staffed without re-keying anything.",
     action: "Click Done",
     targets: () => [one(UNIT)],
     placement: "right",
@@ -499,7 +495,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/units/,
     href: () => "/units",
     title: "Now an agency",
-    body: "Agencies have their own list, with one page each for everything about them.",
+    body: "Agencies have their own list.",
     action: "Open Agencies in the menu",
     targets: () => [one('nav a[href="/agencies"], aside a[href="/agencies"]')],
     placement: "right",
@@ -514,7 +510,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/agencies$/,
     href: () => "/agencies",
     title: "Every agency on the program",
-    body: "Insurance status, rate cards, how many of each agency's Pros are cleared, and which buyers approved it. Metro's certificate of insurance expires in 9 days; Iris stops sending it shifts the day it lapses.",
+    body: "Insurance, rates and cleared Pros for every agency.",
     action: "Click Add an agency",
     targets: () => [one('[data-tour="add-agency"]'), one('[data-tour="agencies-table"]')],
     placement: "bottom",
@@ -525,7 +521,7 @@ export const SCRIPT: TourItem[] = [
     "agency-who",
     "Agency",
     "Who they are",
-    "The contact becomes the agency's first sign-in. How it sends hours decides whether its timesheets arrive by API or by CSV.",
+    "The contact becomes the agency's first sign-in.",
     "Type the name, contact and email shown in grey, then Next",
     () => {
       fill(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
@@ -537,7 +533,7 @@ export const SCRIPT: TourItem[] = [
     "agency-coverage",
     "Coverage",
     "Where they work and what they staff",
-    "Chicago and three venue roles are preselected. Every market and role picked here becomes a row on the rate card two steps on.",
+    "Each market and role becomes a row on the rate card.",
     "Add Suite Attendant, then Next",
     () => pressButton(AGENCY, "Suite Attendant"),
   ),
@@ -545,7 +541,7 @@ export const SCRIPT: TourItem[] = [
     "agency-paperwork",
     "Paperwork",
     "Insurance and the master agreement",
-    "The certificate of insurance expiry is prefilled eight months out, and the program's terms are shown beside it: net payment, the 45% markup cap, and the documents every Pro needs. Next stays off until the agreement is signed.",
+    "Next stays off until the master agreement is signed.",
     "Tick Master services agreement signed, then Next",
     () => tick(AGENCY),
   ),
@@ -553,7 +549,7 @@ export const SCRIPT: TourItem[] = [
     "agency-rates",
     "Rate card",
     "The rate card",
-    "Each rate starts at what agencies in Chicago already pay, with a 32% markup, and the last column compares the bill rate with the market. Type 46 into a markup and Iris blocks it as over the 45% cap.",
+    "Rates start at the Chicago market. Markups over the 45% cap are blocked.",
     "Check the rates, then Next",
     () => undefined,
   ),
@@ -561,7 +557,7 @@ export const SCRIPT: TourItem[] = [
     "agency-buyers",
     "Pros and buyers",
     "Its Pros and its buyers",
-    "18 Pros come over from Northwind's roster, each checked as it arrives. Levy · Chicago is ticked, so Northwind joins the end of Levy's release order.",
+    "Northwind's 18 Pros come over, each checked as they arrive.",
     "Click Next",
     () => undefined,
   ),
@@ -573,7 +569,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/agencies$/,
     href: () => "/agencies",
     title: "Check it and add it",
-    body: "Nothing was saved until now. Adding it creates the agency, its rate card, its Pros and its approvals in one go.",
+    body: "Adding it creates the agency, its rates, Pros and approvals at once.",
     action: "Click Add agency",
     targets: () => [one(AGENCY)],
     placement: "right",
@@ -594,7 +590,7 @@ export const SCRIPT: TourItem[] = [
       const sup = newAgency(ctx)
       const pros = sup ? ctx.data.pros.filter((p) => p.supplierId === sup.id) : []
       const waiting = pros.filter((p) => p.compliance.background?.status === "pending").length
-      return `${plural(pros.length, "Pro")} came over${waiting ? `, and Iris is holding ${waiting} until their background checks clear` : ""}. Levy's next order that its other agencies leave open reaches ${sup?.shortName ?? "it"} last.`
+      return `${plural(pros.length, "Pro")} came over${waiting ? `; ${waiting} wait on background checks` : ""}.`
     },
     action: "Click Done",
     targets: () => [one(AGENCY)],
@@ -610,7 +606,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/agencies/,
     href: () => "/agencies",
     title: "One agency, one page",
-    body: "Harbor Hospitality staffs Levy's venues by CSV upload. Everything about it lives on its page.",
+    body: "Everything about one agency lives on its page.",
     action: "Click Harbor",
     targets: () => [one('tr[data-row-id="harbor"]')],
     placement: "bottom",
@@ -625,7 +621,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/agencies\/harbor/,
     href: () => "/agencies/harbor",
     title: "Performance, rates, Pros and paperwork",
-    body: "Fill rate, time to fill, no-shows and compliance across every buyer, then its rates by city with pay, markup and bill. Its bartender markup is 72%, over the program's 45% cap, so it shows in red.",
+    body: "Harbor's bartender markup is 72%, over the 45% cap.",
     targets: () => [one('[data-tour="agency-rates"]')],
     placement: "right",
     skip: () => undefined,
@@ -638,7 +634,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/agencies\/harbor/,
     href: () => "/agencies/harbor",
     title: "Every change to its rates",
-    body: "Each change keeps the rate before and after, who made it and how it came in. The top one: Harbor's bartender rate went from $27.81 to $35.69 by CSV upload, and Iris flagged it over the cap. Supplier Rates has the same log for every agency.",
+    body: "Every rate change and who made it. Harbor's bartender rate jumped by CSV upload.",
     targets: () => [one('[data-tour="rate-changes"]')],
     placement: "top",
     skip: () => undefined,
@@ -662,7 +658,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Orders Iris expects",
-    body: "From the last six weeks of shifts, Iris predicts the recurring orders, like the Riverside expo's banquet servers every other Tuesday, and drafts each one. Shifts also come from the New shift form and CSV uploads.",
+    body: "Iris drafts the recurring orders it sees coming.",
     targets: () => [one('[data-tour="predictions"]')],
     placement: "top",
     skip: () => undefined,
@@ -692,7 +688,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Check the draft",
-    body: "The estimate is a range because each Pro bills at their own agency's rate. The card shows the paid hours after the break, where the order lands against West Loop Arena's weekly budget, and the release order with each agency's bill rate. Nothing is booked yet.",
+    body: "Priced from each agency's rate and checked against the budget. Nothing is booked yet.",
     action: "Click Create and send",
     targets: () => [last('[data-tour="agent-draft"]')],
     placement: "right",
@@ -709,7 +705,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Ask for more than the budget allows",
-    body: "Forty bartenders for the same night takes West Loop Arena past its weekly budget.",
+    body: "Forty bartenders takes the venue over its weekly budget.",
     action: "Send it with Enter",
     example: bigAsk,
     targets: () => [document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')],
@@ -726,7 +722,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "It goes to the approver first",
-    body: "The draft says how far over the budget this takes the week and that Dana Ruiz approves it, so the button reads Send for approval. Agencies see nothing until she does.",
+    body: "Over budget, so it goes to Dana Ruiz before any agency sees it.",
     action: "Click Send for approval",
     targets: () => [last('[data-tour="agent-draft"]')],
     placement: "right",
@@ -743,7 +739,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Open the shift you booked",
-    body: "The first order is live with Instawork, first in Levy's release order. The second waits for Dana.",
+    body: "The first order is live. The second waits for Dana.",
     action: "Click View created shift",
     targets: (ctx) => {
       const g = booked(ctx)
@@ -772,9 +768,7 @@ export const SCRIPT: TourItem[] = [
     title: "Released in the order Levy set",
     body: (ctx) => {
       const g = booked(ctx)
-      return g && filledCount(g) >= g.slots.length
-        ? "Instawork had first look and filled every spot, so Crewline and Harbor never needed to see it. Each Pro shows their agency, rating and status."
-        : "Instawork has first look and is filling it now. Crewline and Harbor see only what's still open, four hours apart. Each Pro shows their agency, rating and status."
+      return g && filledCount(g) >= g.slots.length ? "Instawork filled it, so the other agencies never saw it." : "Instawork has it first. The next agencies see only what's left."
     },
     targets: () => [one('[data-tour="release"]'), one('[data-tour="roster"]')],
     placement: "bottom",
@@ -797,7 +791,7 @@ export const SCRIPT: TourItem[] = [
       return g ? `/shifts/${g.id}` : "/shifts"
     },
     title: "Or say who gets it",
-    body: "The release order is the default, not the only way. From the New shift form an order can go to one agency only, or to Pros Levy already knows.",
+    body: "An order can also go to one agency, or to Pros you name.",
     action: "Click New shift",
     targets: () => [one('[data-tour="book"]')],
     placement: "bottom",
@@ -812,7 +806,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/shifts\/new/,
     href: () => "/shifts/new",
     title: "Keep the defaults",
-    body: "Venue, role, date, times and headcount are filled in from Levy's usual order. The form can book several dates at once.",
+    body: "Levy's usual order is filled in.",
     action: "Click Review",
     targets: () => [one('[data-tour="booking-review"]')],
     placement: "top",
@@ -827,7 +821,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/shifts\/new/,
     href: () => "/shifts/new",
     title: "Ask for Pros by name",
-    body: "Levy's Favorites and the Pros who've worked this venue in this role, each with Iris's check for the date. Iris books the ones still cleared and free and tells their agencies. The spots left over go out in the release order.",
+    body: "Favorites and Pros who've worked here, each checked for the date.",
     action: "Click Specific Pros, then pick two",
     targets: () => [one(DISPATCH)],
     placement: "left",
@@ -853,7 +847,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/shifts\/new/,
     href: () => "/shifts/new",
     title: "Post it",
-    body: "The budget check and the release rule still apply. The Pros you named are placed first; nobody else sees those spots.",
+    body: "Named Pros are booked first. The rest go out in release order.",
     action: () => `Click ${one('[data-tour="booking-post"]')?.textContent?.trim() || "Post"}`,
     targets: () => [one('[data-tour="booking-post"]')],
     placement: "top",
@@ -885,7 +879,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/approvals/,
     href: () => "/approvals",
     title: "Approve or decline it",
-    body: "The order, how far over the week's budget it goes, and an optional note for the buyer. Approving releases it to Levy's agencies in order; declining tells Jordan why.",
+    body: "Approving releases it to Levy's agencies. Declining tells Jordan why.",
     action: "Click Approve",
     targets: () => [one('[data-tour="approval"]')],
     placement: "bottom",
@@ -920,9 +914,7 @@ export const SCRIPT: TourItem[] = [
     title: "Shifts released to Crewline",
     body: (ctx) => {
       const g = assignable(ctx.data)
-      return g
-        ? `Crewline sees only what buyers released to it. ${location(g.locationId).name} needs ${plural(g.slots.length - filledCount(g), position(g.positionId).name.toLowerCase())} on ${formatDay(g.date, "EEEE")}.`
-        : "Crewline sees only the shifts buyers released to it."
+      return g ? `${location(g.locationId).name} needs ${plural(g.slots.length - filledCount(g), position(g.positionId).name.toLowerCase())} on ${formatDay(g.date, "EEEE")}.` : "Crewline sees only shifts released to it."
     },
     action: "Open the highlighted shift",
     targets: (ctx) => {
@@ -951,7 +943,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/shifts\/sg-/,
     href: (ctx) => `/shifts/${assignGroup(ctx)?.id ?? ""}`,
     title: "Assign from Crewline's roster",
-    body: "The agency assigns its own Pros. Levy sees each one, with their agency, the moment they're on.",
+    body: "The agency assigns its own Pros.",
     action: "Click Assign Pros",
     targets: () => [one('[data-tour="assign"]')],
     placement: "bottom",
@@ -968,9 +960,8 @@ export const SCRIPT: TourItem[] = [
     title: "Who can work it, and why not",
     body: (ctx) => {
       const c = crewlineCheck(ctx)
-      if (!c) return "Iris lists who can work this shift and, for everyone else, the reason."
-      const why = c.blocked ? ` ${fullName(c.blocked.p)}, rated ${c.blocked.p.rating.toFixed(2)}, shows "${c.blocked.check.reason}".` : ""
-      return `${c.ready} of Crewline's ${c.pool} ${position(c.g.positionId).name.toLowerCase()}s in ${city(location(c.g.locationId).cityId).name} can work it.${why} The same check runs whoever assigns: the agency, the buyer, an upload, or Iris filling it.`
+      if (!c) return "Iris shows who can work it, and why not."
+      return `${c.ready} of ${c.pool} can work it.${c.blocked ? ` ${fullName(c.blocked.p)}: "${c.blocked.check.reason}".` : ""}`
     },
     action: "Pick a Pro marked Ready, then Assign",
     targets: () => [one('[data-tour="assign-dialog"]')],
@@ -1000,10 +991,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Iris flags it first",
-    body: (ctx) => {
-      const n = blockedPros(ctx.data).length
-      return `Metro's Dashboard leads with the ${plural(n, "Pro")} Iris won't place until a missing or expired document is current.`
-    },
+    body: (ctx) => `${plural(blockedPros(ctx.data).length, "Pro")} can't work until a document is current.`,
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-documents"]')],
     placement: "bottom",
@@ -1021,8 +1009,7 @@ export const SCRIPT: TourItem[] = [
     body: (ctx) => {
       const pro = chosenPro(ctx)
       const doc = blocker(pro)
-      if (!pro || !doc) return "These Pros have a document that's missing or expired, so Iris won't place them. Open one."
-      return `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris keeps them off every shift, from any buyer.`
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : "Open a Pro Iris is keeping off shifts."
     },
     action: "Click the highlighted Pro",
     targets: (ctx) => {
@@ -1054,7 +1041,7 @@ export const SCRIPT: TourItem[] = [
     title: "Renew it",
     body: (ctx) => {
       const doc = blocker(chosenPro(ctx))
-      return `Documents shows only what ${chosenPro(ctx)?.firstName ?? "this Pro"}'s roles need, with the ${doc ? DOC[doc.id] : "expired one"} at the top.`
+      return `Renew the ${doc ? DOC[doc.id] : "document"}.`
     },
     action: "Click the highlighted button",
     targets: (ctx) => {
@@ -1084,10 +1071,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/professionals$/,
     href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
     title: "Attest it, and Iris checks with the issuer",
-    body: (ctx) => {
-      const doc = ctx.docId
-      return `Attach the document and Iris reads the issuer, ${doc ? CHECKS[doc].reference.label.toLowerCase() : "reference"} and dates off it. Metro attests it's genuine and belongs to ${chosenPro(ctx)?.firstName ?? "the Pro"}, then Iris checks it with ${doc ? CHECKS[doc].providers[0] : "the issuer"} before clearing them.`
-    },
+    body: (ctx) => `Metro attests it. Iris confirms it with ${ctx.docId ? CHECKS[ctx.docId].providers[0] : "the issuer"}.`,
     action: "Attach any file, tick the attestation, then Verify and clear",
     targets: () => [one('[data-tour="verify-dialog"]')],
     placement: "right",
@@ -1116,7 +1100,7 @@ export const SCRIPT: TourItem[] = [
     title: "When a document doesn't check out",
     body: (ctx) => {
       const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      return `Now ${chosenPro(ctx)?.firstName ?? "the Pro"}'s ${spare ? DOC[spare.id] : "next document"}, attested without the paperwork to back it.`
+      return `Now the ${spare ? DOC[spare.id] : "next document"}, attested without proof.`
     },
     action: "Click the highlighted button",
     targets: (ctx) => {
@@ -1148,10 +1132,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/professionals$/,
     href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals"),
     title: "Iris holds it for Compass",
-    body: (ctx) => {
-      const check = ctx.docId ? CHECKS[ctx.docId] : undefined
-      return `With no attachment and a ${check ? check.reference.label.toLowerCase() : "reference"} the issuer has no record of, Iris doesn't clear it. It holds the document for Compass and keeps the Pro off shifts until someone decides.`
-    },
+    body: "The issuer has no record of it, so Iris holds it for Compass.",
     action: (ctx) => `Type 4471 as the ${ctx.docId ? CHECKS[ctx.docId].reference.label.toLowerCase() : "reference"}, tick the attestation, then verify`,
     targets: () => [one('[data-tour="verify-dialog"]')],
     placement: "right",
@@ -1180,7 +1161,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Only what Iris couldn't verify",
-    body: "Every document Iris verified cleared on its own. The one it couldn't reaches Priya as a to-do.",
+    body: "Verified documents clear themselves. Only this one reached Priya.",
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-verify"]')],
     placement: "bottom",
@@ -1197,7 +1178,7 @@ export const SCRIPT: TourItem[] = [
     title: "Accept it or send it back",
     body: (ctx) => {
       const v = docItem(ctx)?.verification
-      return `The document shows what Metro attested, who attested it, and what the issuer said${v?.reason ? `: "${v.reason}"` : ""}. Accepting clears it on Compass's word; sending it back returns it to Metro with a note.`
+      return `${v?.reason ? `The issuer: "${v.reason}". ` : ""}Accept it, or send it back to Metro.`
     },
     action: "Click Accept, or Send back with a note",
     targets: () => [one('[data-tour="doc-accept"]')],
@@ -1217,7 +1198,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/professionals/,
     href: () => "/professionals",
     title: "One score per roster",
-    body: "Decisions like that one add up to a number Compass can hold each agency to, instead of a stack of attestations.",
+    body: "Each agency gets a compliance score.",
     action: "Open Agencies in the menu",
     targets: () => [one('nav a[href="/agencies"], aside a[href="/agencies"]')],
     placement: "right",
@@ -1234,12 +1215,11 @@ export const SCRIPT: TourItem[] = [
     title: "Compliance, scored",
     body: (ctx) => {
       const list = scored(ctx.data)
-      const lead = "Each agency's roster out of 100: mostly the share of its Pros cleared to work today, the rest the share with nothing expiring in the next 30 days."
+      const lead = "Mostly the share of Pros cleared to work today."
       if (list.length < 2) return lead
       const top = list[0]
       const low = list[list.length - 1]
-      const off = low.c.active - low.c.cleared
-      return `${lead} ${top.s.shortName} leads at ${top.c.score}. ${low.s.shortName} trails at ${low.c.score}${off ? `, with ${plural(off, "Pro")} kept off shifts` : ""}. Each agency's page shows the same score.`
+      return `${lead} ${top.s.shortName} leads at ${top.c.score}; ${low.s.shortName} trails at ${low.c.score}.`
     },
     targets: () => [one('[data-tour="agencies-table"]')],
     placement: "top",
@@ -1266,8 +1246,7 @@ export const SCRIPT: TourItem[] = [
     title: "Already drafted",
     body: (ctx) => {
       const { waiting, matching } = harborDrafts(ctx.data)
-      const lead = "Harbor sends hours by CSV. Iris drafts a timesheet for every finished shift from its own clock, the worker's check-in at the venue, so there's nothing to upload."
-      return waiting.length ? `${lead} ${matching.length} of the ${plural(waiting.length, "timesheet")} waiting match the clock exactly; the rest have a missing punch or hours that differ.` : lead
+      return `Iris drafts every timesheet from its clock.${waiting.length ? ` ${matching.length} of ${waiting.length} match exactly.` : ""}`
     },
     targets: () => [one("table")],
     placement: "top",
@@ -1281,7 +1260,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: "Let the clean ones go in",
-    body: "With this on, every timesheet that matches the clock goes to the buyer for approval without Harbor touching it, starting with the ones waiting now. Only the exceptions stay with Harbor.",
+    body: "Matching timesheets go to the buyer on their own. Exceptions stay with Harbor.",
     action: "Turn on Send clock-matched hours automatically",
     targets: () => [one('[data-tour="auto-submit"]')],
     placement: "bottom",
@@ -1306,7 +1285,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Hours, checked before you see them",
-    body: "Iris keeps its own clock: the Instawork app, or the worker's check-in at the venue. Every hour an agency bills is compared with it and with the schedule.",
+    body: "Every billed hour is checked against Iris's clock.",
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-approve"]')],
     placement: "bottom",
@@ -1323,8 +1302,7 @@ export const SCRIPT: TourItem[] = [
     title: "The one that doesn't match",
     body: (ctx) => {
       const t = paddedSheet(ctx.data)
-      const lead = "Flagged timesheets come first. Where the clock disagrees with what was billed, it shows in red underneath."
-      return t && t.clock ? `${lead} A Harbor bartender was billed ${t.hours} hours for last night's concert; Iris's clock shows ${clockHours(t.clock)}.` : lead
+      return t && t.clock ? `A Harbor bartender billed ${t.hours} hours; the clock shows ${clockHours(t.clock)}.` : "Flagged timesheets come first."
     },
     action: "Open the flagged timesheet",
     targets: () => [one(".tour-flagged")],
@@ -1340,7 +1318,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: "Approve at the clock's hours",
-    body: "The schedule, the clock and what was billed side by side, with the times that differ marked. Iris proposes the clock's hours and the saving. Correct the times or reject it with a reason instead, and the reason goes on the record Harbor sees.",
+    body: "Approve at the clock's hours, or correct or reject it.",
     action: "Click Approve at the clock's hours",
     targets: () => [one('[data-tour="accept-proposal"]')],
     placement: "left",
@@ -1360,10 +1338,7 @@ export const SCRIPT: TourItem[] = [
     title: "Someone changed roles",
     body: (ctx) => {
       const m = movable(ctx.data)
-      if (!m) return "On an event floor people move mid-shift. Open a timesheet to split it by role."
-      const from = position(m.t.positionId).name.toLowerCase()
-      const to = position(m.card.positionId).name.toLowerCase()
-      return `${fullName(m.pro)} worked as ${article(from)} ${from} at ${location(m.t.locationId).name}. Say ${m.pro.firstName} moved to ${to} partway through: the hours after that bill at the ${to} rate.`
+      return m ? `Say ${m.pro.firstName} moved from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : "Open a timesheet to split it by role."
     },
     action: "Open the highlighted timesheet",
     targets: (ctx) => {
@@ -1391,7 +1366,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
     title: "Split it by role",
-    body: "Without this, the whole shift bills at one rate, or an agency reissues the timesheet by hand.",
+    body: "So each role bills at its own rate.",
     action: "Click Split by role",
     targets: () => [one('[data-tour="split-role"]')],
     placement: "top",
@@ -1408,11 +1383,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
     title: "Pick the role and the minute",
-    body: (ctx) => {
-      const t = tourSheet(ctx)
-      const sup = t ? supplier(t.supplierId).shortName : "the agency"
-      return `Only roles the Pro is cleared for, at ${sup}'s rate for each. The timesheet splits at that minute into two, each checked against its share of the clock, and the invoice bills each part at its own rate.`
-    },
+    body: "Only roles they're cleared for, at the agency's rates. The timesheet splits at that time.",
     action: "Pick a role, set when they switched, then Move",
     targets: () => [one('[data-tour="move-dialog"]')],
     placement: "right",
@@ -1440,7 +1411,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: "Approve the clean ones together",
-    body: "These match the clock and the schedule. Approved hours go onto each agency's invoice for the week, which Iris issues on Saturday.",
+    body: "These match the clock and the schedule.",
     action: "Click Approve",
     targets: () => [one('[data-tour="approve-clean"]')],
     placement: "bottom",
@@ -1468,7 +1439,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Invoices Iris flagged",
-    body: "Every invoice is checked against Iris's clock, and against what the other agencies would charge for the same hours, weighted by how well each performs.",
+    body: "Invoices are checked against the clock and other agencies' rates.",
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-anomalies"]')],
     placement: "bottom",
@@ -1485,8 +1456,7 @@ export const SCRIPT: TourItem[] = [
     title: "Open the top one",
     body: (ctx) => {
       const inv = flagged(ctx.data)[0]
-      if (!inv) return "Open a flagged invoice to see what Iris found."
-      return `${inv.number} from ${supplier(inv.supplierId).shortName} has hours a buyer approved as billed, above Iris's clock.`
+      return inv ? `${inv.number} from ${supplier(inv.supplierId).shortName} bills hours above the clock.` : "Open a flagged invoice."
     },
     action: "Click the highlighted invoice",
     targets: (ctx) => {
@@ -1520,8 +1490,7 @@ export const SCRIPT: TourItem[] = [
     body: (ctx) => {
       const inv = tourInvoice(ctx)
       const f = inv ? billingFindings(ctx.data, inv.id)[0] : undefined
-      if (!inv || !f) return "Send back what Iris's clock doesn't support, and the agency credits it."
-      return `${f.approvedBy} approved ${f.proName}'s hours as billed, ${f.hours} hours past Iris's clock. Sending them back asks ${supplier(inv.supplierId).shortName} to credit ${money(f.amount)}.`
+      return inv && f ? `${f.hours} hours past the clock. Ask ${supplier(inv.supplierId).shortName} to credit ${money(f.amount)}.` : "Send back what the clock doesn't support."
     },
     action: "Click Send back for a credit",
     targets: () => [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')],
@@ -1551,9 +1520,8 @@ export const SCRIPT: TourItem[] = [
     title: "The agency credits it",
     body: (ctx) => {
       const inv = tourInvoice(ctx)
-      const sup = inv ? supplier(inv.supplierId).shortName : "The agency"
-      if (inv?.billingReview?.status === "accepted") return "Accepted as billed, so the hours stay on the invoice as they are."
-      return `${sup}'s system answers on its own. The credit comes off this invoice, and the timesheet is revised to the clock where ${sup} and Levy can both see it.`
+      if (inv?.billingReview?.status === "accepted") return "Accepted, so the invoice stays as billed."
+      return `${inv ? supplier(inv.supplierId).shortName : "The agency"} credits it, and the timesheet is revised to the clock.`
     },
     targets: () => [one('[data-tour="billing-review"]')],
     placement: "bottom",
@@ -1585,7 +1553,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Spend before the invoices arrive",
-    body: "Iris compares each location's last seven days with its normal week and shows where spend is running hot, and which shifts will start short.",
+    body: "Where spend runs hot, and which shifts will start short.",
     targets: () => [one('[data-tour="predictions"]')],
     placement: "top",
     skip: () => undefined,
@@ -1598,7 +1566,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Ask for a number",
-    body: "Iris answers with the totals and turns the question into a report.",
+    body: "Iris answers and turns the question into a report.",
     action: "Send it with Enter",
     example: reportAsk,
     targets: () => [document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')],
@@ -1615,7 +1583,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Open it as a report",
-    body: "The answer comes from the same numbers as every other screen: invoices, timesheets, the Dashboard.",
+    body: "Same numbers as every other screen.",
     action: "Click Open the report",
     targets: () => [last('[data-tour="agent-link"]')],
     placement: "bottom",
@@ -1631,7 +1599,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/reports/,
     href: (ctx) => reportLink(ctx) ?? "/reports",
     title: "Saved for the team",
-    body: "Compass's own reports: weekly spend by agency, the agency scorecard, spend by location, cost per hour by market, and hours billed above the clock. A clock icon means it's emailed on a schedule.",
+    body: "Compass's saved reports. A clock icon means it's emailed on a schedule.",
     targets: () => [one('[data-tour="saved-reports"]')],
     placement: "right",
     skip: () => undefined,
@@ -1644,7 +1612,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/reports/,
     href: (ctx) => reportLink(ctx) ?? "/reports",
     title: "Change it",
-    body: "What to show, what to group and split it by, the period, and filters for buyer, unit, market, agency and role. The report redraws as you change it, and its link opens it the same way for anyone.",
+    body: "It redraws as you change it.",
     action: "Set Period to Last 28 days",
     targets: () => [one('[data-tour="report-builder"]')],
     placement: "bottom",
@@ -1663,7 +1631,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/reports/,
     href: (ctx) => reportLink(ctx) ?? "/reports",
     title: "Save it for the team",
-    body: "Saved reports are shared with everyone at Compass, and only show what each person is allowed to see.",
+    body: "Saved reports are shared across Compass.",
     action: "Click Save report",
     targets: () => [one('[data-tour="report-save"]')],
     placement: "bottom",
@@ -1682,7 +1650,7 @@ export const SCRIPT: TourItem[] = [
       return r ? reportHref(r.spec, r.id) : "/reports"
     },
     title: "Have it arrive",
-    body: "Pick how often, what time and who gets it. Iris emails the report with its numbers as of that morning.",
+    body: "Pick how often and who gets it.",
     action: "Click Email on a schedule and save one",
     targets: () => [one('[data-tour="report-schedule"]')],
     placement: "bottom",

@@ -32,6 +32,7 @@ interface TourState extends TourPicks {
   skipped: string[]
   open: () => void
   begin: (base: TourBase) => void
+  rebase: (base: TourBase) => void
   go: (index: number) => void
   finish: (id: string, how: "done" | "skipped") => void
   remember: (patch: TourPicks) => void
@@ -51,6 +52,7 @@ export const useTour = create<TourState>()(
       skipped: [],
       open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined, sheetId: undefined }),
       begin: (base) => set((s) => ({ base, index: s.index + 1, enteredAt: now() })),
+      rebase: (base) => set({ base }),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>
         set((s) => ({

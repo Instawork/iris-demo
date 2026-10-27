@@ -583,19 +583,32 @@ function Rings({ boxes, flash }: { boxes: Box[]; flash: boolean }) {
 
 /* ---------------------------------- Cards ---------------------------------- */
 
+/** The demo reset Start kicks off. The first part card shows while it runs, and its Continue waits for it. */
+let resetting: Promise<void> | undefined
+
 function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index: number }) {
   const router = useRouter()
   const exit = () => useTour.getState().exit()
 
-  const start = async () => {
-    await useStore.getState().resetDemo()
+  const start = () => {
     useAgentThreads.setState({ threads: {} })
     useUi.setState({ welcomeSeen: { buyer: true, supplier: true, compass: true }, agentOpen: false })
-    const { counters } = useStore.getState().data
-    useTour.getState().begin({ sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() })
+    const baseNow = () => {
+      const { counters } = useStore.getState().data
+      return { sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() }
+    }
+    useTour.getState().begin(baseNow())
+    resetting = useStore
+      .getState()
+      .resetDemo()
+      .then(() => useTour.getState().rebase(baseNow()))
+      .finally(() => {
+        resetting = undefined
+      })
   }
 
-  const play = (chapter: TourChapter) => {
+  const play = async (chapter: TourChapter) => {
+    await resetting
     const store = useStore.getState()
     if (store.workspaceId !== chapter.wsId) store.setWorkspace(chapter.wsId)
     useAgentThreads.getState().clear(chapter.wsId)
@@ -611,8 +624,8 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[rgb(18_16_13/0.5)] p-4 backdrop-blur-[3px] dark:bg-black/65"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.25 }}
+      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+      transition={{ duration: 0.2 }}
     >
       <motion.div
         role="dialog"
@@ -622,8 +635,8 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
         className="w-full max-w-[540px] overflow-hidden rounded-[22px] bg-card text-card-foreground shadow-overlay ring-1 ring-border"
         initial={{ opacity: 0, y: 18, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: -10, scale: 0.98 }}
-        transition={{ duration: 0.38, ease: EASE }}
+        exit={{ opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.12 } }}
+        transition={{ duration: 0.28, ease: EASE }}
       >
         {item.kind === "intro" && <IntroCard onStart={start} onClose={exit} />}
         {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} />}
