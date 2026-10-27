@@ -13,7 +13,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { useTheme } from "@/hooks/use-theme"
 import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
-import { position } from "@/lib/reference"
+import { findSupplier, position } from "@/lib/reference"
 import { cn } from "@/lib/utils"
 
 interface Crumb {
@@ -24,6 +24,7 @@ interface Crumb {
 function useCrumbs(): Crumb[] {
   const pathname = usePathname()
   const data = useData()
+  const { ws } = useWorkspace()
   return useMemo(() => {
     const parts = pathname.split("/").filter(Boolean)
     if (!parts.length) return [{ label: "Dashboard" }]
@@ -40,8 +41,9 @@ function useCrumbs(): Crumb[] {
       const inv = data.invoices.find((x) => x.id === sub)
       return [root, { label: inv ? `Invoice #${inv.number}` : "Invoice" }]
     }
+    if (section === "agencies") return [ws.kind === "compass" ? root : { label: "Supplier Rates", href: "/rates" }, { label: findSupplier(sub)?.name ?? "Agency" }]
     return [root, { label: sub }]
-  }, [pathname, data])
+  }, [pathname, data, ws.kind])
 }
 
 export function Topbar({ scrolled }: { scrolled: boolean }) {

@@ -33,14 +33,17 @@ const SOURCE: Record<RateChange["source"], string> = {
 
 const delta = (c: RateChange) => (c.from && c.to && c.from.billRate ? c.to.billRate / c.from.billRate - 1 : undefined)
 
-export function RateChanges() {
+export function RateChanges({ supplierId }: { supplierId?: string }) {
   const data = useData()
   const { ws } = useWorkspace()
   const isBuyer = ws.kind === "buyer"
+  const oneAgency = ws.kind === "supplier" || !!supplierId
   const [agencies, setAgencies] = useState<string[]>([])
   const [markets, setMarkets] = useState<string[]>([])
   const cities = isBuyer ? citiesForBuyer(ws.buyerId).map((c) => c.id) : CITIES.map((c) => c.id)
-  const scoped = data.rateLog.filter((c) => (ws.kind === "supplier" ? c.supplierId === ws.supplierId : cities.includes(c.cityId)))
+  const scoped = data.rateLog.filter((c) =>
+    ws.kind === "supplier" ? c.supplierId === ws.supplierId : cities.includes(c.cityId) && (!supplierId || c.supplierId === supplierId),
+  )
   const rows = scoped.filter((c) => (!agencies.length || agencies.includes(c.supplierId)) && (!markets.length || markets.includes(c.cityId)))
 
   const columns: Column<RateChange>[] = [
@@ -50,7 +53,7 @@ export function RateChanges() {
       sortValue: (c) => c.at,
       cell: (c) => <span className="whitespace-nowrap tabular">{formatTimestamp(c.at)}</span>,
     },
-    ...(ws.kind === "supplier"
+    ...(oneAgency
       ? []
       : [
           {
@@ -165,7 +168,7 @@ export function RateChanges() {
 
   const download = () =>
     downloadCsv(
-      exportName("rate-changes"),
+      exportName(supplierId ? `rate-changes-${supplierId}` : "rate-changes"),
       toCsv(
         rows.map((c) => ({
           when: c.at,
@@ -207,7 +210,7 @@ export function RateChanges() {
         }
       />
       <div className="flex flex-wrap items-center gap-2">
-        {ws.kind !== "supplier" && <MultiSelectFilter label="Agency" options={agencyOptions} value={agencies} onChange={setAgencies} />}
+        {!oneAgency && <MultiSelectFilter label="Agency" options={agencyOptions} value={agencies} onChange={setAgencies} />}
         <MultiSelectFilter label="Market" options={marketOptions} value={markets} onChange={setMarkets} />
       </div>
       <Surface elevated className="overflow-hidden">

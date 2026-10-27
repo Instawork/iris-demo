@@ -14,9 +14,9 @@ import type { PersonaKind } from "@/lib/types"
 
 const STEPS: Record<PersonaKind, { icon: typeof CalendarPlus; title: string; body: string }[]> = {
   buyer: [
-    { icon: Scale, title: "Approve your suppliers", body: "Compare rates and track records, then check the suppliers you trust on your Dashboard." },
+    { icon: Scale, title: "Approve your suppliers", body: "Compare rates and track records on Supplier Rates, then open the suppliers you trust and approve them." },
     { icon: CalendarPlus, title: "Post a shift", body: "Pick a location, position and time. Every approved supplier is notified at once." },
-    { icon: BadgeCheck, title: "Approve the hours", body: "Approve hours on Shifts. Approving them generates the supplier's invoice." },
+    { icon: BadgeCheck, title: "Approve the hours", body: "Approve hours on Timesheets. Approving them generates the supplier's invoice." },
     { icon: Coins, title: "Review invoices", body: "Every invoice is built from approved hours, tips and the supplier's rate. Nobody uploads them." },
   ],
   supplier: [

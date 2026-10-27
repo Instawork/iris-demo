@@ -1,6 +1,6 @@
 "use client"
 
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Building2, MapPinned, Plus, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
@@ -8,7 +8,6 @@ import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
-import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { AgencyDialog } from "@/components/onboarding/agency-dialog"
@@ -22,11 +21,9 @@ import { BUYERS, LOCATIONS, SUPPLIERS, buyer, city, position, requirementLabel }
 import type { DemoData, Location, Supplier } from "@/lib/types"
 
 /**
- * Everyone in the program in one place: the units that buy labor and the agencies that supply it, what each one needs
- * to work, and the way to add more. What Compass does today by uploading buyers, suppliers and rate cards.
+ * Everyone in the program: the units that buy labor and the agencies that supply it, what each one needs to work, and
+ * the way to add more. What Compass does today by uploading buyers, suppliers and rate cards.
  */
-
-type Tab = "units" | "agencies"
 
 const added = (o?: { at: string; by: string }) =>
   o ? (
@@ -43,15 +40,13 @@ const staffing = (data: DemoData, l: Location) =>
 
 const coiDays = (s: Supplier) => (s.onboarded ? daysFromToday(s.onboarded.coiExpiresOn) : s.coiExpiresInDays)
 
-export function OnboardingPage() {
+export function UnitsPage() {
   const data = useData()
   const { ws } = useWorkspace()
-  const [tab, setTab] = useState<Tab>("units")
-  const [adding, setAdding] = useState<Tab>()
+  const [adding, setAdding] = useState(false)
   const units = [...LOCATIONS].sort((a, b) => Number(!!b.onboarded) - Number(!!a.onboarded) || a.buyerId.localeCompare(b.buyerId))
-  const agencies = [...SUPPLIERS].sort((a, b) => Number(!!b.onboarded) - Number(!!a.onboarded))
 
-  const unitColumns: Column<Location>[] = [
+  const columns: Column<Location>[] = [
     {
       id: "unit",
       header: "Unit",
@@ -127,7 +122,42 @@ export function OnboardingPage() {
     { id: "added", header: "Added", sortValue: (l) => l.onboarded?.at ?? "", cell: (l) => added(l.onboarded) },
   ]
 
-  const agencyColumns: Column<Supplier>[] = [
+  return (
+    <>
+      <PageHeader
+        className="pt-4"
+        title="Units"
+        description="Every unit that buys labor, with its cost center, the roles it orders and anything it requires. Add one and it's live across Iris: booking, release order, compliance and invoices."
+        actions={
+          ws.kind === "compass" && (
+            <Button onClick={() => setAdding(true)}>
+              <MapPinned /> Add a unit
+            </Button>
+          )
+        }
+      />
+      <Surface elevated className="overflow-hidden">
+        <DataTable rows={units} columns={columns} getRowId={(l) => l.id} pageSize={25} />
+      </Surface>
+      {ws.kind === "compass" && (
+        <p className="flex items-center gap-1.5 text-caption-1 text-faded">
+          <Plus className="size-3.5" />
+          Units can also come from the buyer: its admin adds one from Settings, Work locations.
+        </p>
+      )}
+      <UnitDialog open={adding} onOpenChange={setAdding} />
+    </>
+  )
+}
+
+export function AgenciesPage() {
+  const data = useData()
+  const { ws } = useWorkspace()
+  const router = useRouter()
+  const [adding, setAdding] = useState(false)
+  const agencies = [...SUPPLIERS].sort((a, b) => Number(!!b.onboarded) - Number(!!a.onboarded))
+
+  const columns: Column<Supplier>[] = [
     {
       id: "agency",
       header: "Agency",
@@ -216,53 +246,20 @@ export function OnboardingPage() {
     <>
       <PageHeader
         className="pt-4"
-        title="Onboarding"
-        description="Every unit that buys labor and every agency that supplies it. Add one and it's live across Iris: booking, release order, compliance, rates and invoices."
+        title="Agencies"
+        description="Every agency on the program. Open one for its rates, Pros, paperwork, connection and performance in one place."
         actions={
           ws.kind === "compass" && (
-            <>
-              <Button variant="outline" onClick={() => setAdding("units")}>
-                <MapPinned /> Add a unit
-              </Button>
-              <Button onClick={() => setAdding("agencies")}>
-                <Building2 /> Add an agency
-              </Button>
-            </>
+            <Button onClick={() => setAdding(true)}>
+              <Building2 /> Add an agency
+            </Button>
           )
         }
       />
-      <PillTabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { value: "units", label: "Units", count: units.length, tooltip: "Locations that buy labor, each with its own cost center" },
-          { value: "agencies", label: "Agencies", count: agencies.length, tooltip: "Suppliers on the program" },
-        ]}
-      />
       <Surface elevated className="overflow-hidden">
-        {tab === "units" ? (
-          <DataTable rows={units} columns={unitColumns} getRowId={(l) => l.id} pageSize={25} />
-        ) : (
-          <DataTable rows={agencies} columns={agencyColumns} getRowId={(s) => s.id} pageSize={25} />
-        )}
+        <DataTable rows={agencies} columns={columns} getRowId={(s) => s.id} onRowClick={(s) => router.push(`/agencies/${s.id}`)} pageSize={25} />
       </Surface>
-      {ws.kind === "compass" && (
-        <p className="flex items-center gap-1.5 text-caption-1 text-faded">
-          <Plus className="size-3.5" />
-          {tab === "units" ? (
-            "Units can also come from the buyer: its admin adds one from Settings, Work locations."
-          ) : (
-            <>
-              Every change to an agency&apos;s rates, with who made it and how, is in
-              <Link href="/rates#changes" className="font-medium text-foreground underline-offset-4 hover:underline">
-                Supplier Rates
-              </Link>
-            </>
-          )}
-        </p>
-      )}
-      <UnitDialog open={adding === "units"} onOpenChange={(open) => !open && setAdding(undefined)} />
-      <AgencyDialog open={adding === "agencies"} onOpenChange={(open) => !open && setAdding(undefined)} />
+      <AgencyDialog open={adding} onOpenChange={setAdding} />
     </>
   )
 }

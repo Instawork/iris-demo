@@ -669,6 +669,19 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
       })
     }
   }
+  const fixes = data.uploads.filter((u) => u.status === "needs_review" && u.actorKind === ws.kind && (scope.kind === "compass" || inScope(scope, u)))
+  if (fixes.length) {
+    todos.push({
+      id: "uploads",
+      title: `${plural(fixes.length, "upload")} waiting on fixes`,
+      description: "Iris checked every row and proposed fixes for the ones it couldn't save. Approve them and the rest goes in.",
+      count: fixes.length,
+      href: "/uploads",
+      tone: "warning",
+      icon: "upload",
+      cta: "Review fixes",
+    })
+  }
   return todos
 }
 

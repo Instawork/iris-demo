@@ -75,7 +75,7 @@ export function ProfessionalsPage() {
   const openUpload = useUi((s) => s.openUpload)
   const [filter, setFilter] = useState<Filter>(() => parseFilter(params.get("filter")))
   const [query, setQuery] = useState("")
-  const [suppliers, setSuppliers] = useState<string[]>([])
+  const [suppliers, setSuppliers] = useState<string[]>(() => (params.get("agency") ? [params.get("agency")!] : []))
   const [positions, setPositions] = useState<string[]>([])
   const [closingId, setClosingId] = useState<string>()
   const buyerId = ws.kind === "buyer" ? ws.buyerId : undefined

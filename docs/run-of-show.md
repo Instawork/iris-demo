@@ -30,9 +30,9 @@ App: https://cruber-demo.replit.app (no passcode)
 
 | Fieldglass | Job to be done | Goal | Where it is in Iris |
 |---|---|---|---|
-| Onboarding | Upload buyer | Easy to create | Onboarding, Add a unit. A buyer's admin can also add one from Settings, Work locations |
-| Onboarding | Upload supplier | Easy to create | Onboarding, Add an agency |
-| Onboarding | Upload rate card | Easy to manage and audit | The agency's rate card, and Supplier Rates, Rate changes |
+| Onboarding | Upload buyer | Easy to create | Units, Add a unit. A buyer's admin can also add one from Settings, Work locations |
+| Onboarding | Upload supplier | Easy to create | Agencies, Add an agency |
+| Onboarding | Upload rate card | Easy to manage and audit | The agency's page: its rates and every change to them. Supplier Rates compares them all |
 | Job Posting | Shift | Easy to create | The chat, the New shift form, CSV upload, Iris predicts |
 | Job Seeker | Worker assignment | Easy to view | The shift's Pros and agencies, the agency's Assign Pros |
 | Attestations | Compliance | Verification | Professionals, Documents: attest, verify, and Compass's review |
@@ -43,7 +43,7 @@ App: https://cruber-demo.replit.app (no passcode)
 
 **The point:** a new unit or agency works across Iris the moment it's saved: booking, release order, compliance, rates and invoices. Nobody re-keys it.
 
-1. As Priya, open **Onboarding**. The Units tab lists the seven units across Levy · Chicago and Chartwells · South, each with its cost center, the roles it orders, anything it requires beyond the program, and the agencies that staff it. The Agencies tab shows the four agencies with insurance status (Metro's certificate expires in 9 days, Harbor's in 18), rate cards, how many of their Pros are cleared, and which buyers approved them.
+1. As Priya, open **Units**: the seven units across Levy · Chicago and Chartwells · South, each with its cost center, the roles it orders, anything it requires beyond the program, and the agencies that staff it. Then **Agencies**: the four agencies with insurance status (Metro's certificate expires in 9 days, Harbor's in 18), rate cards, how many of their Pros are cleared, and which buyers approved them. Open **Harbor** to show one agency in one place: performance, rates by city (the 72% bartender markup in red), Pros, paperwork, how it connects, and its rate changes.
 2. **Add a unit.**
    - Unit: Levy · Chicago, Stadium, "Soldier Field", cost center LEV-4450.
    - Location: "1410 Special Olympics Dr, Chicago, IL", ZIP 60605. Iris names the market and the four agencies with rates there.
@@ -51,7 +51,7 @@ App: https://cruber-demo.replit.app (no passcode)
    - Ordering: the stadium roles come preselected. Enter a weekly budget of 12000 and pick Dana Ruiz as the approver. Iris shows the release order Levy already uses: Instawork, Crewline, then Harbor, four hours apart.
    - Review, then **Add unit**.
 3. Click **Book its first shift as Jordan Ellis**. The New shift form opens as Levy with Soldier Field selected, only its roles on offer, and the food handler card listed beside the role's own documents. Leave it there: Levy holds orders until 72 hours before doors, which block 2 shows.
-4. Back as Priya, **Add an agency**.
+4. Back as Priya, on **Agencies**, **Add an agency**.
    - Agency: "Northwind Event Staffing", contact "Alex Rivera", alex@northwindstaff.com, sends hours by CSV.
    - Coverage: Chicago. Add Suite Attendant to the preselected roles.
    - Paperwork: the insurance expiry is prefilled eight months out. Attach any PDF as the certificate. Next stays off until **Master services agreement signed** is ticked.
@@ -59,7 +59,7 @@ App: https://cruber-demo.replit.app (no passcode)
    - Pros and buyers: 18 Pros from Northwind's roster. Levy · Chicago is checked, and Northwind joins the end of its release order.
    - Review, then **Add agency**. The summary shows 4 rates, 18 Pros with 2 held until their background check clears, and approval for Levy.
 5. Click **Open Iris as Northwind**. Alex's dashboard already has a to-do: "2 professionals with missing or expired documents". Iris is holding them from day one.
-6. Rate card audit. As Priya, open **Supplier Rates** and scroll to **Rate changes**. The top entries include Harbor, Bartender, Chicago, about two months back: $27.81 to $35.69 (+28.3%), a 72% markup, CSV upload by Renee Park, flagged "Over the 45% cap". That is the rate Harbor's invoices bill at. Filter Agency to Northwind to see its four rates, set at onboarding by Priya. **Download** exports the log.
+6. Rate card audit. As Priya, open **Supplier Rates** and scroll to **Rate changes**, the log for every agency. The top entries include Harbor, Bartender, Chicago, about two months back: $27.81 to $35.69 (+28.3%), a 72% markup, CSV upload by Renee Park, flagged "Over the 45% cap". That is the rate Harbor's invoices bill at. Filter Agency to Northwind to see its four rates, set at onboarding by Priya, or open Northwind under **Agencies** for the same log scoped to it. **Download** exports the log.
 
 **Say:** one form instead of a spreadsheet and an email thread. Iris checks the address, market, cost center and rate cap as you type. A unit's requirements are enforced when a Pro is placed, not written in a policy. Every rate change is kept with who, when, how and the before and after, even if the card is later deleted.
 
@@ -79,7 +79,7 @@ App: https://cruber-demo.replit.app (no passcode)
 4. The other ways in, briefly:
    - **New shift** (top right): several dates at once, times, headcount, instructions, tips. Pick Soldier Field to show it offers only that unit's roles and lists the food handler card for all of them.
    - **Iris predicts** on the Dashboard: recurring orders from the last six weeks of shifts, such as "Banquet Server · Riverside Convention Center, every other Tuesday, 12 Pros", each with **Draft shift**.
-   - **Uploads**: past CSV uploads with the fixes Iris suggested, like "Use 24-hour time".
+   - **Upload CSV** on Shifts. Jordan's Dashboard to-do "1 upload waiting on fixes" (on fresh data) opens past uploads with the fixes Iris suggested, like "Use 24-hour time". The upload dialog links there too, under **Past uploads**.
 5. Holds: any Levy order more than three days out notes that Levy holds it until 72 hours before the shift, and when Instawork will see it.
 
 **Say:** the rate card prices it, the release order decides who sees it first and when the next agency gets a look, the budget decides whether someone signs off, and the sector's own rules decide when it goes out. Nobody has to remember any of it.

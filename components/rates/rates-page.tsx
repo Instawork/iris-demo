@@ -14,7 +14,6 @@ import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
-import { SupplierProfileDialog } from "@/components/home/supplier-profile-dialog"
 import { RateChanges } from "@/components/rates/rate-changes"
 import { RateDialog } from "@/components/rates/rate-dialog"
 import { RateEquation } from "@/components/rates/rate-equation"
@@ -217,7 +216,6 @@ function RateComparison() {
   }, [isBuyer, ws.buyerId])
   const [cityId, setCityId] = useState(cities[0].id)
   const [metric, setMetric] = useState<Metric>("bill")
-  const [profile, setProfile] = useState<string>()
   const suppliers = SUPPLIERS.filter((s) => s.cityIds.includes(cityId))
   const approved = isBuyer ? (data.approvals[ws.buyerId!] ?? []) : []
   const shown: Metric = isBuyer ? "bill" : metric
@@ -267,7 +265,7 @@ function RateComparison() {
         title="Supplier Rates"
         description={
           isBuyer
-            ? "What each supplier charges per hour in your cities. Use it to decide which suppliers to approve on your Dashboard."
+            ? "What each supplier charges per hour in your cities. Open one to see how it performs at your locations and choose whether it gets your shifts."
             : "Every supplier's rates by city, side by side. Suppliers upload their own; invoices use the bill rate for the shift's city."
         }
         actions={
@@ -301,7 +299,7 @@ function RateComparison() {
                   const m = metricsFor(data, s.id, ws.buyerId)
                   return (
                     <th key={s.id} className="px-4 py-3">
-                      <button type="button" onClick={() => setProfile(s.id)} className="flex items-center gap-2.5 text-left">
+                      <Link href={`/agencies/${s.id}`} className="flex items-center gap-2.5 text-left">
                         <SupplierLogo supplierId={s.id} size="md" />
                         <span className="flex flex-col">
                           <span className="flex items-center gap-1.5 text-body-3 font-bold hover:text-primary">
@@ -316,7 +314,7 @@ function RateComparison() {
                             {pct(m.fillRate)} fill · {formatTimeToFill(m.hoursToFill)}
                           </span>
                         </span>
-                      </button>
+                      </Link>
                     </th>
                   )
                 })}
@@ -373,14 +371,10 @@ function RateComparison() {
       {isBuyer && (
         <p className="flex flex-wrap items-center gap-1.5 text-caption-1 text-faded">
           The lowest rate isn&apos;t always the best value
-          <InfoTip>Click a supplier to see its fill rate, no-shows and compliance at your locations.</InfoTip>
-          <Link href="/" className="ml-1 font-medium text-foreground underline-offset-4 hover:underline">
-            Approve suppliers on your Dashboard
-          </Link>
+          <InfoTip>Click a supplier to see its fill rate, no-shows and compliance at your locations, and to approve it for your shifts.</InfoTip>
         </p>
       )}
       <RateChanges />
-      <SupplierProfileDialog supplierId={profile} onOpenChange={(open) => !open && setProfile(undefined)} />
     </>
   )
 }

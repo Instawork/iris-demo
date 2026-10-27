@@ -1,8 +1,8 @@
-import { BadgeCheck, BadgeDollarSign, Building2, Calendar, ChartColumn, Clock, FileText, LayoutGrid, Settings, Upload, Users, type LucideIcon } from "lucide-react"
+import { BadgeCheck, BadgeDollarSign, Building2, Calendar, ChartColumn, Clock, FileText, LayoutGrid, MapPinned, Settings, Users, type LucideIcon } from "lucide-react"
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
-import { awaitingApproval, filledCount, groupPhase, inScope, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
+import { awaitingApproval, filledCount, groupPhase, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
 import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
@@ -19,10 +19,10 @@ export interface NavItem {
 
 export const SETTINGS_PAGES: NavItem[] = [
   { id: "settings.company", label: "Company profile", href: "/settings/company", icon: Settings, tooltip: "Your organization's details" },
-  { id: "settings.locations", label: "Work locations", href: "/settings/locations", icon: Settings, tooltip: "Venues, addresses and cost centers", kinds: ["buyer", "compass"] },
+  { id: "settings.locations", label: "Work locations", href: "/settings/locations", icon: Settings, tooltip: "Venues, addresses and cost centers", kinds: ["buyer"] },
   { id: "settings.positions", label: "Positions", href: "/settings/positions", icon: Settings, tooltip: "Roles, duties, attire and required certifications" },
   { id: "settings.team", label: "Team Members", href: "/settings/team", icon: Settings, tooltip: "Who can post, approve and pay" },
-  { id: "settings.integrations", label: "Integrations", href: "/settings/integrations", icon: Settings, tooltip: "How each supplier connects to Iris" },
+  { id: "settings.integrations", label: "Integrations", href: "/settings/integrations", icon: Settings, tooltip: "How you connect to Iris", kinds: ["supplier"] },
 ]
 
 const shiftsBadge = (data: DemoData, ws: Workspace) => {
@@ -57,16 +57,14 @@ export function navFor(ws: Workspace): NavItem[] {
       label: "Dashboard",
       href: "/",
       icon: LayoutGrid,
-      tooltip:
-        kind === "compass"
-          ? "Anomalous invoices, buyer spend and supplier rankings"
-          : kind === "buyer"
-            ? "Your todos, spend and the suppliers you approve"
-            : "Your todos, performance and the buyers that approved you",
+      tooltip: kind === "compass" ? "What needs you across the program, and what Iris expects next" : "What needs you today, and what Iris expects next",
     },
     ...approvals,
     ...(kind === "compass"
-      ? [{ id: "onboarding", label: "Onboarding", href: "/onboarding", icon: Building2, tooltip: "Every unit and agency on the program. Add new ones." } satisfies NavItem]
+      ? ([
+          { id: "units", label: "Units", href: "/units", icon: MapPinned, tooltip: "Every unit that buys labor, what it orders and requires. Add new ones." },
+          { id: "agencies", label: "Agencies", href: "/agencies", icon: Building2, tooltip: "Every agency on the program: rates, Pros, paperwork and performance. Add new ones." },
+        ] satisfies NavItem[])
       : []),
     {
       id: "shifts",
@@ -94,7 +92,12 @@ export function navFor(ws: Workspace): NavItem[] {
       label: "Supplier Rates",
       href: "/rates",
       icon: BadgeDollarSign,
-      tooltip: kind === "supplier" ? "Your pay rate, markup and bill rate by city" : kind === "buyer" ? "Bill rates for suppliers in your cities" : "Every supplier's rates side by side",
+      tooltip:
+        kind === "supplier"
+          ? "Your pay rate, markup and bill rate by city"
+          : kind === "buyer"
+            ? "Bill rates in your cities. Open a supplier to approve it for your shifts."
+            : "Every supplier's rates side by side, and every change to them",
     },
     {
       id: "professionals",
@@ -132,17 +135,6 @@ export function navFor(ws: Workspace): NavItem[] {
             ? "Spend, hours and agency performance at your locations"
             : "What you billed and how you filled, by buyer and week",
     },
-    {
-      id: "uploads",
-      label: "Uploads",
-      href: "/uploads",
-      icon: Upload,
-      tooltip:
-        kind === "compass" ? "Business activity by location" : kind === "buyer" ? "Shifts, timesheets and tips by CSV" : "Rates, Pros, timesheets and tips by CSV",
-      badge: (data, w) =>
-        data.uploads.filter((u) => u.status === "needs_review" && u.actorKind === w.kind && (w.kind === "compass" || inScope({ kind: w.kind, buyerId: w.buyerId, supplierId: w.supplierId }, u)))
-          .length,
-    },
   ]
 }
 
@@ -152,6 +144,8 @@ export const SECTION_LABELS: Record<string, string> = {
   "": "Dashboard",
   approvals: "Approvals",
   onboarding: "Onboarding",
+  units: "Units",
+  agencies: "Agencies",
   shifts: "Shifts",
   timesheets: "Timesheets",
   professionals: "Professionals",

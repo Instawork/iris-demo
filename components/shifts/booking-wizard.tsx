@@ -537,16 +537,16 @@ function ReviewStep({ draft, quotes, spots, preview }: { draft: Draft; quotes: Q
         ) : (
           <p className="rounded-lg border border-warning-border bg-warning-faded px-4 py-3 text-body-3">
             None of your approved suppliers staff {pos.name} in {city(loc.cityId).name}.{" "}
-            <Link href="/" className="font-medium underline underline-offset-4">
-              Approve one on your Dashboard
+            <Link href="/rates" className="font-medium underline underline-offset-4">
+              Approve one on Supplier Rates
             </Link>
             .
           </p>
         )}
         <p className="text-caption-1 text-faded">
-          Change who gets your shifts on your{" "}
-          <Link href="/" className="underline underline-offset-4 hover:text-foreground">
-            Dashboard
+          Change who gets your shifts on{" "}
+          <Link href="/rates" className="underline underline-offset-4 hover:text-foreground">
+            Supplier Rates
           </Link>
           . You only pay for hours you approve. Tips pass through with no markup.
         </p>

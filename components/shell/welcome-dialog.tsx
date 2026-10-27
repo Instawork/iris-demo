@@ -14,9 +14,9 @@ const COPY: Record<PersonaKind, { lead: string; points: string[] }> = {
   buyer: {
     lead: "Post shifts to Instawork and the other agencies you approve, without a ticketing maze.",
     points: [
-      "Approve suppliers on your Dashboard after comparing rates and track records",
+      "Approve suppliers on Supplier Rates after comparing rates and track records",
       "Post a shift once and every approved supplier is notified",
-      "Approve hours on Shifts and Iris generates the invoice",
+      "Approve hours on Timesheets and Iris generates the invoice",
     ],
   },
   supplier: {

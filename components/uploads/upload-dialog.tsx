@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -53,7 +54,12 @@ export function UploadDialog() {
           <>
             <div className="flex flex-col gap-1 border-b border-border px-6 pt-5 pr-12 pb-4">
               <DialogTitle className="text-featured-3 font-bold">Upload a spreadsheet</DialogTitle>
-              <DialogDescription className="text-body-3 text-faded">Every row is checked, and you approve any fixes before anything is saved.</DialogDescription>
+              <DialogDescription className="text-body-3 text-faded">
+                Every row is checked, and you approve any fixes before anything is saved.{" "}
+                <Link href="/uploads" onClick={close} className="font-medium text-foreground underline-offset-4 hover:underline">
+                  Past uploads
+                </Link>
+              </DialogDescription>
             </div>
             <UploadPicker type={type} onTypeChange={setType} onUpload={upload} className="m-6" />
           </>
