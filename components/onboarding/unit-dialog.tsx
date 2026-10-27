@@ -150,7 +150,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl" data-tour="unit-dialog" data-stage={created ? "done" : STEPS[step]}>
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is live` : "Add a unit"}</DialogTitle>
           <DialogDescription>
@@ -166,7 +166,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
               <Stat label="Weekly budget" value={Number(form.weeklyBudget) ? moneyWhole(Number(form.weeklyBudget)) : "None"} sub={Number(form.weeklyBudget) ? "Orders over it need an approver" : "Orders go straight out"} />
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => close(false)}>
+              <Button variant="outline" onClick={() => close(false)} data-tour="wizard-done">
                 Done
               </Button>
               {booker && (
@@ -385,11 +385,11 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                 )}
               </Button>
               {step < STEPS.length - 1 ? (
-                <Button onClick={() => setStep(step + 1)} disabled={!ready[step]}>
+                <Button onClick={() => setStep(step + 1)} disabled={!ready[step]} data-tour="wizard-next">
                   Next <ArrowRight />
                 </Button>
               ) : (
-                <Button onClick={submit} disabled={busy || !ready.every(Boolean)}>
+                <Button onClick={submit} disabled={busy || !ready.every(Boolean)} data-tour="wizard-submit">
                   <Check /> Add unit
                 </Button>
               )}

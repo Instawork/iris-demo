@@ -162,7 +162,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-tour="agency-dialog" data-stage={created ? "done" : STEPS[step]}>
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is on Iris` : "Add an agency"}</DialogTitle>
           <DialogDescription>
@@ -180,7 +180,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
               <Stat label="Approved for" value={String(form.buyerIds.length)} sub={form.buyerIds.length ? joinNames(form.buyerIds.map((b) => BUYERS.find((x) => x.id === b)!.name)) : "No buyers yet"} />
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => close(false)}>
+              <Button variant="outline" onClick={() => close(false)} data-tour="wizard-done">
                 Done
               </Button>
               <Button onClick={openAsAgency}>
@@ -434,11 +434,11 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 )}
               </Button>
               {step < STEPS.length - 1 ? (
-                <Button onClick={() => goTo(step + 1)} disabled={!ready[step]}>
+                <Button onClick={() => goTo(step + 1)} disabled={!ready[step]} data-tour="wizard-next">
                   Next <ArrowRight />
                 </Button>
               ) : (
-                <Button onClick={submit} disabled={busy || !ready.every(Boolean)}>
+                <Button onClick={submit} disabled={busy || !ready.every(Boolean)} data-tour="wizard-submit">
                   <Check /> Add agency
                 </Button>
               )}

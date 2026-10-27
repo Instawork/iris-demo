@@ -162,7 +162,7 @@ App: https://cruber-demo.replit.app (no passcode)
 - **A click seems to do nothing:** reload the page. Everything is saved on the server, so nothing is lost.
 - **The data is in a strange state:** Reset demo data and pick the block up from its first step.
 - **Agencies filling too fast or too slow:** user menu, Demo controls, and turn an agency's automatic staffing off to staff it by hand.
-- **Lost the thread:** the **Guided tour** (top bar) walks a five-minute version of blocks 2 through 4 and invoicing, with **Do it for me** on every step.
+- **Lost the thread:** the **Guided tour** (top bar) walks all five blocks in this order, as the same people, with **Do it for me** on every step. Starting it resets the demo data for everyone.
 
 ## If asked what's real
 

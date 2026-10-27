@@ -217,7 +217,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             </Button>
           )}
           {isSupplier && upcoming && filled < total && (
-            <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => setAssignOpen(true)}>
+            <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => setAssignOpen(true)} data-tour="assign">
               <UserPlus className="size-4" /> Assign Pros
             </Button>
           )}

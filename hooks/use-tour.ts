@@ -3,28 +3,37 @@
 import { create } from "zustand"
 import { createJSONStorage, persist } from "zustand/middleware"
 
-/** The shift and invoice counters when the tour began. Anything numbered at or above them is the player's own work. */
+import type { RequirementId } from "@/lib/types"
+
+/** The counters and time when the tour began. Anything numbered at or above them, or done after it, is the player's own work. */
 export interface TourBase {
   sg: number
   inv: number
+  rep: number
+  at: string
+}
+
+/** What the player picked, so later steps follow their choice. */
+export interface TourPicks {
+  proId?: string
+  invoiceId?: string
+  groupId?: string
+  docId?: RequirementId
 }
 
 /** Where the guided tour stands. Kept for the tab's session, so a reload picks up the same step. */
-interface TourState {
+interface TourState extends TourPicks {
   active: boolean
   index: number
   enteredAt: string
   base: TourBase
   done: string[]
   skipped: string[]
-  /** The Pro and invoice the player picked, so later steps follow their choice. */
-  proId?: string
-  invoiceId?: string
   open: () => void
   begin: (base: TourBase) => void
   go: (index: number) => void
   finish: (id: string, how: "done" | "skipped") => void
-  remember: (patch: { proId?: string; invoiceId?: string }) => void
+  remember: (patch: TourPicks) => void
   exit: () => void
 }
 
@@ -36,10 +45,10 @@ export const useTour = create<TourState>()(
       active: false,
       index: 0,
       enteredAt: "",
-      base: { sg: 0, inv: 0 },
+      base: { sg: 0, inv: 0, rep: 0, at: "" },
       done: [],
       skipped: [],
-      open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined }),
+      open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined }),
       begin: (base) => set((s) => ({ base, index: s.index + 1, enteredAt: now() })),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>
@@ -53,10 +62,10 @@ export const useTour = create<TourState>()(
       exit: () => set({ active: false }),
     }),
     {
-      name: "iris-tour",
+      name: "iris-tour-v2",
       storage: createJSONStorage(() => sessionStorage),
       skipHydration: true,
-      partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId }),
+      partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId }),
     },
   ),
 )

@@ -110,7 +110,7 @@ export function ReportsPage() {
 
 function SavedList({ reports, activeId, onOpen }: { reports: SavedReport[]; activeId?: string; onOpen: (r: SavedReport) => void }) {
   return (
-    <Surface elevated className="flex flex-col p-2">
+    <Surface elevated className="flex flex-col p-2" data-tour="saved-reports">
       <p className="px-2.5 pt-1.5 pb-2 text-caption-1 font-medium text-faded">Saved for your team</p>
       {reports.map((r) => (
         <button
@@ -200,11 +200,11 @@ function ReportEditor({ report, spec }: { report?: SavedReport; spec: ReportSpec
         </div>
         <div className="flex items-center gap-2">
           {dirty && (
-            <Button onClick={() => save(false)} disabled={busy}>
+            <Button onClick={() => save(false)} disabled={busy} data-tour="report-save">
               <Check /> {report ? "Save changes" : "Save report"}
             </Button>
           )}
-          <Button variant="outline" onClick={() => (report ? setScheduling(true) : toast.info("Save the report first, then schedule it."))}>
+          <Button variant="outline" onClick={() => (report ? setScheduling(true) : toast.info("Save the report first, then schedule it."))} data-tour="report-schedule">
             <CalendarClock /> {report?.schedule ? "Schedule" : "Email on a schedule"}
           </Button>
           <Button variant="ghost" className="text-faded" onClick={download}>
@@ -346,7 +346,7 @@ function Builder({ ws, spec, onChange }: { ws: Workspace; spec: ReportSpec; onCh
   const groupBy = (id: ReportDimension) => onChange({ groupBy: id, splitBy: spec.splitBy === id ? undefined : spec.splitBy })
 
   return (
-    <Surface elevated className="flex flex-col gap-2.5 p-3">
+    <Surface elevated className="flex flex-col gap-2.5 p-3" data-tour="report-builder">
       <div className="flex flex-wrap items-center gap-2">
         <MeasurePicker value={spec.measures} onChange={(measures) => onChange({ measures })} />
         <SelectFilter label="By" options={dims.map((d) => ({ value: d.id, label: d.label }))} value={spec.groupBy} onChange={(v) => groupBy(v as ReportDimension)} />

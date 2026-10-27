@@ -130,13 +130,13 @@ export function UnitsPage() {
         description="Every unit that buys labor, with its cost center, the roles it orders and anything it requires. Add one and it's live across Iris: booking, release order, compliance and invoices."
         actions={
           ws.kind === "compass" && (
-            <Button onClick={() => setAdding(true)}>
+            <Button onClick={() => setAdding(true)} data-tour="add-unit">
               <MapPinned /> Add a unit
             </Button>
           )
         }
       />
-      <Surface elevated className="overflow-hidden">
+      <Surface elevated className="overflow-hidden" data-tour="units-table">
         <DataTable rows={units} columns={columns} getRowId={(l) => l.id} pageSize={25} />
       </Surface>
       {ws.kind === "compass" && (
@@ -250,13 +250,13 @@ export function AgenciesPage() {
         description="Every agency on the program. Open one for its rates, Pros, paperwork, connection and performance in one place."
         actions={
           ws.kind === "compass" && (
-            <Button onClick={() => setAdding(true)}>
+            <Button onClick={() => setAdding(true)} data-tour="add-agency">
               <Building2 /> Add an agency
             </Button>
           )
         }
       />
-      <Surface elevated className="overflow-hidden">
+      <Surface elevated className="overflow-hidden" data-tour="agencies-table">
         <DataTable rows={agencies} columns={columns} getRowId={(s) => s.id} onRowClick={(s) => router.push(`/agencies/${s.id}`)} pageSize={25} />
       </Surface>
       <AgencyDialog open={adding} onOpenChange={setAdding} />

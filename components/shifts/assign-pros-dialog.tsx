@@ -60,7 +60,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
         onOpenChange(o)
       }}
     >
-      <DialogContent className="gap-0 p-0 sm:max-w-lg">
+      <DialogContent className="gap-0 p-0 sm:max-w-lg" data-tour="assign-dialog">
         <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
           <DialogTitle className="text-featured-3 font-bold">Assign Pros</DialogTitle>
           <DialogDescription className="text-body-3">
@@ -81,6 +81,8 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
                 type="button"
                 disabled={disabled}
                 onClick={() => toggle(pro.id)}
+                data-tour="assign-row"
+                data-ready={reason ? undefined : ""}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
                   on ? "bg-primary-faded/70" : "hover:bg-hover",
@@ -128,6 +130,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
           <Button
             className="h-9 rounded-lg px-4 font-semibold"
             disabled={!picked.length}
+            data-tour="assign-submit"
             onClick={async () => {
               const n = await assignPros(group.id, picked)
               if (!n) return

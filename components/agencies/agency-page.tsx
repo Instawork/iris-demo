@@ -132,7 +132,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
             <p className="border-t border-border px-5 py-2.5 text-caption-1 text-subtle">{buyerId ? "From shifts it filled at your locations, last 28 days" : "Across every buyer, last 28 days"}</p>
           </Surface>
 
-          <Surface elevated className="overflow-hidden">
+          <Surface elevated className="overflow-hidden" data-tour="agency-rates">
             <SurfaceHeader
               title="Rates"
               info={buyerId ? "What you pay per hour for each role." : "Pay rate is what the Pro earns. Markup is what the agency keeps. Bill rate is what Compass pays."}

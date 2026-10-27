@@ -76,7 +76,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
 
   return (
     <Dialog open onOpenChange={(open) => phase !== "checking" && onOpenChange(open)}>
-      <DialogContent className="sm:max-w-lg" data-tour="verify-dialog">
+      <DialogContent className="sm:max-w-lg" data-tour="verify-dialog" data-doc-id={requirement}>
         <DialogHeader>
           <DialogTitle>
             {verb} {pro.firstName}&apos;s {label.toLowerCase()}
@@ -136,7 +136,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
                 </Select>
               </Field>
               <Field label={check.reference.label}>
-                <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={check.reference.placeholder} className={inputClass} />
+                <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={check.reference.placeholder} className={inputClass} data-tour="verify-reference" />
               </Field>
               <Field label={check.issuedLabel}>
                 <input type="date" value={issuedOn} max={today} onChange={(e) => (setIssuedOn(e.target.value), check.validYears && setExpiresOn(expiryFor(requirement, e.target.value) ?? ""))} className={inputClass} />

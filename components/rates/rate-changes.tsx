@@ -198,7 +198,7 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
   const marketOptions = CITIES.filter((c) => scoped.some((x) => x.cityId === c.id)).map((c) => ({ value: c.id, label: `${c.name}, ${c.state}` }))
 
   return (
-    <section id="changes" className="flex scroll-mt-20 flex-col gap-3">
+    <section id="changes" className="flex scroll-mt-20 flex-col gap-3" data-tour="rate-changes">
       <SectionTitle
         title="Rate changes"
         description={`${scoped.length} changes, newest first`}

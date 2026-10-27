@@ -251,7 +251,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                     <Button size="sm" variant="ghost" className="h-7 rounded-md text-caption-1" onClick={() => setSending(sending === row.id ? undefined : row.id)}>
                       Send back
                     </Button>
-                    <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => decide(row.id, "accept")}>
+                    <Button size="sm" variant="outline" className="h-7 rounded-md text-caption-1" onClick={() => decide(row.id, "accept")} data-tour="doc-accept">
                       Accept
                     </Button>
                   </span>
@@ -263,6 +263,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                     onClick={() => setRenewing({ id: row.id, blocked: standingOf(pro) === "not_compliant" })}
                     data-tour="doc-action"
                     data-doc-state={row.state}
+                    data-doc-id={row.id}
                   >
                     {held ? "Fix it" : row.state === "missing" || row.state === "pending" ? "Add" : "Renew"}
                   </Button>

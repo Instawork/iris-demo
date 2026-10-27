@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Check, CornerDownLeft, Flag, MousePointerClick, Play, RotateCcw, WandSparkles, X } from "lucide-react"
+import { ArrowRight, Check, CornerDownLeft, MousePointerClick, Play, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { useAgentThreads } from "@/components/agent/agent-store"
@@ -11,6 +11,7 @@ import { WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import {
   CHAPTERS,
+  CHAPTER_ORDER,
   RECAP,
   SCRIPT,
   STEPS,
@@ -36,9 +37,8 @@ const PAD = 6
 /** How long a step may be off its page or without its target before the card says so. */
 const GRACE = 600
 /** How long a missing target is waited for before the step falls back to the one before it. */
-const GIVE_UP = 1600
+const GIVE_UP = 3000
 const CARD_W = 360
-const CHAPTER_ORDER: ChapterId[] = ["control", "compliance", "cost"]
 
 interface Box {
   x: number
@@ -66,6 +66,8 @@ function contextNow(): TourContext {
     base: tour.base,
     proId: tour.proId,
     invoiceId: tour.invoiceId,
+    groupId: tour.groupId,
+    docId: tour.docId,
   }
 }
 
@@ -104,7 +106,17 @@ function scrollUnder(e: React.WheelEvent) {
   }
 }
 
-const PAGE: Record<string, string> = { "": "the Dashboard", shifts: "Shifts", professionals: "Professionals", invoices: "Invoices" }
+const PAGE: Record<string, string> = {
+  "": "the Dashboard",
+  units: "Units",
+  agencies: "Agencies",
+  approvals: "Approvals",
+  shifts: "Shifts",
+  timesheets: "Timesheets",
+  professionals: "Professionals",
+  invoices: "Invoices",
+  reports: "Reports",
+}
 const pageOf = (href: string) => PAGE[href.split("?")[0].split("/")[1] ?? ""] ?? "the right page"
 
 const stop = (e: React.PointerEvent) => e.stopPropagation()
@@ -327,6 +339,9 @@ function StepCard({
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
   const n = STEPS.indexOf(step) + 1
+  const inPart = STEPS.filter((s) => s.chapter === step.chapter)
+  const k = inPart.indexOf(step) + 1
+  const action = typeof step.action === "function" ? step.action(ctx) : step.action
   const following = SCRIPT[indexOf(step.id) + 1]
   const wrapsChapter = !following || following.kind === "finale" || (following.kind === "chapter" && following.chapter !== step.chapter)
   const title = typeof step.title === "function" ? step.title(ctx) : step.title
@@ -347,7 +362,7 @@ function StepCard({
           {meta.label}
           <span className="text-background/30">·</span>
           <span className="tracking-normal normal-case tabular">
-            Step {n} of {STEPS.length}
+            Step {k} of {inPart.length}
           </span>
         </span>
         <button
@@ -360,13 +375,12 @@ function StepCard({
         </button>
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
+      {/* Swapped at once rather than after an exit: a page mid-navigation can hold an exit open and leave the old step on screen. */}
         {done ? (
           <motion.div
             key="done"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.22, ease: EASE }}
             className="flex items-center gap-3 px-4 pt-3 pb-1"
           >
@@ -380,11 +394,11 @@ function StepCard({
             </motion.span>
             <span className="flex min-w-0 flex-col">
               <span className="text-[16px] leading-snug font-semibold">{done}</span>
-              <span className="text-[12.5px] text-background/55">{wrapsChapter ? `${meta.label} complete` : `Step ${n} of ${STEPS.length} done`}</span>
+              <span className="text-[12.5px] text-background/55">{wrapsChapter ? `${meta.label} complete` : `Step ${k} of ${inPart.length} done`}</span>
             </span>
           </motion.div>
         ) : (
-          <motion.div key={`${step.id}-${mode}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22, ease: EASE }}>
+          <motion.div key={`${step.id}-${away ? "away" : "here"}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: EASE }}>
             <h2 className="px-4 pt-2 text-[17px] leading-snug font-semibold tracking-[-0.01em] text-balance">{title}</h2>
             <p className="px-4 pt-1 text-[13.5px] leading-relaxed text-pretty text-background/70">
               {away ? `This step happens on ${pageOf(step.href(ctx))} as ${workspace(step.wsId).user.firstName}.` : body}
@@ -396,18 +410,17 @@ function StepCard({
                 {status}
               </p>
             )}
-            {!away && !lost && step.action && !step.example && (
+            {!away && !lost && action && !step.example && (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
-                <MousePointerClick className="size-3.5" />
-                {step.action}
+                <MousePointerClick className="size-3.5 shrink-0" />
+                {action}
               </p>
             )}
           </motion.div>
         )}
-      </AnimatePresence>
 
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
-        <Progress current={n - 1} />
+        <Progress current={n - 1} chapter={step.chapter} />
         <span className="ml-auto flex items-center gap-1">
           {away ? (
             <CardButton onClick={onGo}>
@@ -425,7 +438,7 @@ function StepCard({
             <button
               type="button"
               onClick={onSkip}
-              className="h-7 rounded-md px-2 text-[12.5px] font-medium text-background/55 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
+              className="h-7 rounded-md whitespace-nowrap px-2 text-[12.5px] font-medium text-background/55 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
             >
               Do it for me
             </button>
@@ -482,25 +495,22 @@ function CardButton({ onClick, children }: { onClick: () => void; children: Reac
   )
 }
 
-/** One bar per step, grouped by chapter. */
-function Progress({ current }: { current: number }) {
+/** One bar per part. The part being played fills as its steps go by. */
+function Progress({ current, chapter }: { current: number; chapter: ChapterId }) {
+  const at = CHAPTER_ORDER.indexOf(chapter)
+  const part = STEPS.filter((s) => s.chapter === chapter)
+  const k = part.indexOf(STEPS[current])
   return (
     <span className="flex items-center gap-1.5" aria-hidden>
-      {CHAPTER_ORDER.map((chapter) => (
-        <span key={chapter} className="flex gap-[3px]">
-          {STEPS.map((s, i) =>
-            s.chapter === chapter ? (
-              <span
-                key={s.id}
-                className={cn(
-                  "h-1 w-2 rounded-full transition-colors duration-300",
-                  i < current ? "bg-brand" : i === current ? "bg-background" : "bg-background/20",
-                )}
-              />
-            ) : null,
-          )}
-        </span>
-      ))}
+      {CHAPTER_ORDER.map((id, c) =>
+        id === chapter ? (
+          <span key={id} className="relative h-1 w-14 overflow-hidden rounded-full bg-background/20">
+            <span className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-300" style={{ width: `${((k + 1) / part.length) * 100}%` }} />
+          </span>
+        ) : (
+          <span key={id} className={cn("h-1 w-4 rounded-full", c < at ? "bg-brand" : "bg-background/20")} />
+        ),
+      )}
     </span>
   )
 }
@@ -582,7 +592,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     useAgentThreads.setState({ threads: {} })
     useUi.setState({ welcomeSeen: { buyer: true, supplier: true, compass: true }, agentOpen: false })
     const { counters } = useStore.getState().data
-    useTour.getState().begin({ sg: counters.sg, inv: counters.inv })
+    useTour.getState().begin({ sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() })
   }
 
   const play = (chapter: TourChapter) => {
@@ -641,13 +651,13 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
         <span className="relative inline-flex items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-semibold tracking-[0.06em] text-background uppercase">
-          <Play className="size-3 fill-current" /> Guided tour · about 5 minutes
+          <Play className="size-3 fill-current" /> Guided demo · five parts
         </span>
         <h2 id="tour-card-title" className="relative mt-4 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
-          Run a day of staffing on Iris
+          The core workflows, end to end
         </h2>
         <p className="relative mt-2 text-[15px] leading-relaxed text-pretty text-muted-foreground">
-          You&apos;ll play a buyer, an agency and Compass, and do the real work one step at a time.
+          In the order of the Fieldglass modules, played as the people who do the work: Compass, a buyer, its approver and two agencies. Each step says what&apos;s on screen and why it matters. Do it for me does any step.
         </p>
       </div>
       <ol className="flex flex-col gap-2 px-7">
@@ -658,8 +668,8 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
               key={id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, ease: EASE, delay: 0.12 + i * 0.07 }}
-              className="flex items-center gap-3.5 rounded-xl border border-border bg-page-faded/60 px-3.5 py-3"
+              transition={{ duration: 0.35, ease: EASE, delay: 0.12 + i * 0.06 }}
+              className="flex items-center gap-3.5 rounded-xl border border-border bg-page-faded/60 px-3.5 py-2.5"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/30 text-brand-foreground ring-1 ring-brand-foreground/15 ring-inset dark:bg-brand/12 dark:text-brand">
                 <c.icon className="size-[18px]" strokeWidth={1.9} />
@@ -674,13 +684,13 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
         })}
       </ol>
       <div className="flex flex-wrap items-center justify-between gap-3 px-7 pt-5 pb-6">
-        <span className="text-[12.5px] text-subtle">Starts from fresh demo data.</span>
+        <span className="max-w-[16rem] text-[12.5px] leading-snug text-subtle">Starting resets the demo data for everyone using this demo.</span>
         <span className="flex gap-2">
           <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
             Not now
           </Button>
           <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onStart} autoFocus>
-            Start the tour <ArrowRight className="size-4" />
+            Start <ArrowRight className="size-4" />
           </Button>
         </span>
       </div>
@@ -691,13 +701,13 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
 function ChapterRail({ current }: { current: ChapterId }) {
   const at = CHAPTER_ORDER.indexOf(current)
   return (
-    <div className="relative mt-5 grid grid-cols-3 gap-1.5">
+    <div className="relative mt-5 grid grid-cols-5 gap-1.5">
       {CHAPTER_ORDER.map((id, i) => (
-        <span key={id} className="flex flex-col gap-1.5">
+        <span key={id} className="flex min-w-0 flex-col gap-1.5">
           <span className={cn("h-1 rounded-full", i < at ? "bg-brand" : i === at ? "bg-foreground" : "bg-foreground/10")} />
-          <span className={cn("text-[11.5px] font-medium", i === at ? "text-foreground" : "text-subtle")}>
+          <span className={cn("truncate text-[11.5px] font-medium", i === at ? "text-foreground" : "text-subtle")}>
             {i < at && <Check className="mr-1 inline size-3 text-brand-strong" strokeWidth={3} />}
-            {CHAPTERS[id].label}
+            {CHAPTERS[id].short}
           </span>
         </span>
       ))}
@@ -713,10 +723,11 @@ function ChapterCard({ item, continued, onPlay, onExit }: { item: TourChapter; c
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
         <span className="relative text-[12px] font-medium text-muted-foreground">
-          Chapter {meta.number} of 3{continued ? ", continued" : ""}
+          Part {meta.number} of {CHAPTER_ORDER.length}
+          {continued ? ", continued" : ""} · In Fieldglass: {meta.fieldglass}
         </span>
         <div className="relative mt-1.5 flex items-end justify-between gap-4">
-          <h2 id="tour-card-title" className="font-heading text-[44px] leading-none font-semibold tracking-[-0.02em]">
+          <h2 id="tour-card-title" className="font-heading text-[38px] leading-[1.05] font-semibold tracking-[-0.02em] text-balance">
             {item.title}
           </h2>
           <span aria-hidden className="font-heading text-[72px] leading-[0.75] font-semibold text-foreground/[0.07] tabular">
@@ -738,88 +749,55 @@ function ChapterCard({ item, continued, onPlay, onExit }: { item: TourChapter; c
           </span>
         </span>
       </div>
-      <p className="mx-7 mt-3.5 flex items-start gap-2.5 text-[14px] leading-relaxed">
-        <Flag className="mt-[3px] size-4 shrink-0 text-brand-strong" />
-        <span>
-          <span className="font-semibold">Your mission: </span>
-          {item.mission}
-        </span>
+      <p className="mx-7 mt-3.5 text-[14px] leading-relaxed text-pretty">
+        <span className="font-semibold">Next: </span>
+        {item.shows}
       </p>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onExit}>
           Exit tour
         </Button>
         <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onPlay} autoFocus>
-          Play as {ws.user.firstName} <ArrowRight className="size-4" />
+          Continue as {ws.user.firstName} <ArrowRight className="size-4" />
         </Button>
       </div>
     </>
   )
 }
 
-const BURST = Array.from({ length: 22 }, (_, i) => {
-  const angle = (i / 22) * Math.PI * 2 + ((i * 37) % 10) / 20
-  const reach = 70 + ((i * 53) % 70)
-  return { x: Math.cos(angle) * reach, y: Math.sin(angle) * reach * 0.8 + 26, rotate: ((i * 71) % 360) - 180, tone: i % 3, delay: (i % 5) * 0.02 }
-})
-
-function Confetti() {
-  const reduce = useReducedMotion()
-  if (reduce) return null
-  return (
-    <span aria-hidden className="pointer-events-none absolute top-[64px] left-1/2">
-      {BURST.map((p, i) => (
-        <motion.span
-          key={i}
-          className={cn("absolute h-2.5 w-1.5 rounded-[2px]", p.tone === 0 ? "bg-brand" : p.tone === 1 ? "bg-foreground" : "bg-warning")}
-          initial={{ x: 0, y: 0, opacity: 0, rotate: 0, scale: 0.6 }}
-          animate={{ x: p.x, y: p.y, opacity: [0, 1, 1, 0], rotate: p.rotate, scale: 1 }}
-          transition={{ duration: 1.25, ease: [0.16, 1, 0.3, 1], delay: 0.15 + p.delay }}
-        />
-      ))}
-    </span>
-  )
-}
-
 function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () => void }) {
   return (
     <>
-      <div className="relative flex flex-col items-center overflow-hidden px-7 pt-9 pb-6 text-center">
+      <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
-        <Confetti />
-        <motion.span
-          initial={{ scale: 0.5, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: "spring", stiffness: 420, damping: 18, delay: 0.1 }}
-          className="relative flex size-14 items-center justify-center rounded-full bg-brand text-brand-foreground shadow-[0_0_0_8px_color-mix(in_oklch,var(--brand)_28%,transparent)]"
-        >
-          <Check className="size-7" strokeWidth={3} />
-        </motion.span>
-        <h2 id="tour-card-title" className="relative mt-5 font-heading text-[30px] leading-tight font-semibold tracking-tight">
-          That&apos;s Iris.
+        <span className="relative text-[12px] font-medium text-muted-foreground">All five parts done</span>
+        <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-tight font-semibold tracking-tight">
+          What the demo covered
         </h2>
-        <p className="relative mt-1 text-[16px] text-muted-foreground">Built for how Compass operates.</p>
-        <p className="relative mt-3 text-[12.5px] text-subtle">Keep exploring. Switch roles anytime from the top of the sidebar.</p>
+        <p className="relative mt-1 text-[15px] text-pretty text-muted-foreground">Everything you did is still there to explore, from any of the roles.</p>
       </div>
       <ul className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         {RECAP.map((r, i) => (
           <motion.li
-            key={r.step}
+            key={r.chapter}
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, ease: EASE, delay: 0.35 + i * 0.08 }}
-            className="flex items-center gap-3 px-4 py-2.5 text-[14px]"
+            transition={{ duration: 0.3, ease: EASE, delay: 0.15 + i * 0.06 }}
+            className="flex items-start gap-3 px-4 py-2.5"
           >
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
+            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
               <Check className="size-3" strokeWidth={3.2} />
             </span>
-            {r.label}
+            <span className="flex min-w-0 flex-col">
+              <span className="text-[14px] font-semibold">{CHAPTERS[r.chapter].label}</span>
+              <span className="text-[13px] leading-snug text-muted-foreground">{r.label}</span>
+            </span>
           </motion.li>
         ))}
       </ul>
       <div className="flex flex-wrap items-center justify-between gap-3 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 gap-1.5 rounded-lg" onClick={onReplay}>
-          <RotateCcw className="size-4" /> Replay the tour
+          <RotateCcw className="size-4" /> Start over
         </Button>
         <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onClose} autoFocus>
           Explore on my own <ArrowRight className="size-4" />
