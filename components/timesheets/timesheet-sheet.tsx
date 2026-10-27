@@ -1,12 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, Check, Pencil, Send, Trash2, Undo2, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, ArrowRightLeft, Check, Pencil, Send, Trash2, Undo2, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { ProAvatar } from "@/components/common/pro-avatar"
+import { MoveDialog } from "@/components/shifts/move-dialog"
 import { BreakField, CLOCK_SOURCE, TimeField, TimesheetHistory, TimesheetStatusBadge, snapTime, timeRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -80,6 +81,10 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const checks = useTimesheetChecks(theirs).get(t.id) ?? []
   const proposal = primaryProposal(checks)
   const [mode, setMode] = useState<Mode>("idle")
+  const [moving, setMoving] = useState(false)
+  const group = data.groups.find((g) => g.id === t.groupId)
+  const slot = group?.slots.find((s) => s.id === t.slotId)
+  const parts = t.movedFrom || t.movedTo ? data.timesheets.filter((x) => x.groupId === t.groupId && x.slotId === t.slotId && x.status !== "removed").sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart)) : []
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
@@ -299,6 +304,28 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           </span>
         </section>
 
+        {parts.length > 1 && (
+          <Panel title="This shift changed roles">
+            <ol className="flex flex-col gap-1.5">
+              {parts.map((p) => (
+                <li key={p.id} className="flex items-baseline justify-between gap-3 text-body-3">
+                  {p.id === t.id ? (
+                    <span className="font-semibold">{position(p.positionId).name}</span>
+                  ) : (
+                    <Link href={`/timesheets?ts=${p.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
+                      {position(p.positionId).name}
+                    </Link>
+                  )}
+                  <span className="text-faded tabular">
+                    {timeRange(p.clockIn ?? p.scheduledStart, p.clockOut ?? p.scheduledEnd)} · {money(p.billRate)}/hr
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {slot?.moves?.some((m) => m.note) && <span className="text-caption-1 text-faded">{slot.moves.filter((m) => m.note).map((m) => `“${m.note}” ${m.by}`).join(" · ")}</span>}
+          </Panel>
+        )}
+
         {t.status === "rejected" && t.rejection && (
           <Panel className="border-critical-border/70 bg-critical-faded">
             <span className="text-body-3 font-semibold text-critical-fg">
@@ -360,8 +387,14 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => open("correct", CORRECT_REASONS[0])}>
               <Pencil className="size-4" /> Correct the times
             </Button>
+            {slot && (
+              <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => setMoving(true)}>
+                <ArrowRightLeft className="size-4" /> Split by role
+              </Button>
+            )}
           </div>
         )}
+        {group && slot && <MoveDialog group={group} slot={slot} open={moving} onOpenChange={setMoving} />}
 
         {mode === "reject" && (
           <Panel title={`Send back to ${sup.shortName}`}>

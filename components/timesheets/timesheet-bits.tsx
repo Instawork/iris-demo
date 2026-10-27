@@ -172,6 +172,7 @@ const ACTION: Record<TimesheetAction, string> = {
   withdrawn: "Withdrawn to Draft",
   edited: "Edited",
   corrected: "Corrected",
+  moved: "Moved to another role",
   approved: "Approved",
   rejected: "Rejected",
   removed: "Removed",
@@ -185,6 +186,7 @@ const DOT: Partial<Record<TimesheetAction, string>> = {
   credited: "bg-warning",
   rejected: "bg-critical",
   corrected: "bg-warning",
+  moved: "bg-primary",
   removed: "bg-border-strong",
 }
 

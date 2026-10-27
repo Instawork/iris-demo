@@ -38,6 +38,10 @@ export interface BookingInput {
   instructions: string
   attire: string
   tips: boolean
+  /** Only this agency sees it, instead of the release order. */
+  onlyAgencyId?: string
+  /** Pros to book first, if they're cleared and free. The rest of the spots go out as usual. */
+  requestedProIds?: string[]
 }
 
 export interface RateCardInput {
@@ -84,6 +88,21 @@ export function eligiblePros(data: DemoData, g: ShiftGroup, supplierId = g.suppl
   return data.pros.filter(
     (p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.has(p.id) && !blocked.has(p.id) && canWork(p, g.positionId, g.date, g.locationId).ok,
   )
+}
+
+/** Books the Pros the buyer asked for into open spots, as long as each is still cleared and free that day. */
+export function placeRequested(data: DemoData, g: ShiftGroup, now: string): ShiftGroup {
+  const wanted = g.dispatch?.proIds ?? []
+  if (!wanted.length) return g
+  const slots = [...g.slots]
+  for (const proId of wanted) {
+    if (slots.some((s) => s.proId === proId)) continue
+    const pro = data.pros.find((p) => p.id === proId)
+    const open = slots.findIndex((s) => !s.proId && s.status === "open")
+    if (!pro || open < 0 || !eligiblePros(data, g, pro.supplierId).some((p) => p.id === proId)) continue
+    slots[open] = { ...slots[open], proId, status: "confirmed", confirmedAt: now }
+  }
+  return { ...g, slots }
 }
 
 /** The buyer's approved suppliers that can staff this role in the city, in program order. Their rate cards price the shift. */

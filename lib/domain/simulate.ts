@@ -5,7 +5,7 @@ import { invoiceApproved, issueOpen } from "@/lib/domain/invoicing"
 import { filledCount, groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { location, position, supplier } from "@/lib/reference"
-import { change, hoursFor, overtimeKey, weekClosed, withOvertime } from "@/lib/timesheets"
+import { change, hoursFor, matchesClock, overtimeKey, partAt, splitForMove, weekClosed, withOvertime } from "@/lib/timesheets"
 import type { ClockRecord, DemoData, ShiftGroup, Slot, Timesheet } from "@/lib/types"
 
 /** How fast each agency staffs a shift when nobody is playing it: odds per tick, Pros per burst, and the share it can fill. */
@@ -95,7 +95,7 @@ function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data
       const auto = sup.integration === "api" && complete
       const breakMins = clock?.breakMins ?? g.breakMins
       const id = `ts-${counter++}`
-      created.push({
+      const draft: Timesheet = {
         id,
         groupId: g.id,
         slotId: slot.id,
@@ -124,7 +124,22 @@ function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data
           change(nowISO, "Iris", "created", { note: clock ? (slot.punches?.in ? "From the worker's check-in" : "From the clock") : "No clock record" }),
           ...(auto ? [change(nowISO, `${sup.shortName} app`, "submitted", { note: "Sent by the agency's system" })] : []),
         ],
-      })
+      }
+      let parts = [draft]
+      for (const move of slot.moves ?? []) {
+        const current = partAt(parts, move.at)
+        const split = current && splitForMove(current, move, `ts-${counter}`, nowISO, { from: position(current.positionId).name, to: position(move.positionId).name })
+        if (!split) continue
+        counter++
+        parts = parts.flatMap((t) => (t.id === current.id ? split : [t]))
+      }
+      if (data.settings?.autoSubmit?.includes(supplierId))
+        parts = parts.map((t) =>
+          matchesClock(t)
+            ? { ...t, status: "pending_approval" as const, submittedAt: nowISO, history: [...t.history, change(nowISO, "Iris", "submitted", { note: `Matched Iris's clock, so it went in for ${sup.shortName}` })] }
+            : t,
+        )
+      created.push(...parts)
       finished.set(g.id, (finished.get(g.id) ?? new Set()).add(slot.id))
     }
   }

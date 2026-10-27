@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Check,
   Clock,
+  Heart,
   MapPin,
   Minus,
   Plus,
@@ -21,6 +22,8 @@ import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { InfoTip, Tip } from "@/components/common/info-tip"
+import { PillTabs } from "@/components/common/pill-tabs"
+import { ProAvatar } from "@/components/common/pro-avatar"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { Button } from "@/components/ui/button"
@@ -29,6 +32,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useData, useWorkspace } from "@/hooks/use-app"
+import { canWork } from "@/lib/compliance"
 import { addDaysISO, formatClock, formatDateShort, formatDay, formatTimestamp, paidHours, parseDate, toISODate, todayISO } from "@/lib/dates"
 import { previewOrder, type OrderPreview } from "@/lib/domain/order"
 import { money, moneyWhole, pct, round2 } from "@/lib/format"
@@ -53,7 +57,12 @@ interface Draft {
   eventName: string
   instructions: string
   tips: boolean
+  dispatch: Dispatch
+  onlyAgencyId: string
+  proIds: string[]
 }
+
+type Dispatch = "release" | "agency" | "pros"
 
 interface Quote {
   supplier: Supplier
@@ -93,6 +102,9 @@ export function BookingWizard() {
       eventName: src?.eventName ?? "",
       instructions: src?.instructions ?? position(posId).duties,
       tips: src ? src.badges.includes("TIPS") : position(posId).alcohol,
+      dispatch: "release",
+      onlyAgencyId: "",
+      proIds: [],
     }
   })
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }))
@@ -151,6 +163,8 @@ export function BookingWizard() {
         instructions: draft.instructions,
         attire: pos.attire,
         tips: draft.tips,
+        ...(draft.dispatch === "agency" && draft.onlyAgencyId ? { onlyAgencyId: draft.onlyAgencyId } : {}),
+        ...(draft.dispatch === "pros" && draft.proIds.length ? { requestedProIds: draft.proIds } : {}),
       },
       requestKey,
     )
@@ -161,7 +175,15 @@ export function BookingWizard() {
     const created = useStore.getState().data.groups.find((g) => g.id === ids[0])
     if (created?.approval?.status === "pending") {
       toast.success(`Sent ${spots} ${pos.name} spot${spots === 1 ? "" : "s"} for approval`, {
-        description: `${joinNames(preview?.approvers.map((a) => a.user.name) ?? [])} approves it, then it goes to ${quotes[0].supplier.shortName}.`,
+        description: `${joinNames(preview?.approvers.map((a) => a.user.name) ?? [])} approves it, then it goes to ${(draft.dispatch === "agency" ? quotes.find((q) => q.supplier.id === draft.onlyAgencyId) : undefined)?.supplier.shortName ?? quotes[0].supplier.shortName}.`,
+      })
+    } else if (draft.dispatch !== "release" && created) {
+      const booked = created.slots.filter((x) => x.proId).length
+      const only = draft.dispatch === "agency" ? quotes.find((q) => q.supplier.id === draft.onlyAgencyId)?.supplier.shortName : undefined
+      toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
+        description: only
+          ? `Only ${only} sees it. Nothing goes to your other agencies.`
+          : `Iris booked ${booked} of the Pros you asked for and told their agencies. The other spots go out in your release order.`,
       })
     } else {
       toast.success(`Posted ${spots} ${pos.name} spot${spots === 1 ? "" : "s"}`, {
@@ -195,7 +217,7 @@ export function BookingWizard() {
             className="flex flex-col gap-4"
           >
             {step === 0 && <ScheduleStep draft={draft} set={set} setDraft={setDraft} locations={locations} hrs={hrs} />}
-            {step === 1 && <ReviewStep draft={draft} quotes={quotes} spots={spots} preview={preview} />}
+            {step === 1 && <ReviewStep draft={draft} set={set} quotes={quotes} spots={spots} preview={preview} />}
           </motion.div>
 
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
@@ -247,7 +269,13 @@ export function BookingWizard() {
                 {quotes.length ? (minTotal === maxTotal ? money(minTotal) : `${money(minTotal)} – ${money(maxTotal)}`) : "No suppliers"}
               </span>
               <span className="text-caption-1 text-faded">
-                {quotes.length ? `${quotes.length} approved supplier${quotes.length === 1 ? "" : "s"} in release order` : "Approve a supplier for this role first"}
+                {!quotes.length
+                  ? "Approve a supplier for this role first"
+                  : draft.dispatch === "agency" && draft.onlyAgencyId
+                    ? `Only ${quotes.find((q) => q.supplier.id === draft.onlyAgencyId)?.supplier.shortName ?? "one agency"}`
+                    : draft.dispatch === "pros" && draft.proIds.length
+                      ? `${draft.proIds.length} requested, then ${quotes.length} supplier${quotes.length === 1 ? "" : "s"} in release order`
+                      : `${quotes.length} approved supplier${quotes.length === 1 ? "" : "s"} in release order`}
               </span>
             </div>
           </Surface>
@@ -487,7 +515,19 @@ function ScheduleStep({
   )
 }
 
-function ReviewStep({ draft, quotes, spots, preview }: { draft: Draft; quotes: Quote[]; spots: number; preview?: OrderPreview }) {
+function ReviewStep({
+  draft,
+  set,
+  quotes,
+  spots,
+  preview,
+}: {
+  draft: Draft
+  set: <K extends keyof Draft>(key: K, value: Draft[K]) => void
+  quotes: Quote[]
+  spots: number
+  preview?: OrderPreview
+}) {
   const loc = location(draft.locationId)
   const pos = position(draft.positionId)
   const rows: [string, React.ReactNode][] = [
@@ -511,37 +551,63 @@ function ReviewStep({ draft, quotes, spots, preview }: { draft: Draft; quotes: Q
       </dl>
       {preview && <OrderChecks preview={preview} locationName={loc.name} />}
       <div className="flex flex-col gap-2">
-        <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
-          Supplier release order
-          <InfoTip>Suppliers you approved for this role receive the shift in your release order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Each Pro is billed at their supplier&apos;s rate.</InfoTip>
-        </h3>
-        {quotes.length ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {quotes.map((q, index) => (
-              <li key={q.supplier.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-caption-1 font-bold tabular">{index + 1}</span>
-                <SupplierLogo supplierId={q.supplier.id} size="md" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
-                  <span className="truncate text-caption-1 text-faded">
-                    {index ? `Releases ${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h after the first` : preview?.held && preview.firstRelease ? `Releases ${formatTimestamp(preview.firstRelease.toISOString())}` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
-                  </span>
-                </span>
-                <span className="flex flex-col items-end">
-                  <span className="text-body-3 font-semibold tabular">{money(q.card.billRate)}/hr</span>
-                  <span className="text-caption-1 text-faded tabular">Est. {money(q.total)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
+            Who gets it
+            <InfoTip>
+              By default your approved suppliers receive it in your release order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Send it to one agency only, or ask for Pros you know first. Each Pro is billed at their supplier&apos;s rate.
+            </InfoTip>
+          </h3>
+          {quotes.length > 0 && (
+            <PillTabs
+              size="sm"
+              value={draft.dispatch}
+              onChange={(v) => {
+                set("dispatch", v)
+                if (v === "agency" && !draft.onlyAgencyId) set("onlyAgencyId", quotes[0].supplier.id)
+              }}
+              items={[
+                { value: "release" as const, label: "Release order" },
+                { value: "agency" as const, label: "One agency" },
+                { value: "pros" as const, label: "Specific Pros" },
+              ]}
+            />
+          )}
+        </div>
+        {draft.dispatch === "agency" && quotes.length > 0 ? (
+          <OneAgency draft={draft} set={set} quotes={quotes} />
         ) : (
-          <p className="rounded-lg border border-warning-border bg-warning-faded px-4 py-3 text-body-3">
-            None of your approved suppliers staff {pos.name} in {city(loc.cityId).name}.{" "}
-            <Link href="/rates" className="font-medium underline underline-offset-4">
-              Approve one on Supplier Rates
-            </Link>
-            .
-          </p>
+          <>
+            {draft.dispatch === "pros" && quotes.length > 0 && <RequestPros draft={draft} set={set} quotes={quotes} />}
+          {quotes.length ? (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {quotes.map((q, index) => (
+                <li key={q.supplier.id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-caption-1 font-bold tabular">{index + 1}</span>
+                  <SupplierLogo supplierId={q.supplier.id} size="md" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
+                    <span className="truncate text-caption-1 text-faded">
+                      {index ? `Releases ${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h after the first` : preview?.held && preview.firstRelease ? `Releases ${formatTimestamp(preview.firstRelease.toISOString())}` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
+                    </span>
+                  </span>
+                  <span className="flex flex-col items-end">
+                    <span className="text-body-3 font-semibold tabular">{money(q.card.billRate)}/hr</span>
+                    <span className="text-caption-1 text-faded tabular">Est. {money(q.total)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-lg border border-warning-border bg-warning-faded px-4 py-3 text-body-3">
+              None of your approved suppliers staff {pos.name} in {city(loc.cityId).name}.{" "}
+              <Link href="/rates" className="font-medium underline underline-offset-4">
+                Approve one on Supplier Rates
+              </Link>
+              .
+            </p>
+          )}
+          </>
         )}
         <p className="text-caption-1 text-faded">
           Change who gets your shifts on{" "}
@@ -586,6 +652,120 @@ function OrderChecks({ preview, locationName }: { preview: OrderPreview; locatio
           </span>
         </li>
       </ul>
+    </div>
+  )
+}
+
+function OneAgency({ draft, set, quotes }: { draft: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; quotes: Quote[] }) {
+  const chosen = quotes.find((q) => q.supplier.id === draft.onlyAgencyId)
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {quotes.map((q) => {
+          const on = q.supplier.id === draft.onlyAgencyId
+          return (
+            <li key={q.supplier.id}>
+              <button type="button" onClick={() => set("onlyAgencyId", q.supplier.id)} aria-pressed={on} className={cn("flex w-full items-center gap-3 px-4 py-3 text-left", on ? "bg-primary-faded/60" : "hover:bg-hover")}>
+                <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", on ? "border-primary bg-primary text-primary-foreground" : "border-border-strong")}>
+                  {on && <Check className="size-3" />}
+                </span>
+                <SupplierLogo supplierId={q.supplier.id} size="md" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
+                  <span className="truncate text-caption-1 text-faded">
+                    {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
+                  </span>
+                </span>
+                <span className="flex flex-col items-end">
+                  <span className="text-body-3 font-semibold tabular">{money(q.card.billRate)}/hr</span>
+                  <span className="text-caption-1 text-faded tabular">Est. {money(q.total)}</span>
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {chosen && <p className="text-caption-1 text-faded">Only {chosen.supplier.shortName} sees it. Nothing cascades to your other agencies, so unfilled spots stay open.</p>}
+    </div>
+  )
+}
+
+/** Pros the buyer knows: their Favorites first, then the ones who've worked this location, with Iris's check for the first date. */
+function RequestPros({ draft, set, quotes }: { draft: Draft; set: <K extends keyof Draft>(key: K, value: Draft[K]) => void; quotes: Quote[] }) {
+  const data = useData()
+  const { ws } = useWorkspace()
+  const loc = location(draft.locationId)
+  const pos = position(draft.positionId)
+  const date = [...draft.dates].sort()[0]
+  const candidates = (() => {
+    if (!date) return []
+    const agencies = new Set(quotes.map((q) => q.supplier.id))
+    const busy = new Set<string>()
+    for (const g of data.groups) if (g.date === date && !g.cancelledAt) for (const slot of g.slots) if (slot.proId) busy.add(slot.proId)
+    const roster = new Map(data.roster.filter((r) => r.buyerId === ws.buyerId).map((r) => [r.proId, r.status]))
+    const worked = new Map<string, number>()
+    for (const t of data.timesheets) if (t.locationId === loc.id && t.positionId === pos.id) worked.set(t.proId, (worked.get(t.proId) ?? 0) + 1)
+    return data.pros
+      .filter((p) => agencies.has(p.supplierId) && p.cityId === loc.cityId && p.positionIds.includes(pos.id) && roster.get(p.id) !== "blocked" && (roster.get(p.id) === "favorite" || worked.has(p.id)))
+      .map((p) => {
+        const check = canWork(p, pos.id, date, loc.id)
+        return { pro: p, favorite: roster.get(p.id) === "favorite", worked: worked.get(p.id) ?? 0, reason: !check.ok ? check.reason : busy.has(p.id) ? "Booked elsewhere that day" : undefined }
+      })
+      .sort((a, b) => Number(!!a.reason) - Number(!!b.reason) || Number(b.favorite) - Number(a.favorite) || b.worked - a.worked || b.pro.rating - a.pro.rating)
+      .slice(0, 12)
+  })()
+  const toggle = (id: string) => set("proIds", draft.proIds.includes(id) ? draft.proIds.filter((x) => x !== id) : draft.proIds.length < draft.headcount ? [...draft.proIds, id] : draft.proIds)
+  const rest = draft.headcount - draft.proIds.length
+  return (
+    <div className="flex flex-col gap-2">
+      {candidates.length ? (
+        <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-lg border border-border scrollbar-thin">
+          {candidates.map(({ pro, favorite, worked, reason }) => {
+            const on = draft.proIds.includes(pro.id)
+            return (
+              <li key={pro.id}>
+                <button
+                  type="button"
+                  disabled={!!reason || (!on && draft.proIds.length >= draft.headcount)}
+                  onClick={() => toggle(pro.id)}
+                  aria-pressed={on}
+                  className={cn("flex w-full items-center gap-3 px-4 py-2.5 text-left disabled:cursor-not-allowed disabled:opacity-60", on ? "bg-primary-faded/60" : "hover:bg-hover")}
+                >
+                  <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-md border", on ? "border-primary bg-primary text-primary-foreground" : "border-border-strong")}>
+                    {on && <Check className="size-3" />}
+                  </span>
+                  <ProAvatar pro={pro} size="sm" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex items-center gap-1 truncate text-body-3 font-semibold">
+                      {pro.firstName} {pro.lastName}
+                      {favorite && <Heart className="size-3 fill-critical text-critical" />}
+                    </span>
+                    <span className="flex items-center gap-1 truncate text-caption-1 text-faded">
+                      <SupplierLogo supplierId={pro.supplierId} size="xs" /> {pro.rating ? pro.rating.toFixed(2) : "New"} · {worked ? `${worked} shifts here` : "Favorite"}
+                    </span>
+                  </span>
+                  {reason ? (
+                    <StatusBadge tone={/expired|missing|pending/i.test(reason) ? "critical" : "neutral"} size="sm">
+                      {reason}
+                    </StatusBadge>
+                  ) : (
+                    <StatusBadge tone="positive" size="sm">
+                      Cleared
+                    </StatusBadge>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className="rounded-lg border border-border px-4 py-3 text-body-3 text-faded">No Favorites or past {pos.name}s at {loc.name} yet. Favorite a Pro from their profile after a shift.</p>
+      )}
+      <p className="text-caption-1 text-faded">
+        {draft.proIds.length
+          ? `Iris books ${draft.proIds.length === 1 ? "them" : `these ${draft.proIds.length}`} first if they're still cleared and free, and tells their agencies. ${rest ? `The other ${rest} ${rest === 1 ? "spot goes" : "spots go"} out in your release order:` : "Every spot is spoken for."}`
+          : `Pick up to ${draft.headcount}. The spots you don't fill this way go out in your release order.`}
+      </p>
     </div>
   )
 }

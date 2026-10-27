@@ -3,7 +3,7 @@ import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO,
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
-import { timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
+import { matchesClock, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
 import type { DemoData, Invoice, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
@@ -487,6 +487,24 @@ export interface Todo {
   cta: string
 }
 
+/**
+ * How well an agency keeps its roster ready to work, out of 100: mostly the share of active Pros cleared today, and
+ * partly the share with nothing about to lapse. Documents Iris couldn't verify are counted for Compass to follow up.
+ */
+export function complianceScore(data: DemoData, supplierId: string) {
+  const roster = data.pros.filter((p) => p.supplierId === supplierId)
+  const active = roster.filter((p) => p.status === "active")
+  const states = active.map((p) => readiness(p))
+  const cleared = states.filter((r) => r.ready).length
+  const expiring = states.filter((r) => r.ready && r.expiring.length > 0).length
+  const held = roster.filter((p) => Object.values(p.compliance).some((item) => item?.status === "pending" && item.verification?.result === "needs_review")).length
+  const n = active.length
+  const score = n ? Math.round(100 * (0.8 * (cleared / n) + 0.2 * (1 - expiring / n))) : 0
+  return { score, active: n, cleared, expiring, held, onboarding: roster.length - n }
+}
+
+export const scoreTone = (score: number) => (score >= 90 ? "positive" : score >= 75 ? "warning" : "critical")
+
 /** Issued and not yet paid. The buyer's to-do and the Invoices badge both count these. */
 export const isOutstanding = (i: Invoice) => !["paid", "in_process", "open"].includes(invoiceStatus(i))
 
@@ -574,12 +592,16 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
     const mine = data.timesheets.filter((t) => t.supplierId === scope.supplierId && withAgency(t))
     if (mine.length) {
       const rejected = mine.filter((t) => t.status === "rejected").length
+      const matched = mine.filter((t) => matchesClock(t, mine.filter((o) => o.proId === t.proId))).length
       todos.push({
         id: "timesheets",
         title: `${plural(mine.length, "timesheet")} to submit`,
-        description: rejected
-          ? `${rejected} rejected by the buyer with a reason. Fix and resubmit them so they can be invoiced.`
-          : "Drafts from finished shifts. Check the times and submit them for approval.",
+        description: [
+          rejected && `${rejected} rejected by the buyer with a reason. Fix and resubmit them so they can be invoiced.`,
+          matched ? `${matched} match Iris's clock and can go in one click.` : !rejected && "Drafts from finished shifts. Check the times and submit them for approval.",
+        ]
+          .filter(Boolean)
+          .join(" "),
         count: mine.length,
         href: "/timesheets",
         tone: rejected ? "critical" : "warning",

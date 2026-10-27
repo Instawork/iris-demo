@@ -18,7 +18,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { readiness, summaryOf } from "@/lib/compliance"
 import { addDaysISO, daysFromToday, formatDateShort, todayISO } from "@/lib/dates"
 import { money, pct, plural } from "@/lib/format"
-import { formatTimeToFill, metricsFor, supplierScore } from "@/lib/metrics"
+import { complianceScore, formatTimeToFill, metricsFor, supplierScore } from "@/lib/metrics"
 import { BUYERS, POSITIONS, PROGRAM, SUPPLIERS, city, locationsFor, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -62,6 +62,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
   const cities = buyerId ? [...new Set(locationsFor(buyerId).map((l) => l.cityId))].filter((id) => sup.cityIds.includes(id)) : sup.cityIds
   const [cityId, setCityId] = useState(cities[0] ?? "")
   const m = metricsFor(data, sup.id, buyerId)
+  const roster = complianceScore(data, sup.id)
   const score = supplierScore(metricsFor(data, sup.id))
   const approved = buyerId ? (data.approvals[buyerId] ?? []).includes(sup.id) : false
   const approvedBy = BUYERS.filter((b) => (data.approvals[b.id] ?? []).includes(sup.id))
@@ -79,7 +80,11 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
     { label: "Fill rate", value: pct(m.fillRate), info: "Share of spots filled on shifts that already happened." },
     { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a Pro confirming." },
     { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed Pros who didn't show up." },
-    { label: "Compliance", value: pct(m.compliance), info: "Share of active Pros with every required document." },
+    {
+      label: "Compliance score",
+      value: roster.active ? String(roster.score) : "--",
+      info: `Out of 100. Most of it is the share of active Pros cleared to work today (${roster.cleared} of ${roster.active}); the rest is the share with no document expiring in the next 30 days (${roster.expiring} expiring)${roster.held ? `. ${plural(roster.held, "document")} held for Compass` : ""}.`,
+    },
   ]
 
   return (

@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
+  ArrowRightLeft,
   Ban,
   CalendarX2,
   Coins,
@@ -31,6 +32,7 @@ import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { ProSheet } from "@/components/pros/pro-sheet"
 import { AssignProsDialog } from "@/components/shifts/assign-pros-dialog"
+import { MoveDialog } from "@/components/shifts/move-dialog"
 import { ApprovalCard, ReleaseCard } from "@/components/shifts/order-status"
 import { TimesheetStatusBadge } from "@/components/timesheets/timesheet-bits"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -55,7 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatClock, formatDateLong, formatInterval, formatTimestamp, timeAgo } from "@/lib/dates"
+import { formatClock, formatClockShort, formatDateLong, formatInterval, formatTimestamp, spanMinutes, timeAgo } from "@/lib/dates"
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
 import { buyer, city, location, position, supplier } from "@/lib/reference"
@@ -96,6 +98,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [headcountOpen, setHeadcountOpen] = useState(false)
   const [tipsOpen, setTipsOpen] = useState(false)
+  const [moving, setMoving] = useState<string>()
 
   const pos = position(group.positionId)
   const loc = location(group.locationId)
@@ -103,7 +106,9 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const supplierReleases =
     group.supplierReleases ??
     (group.approval && group.approval.status !== "approved"
-      ? notifiedSuppliers(data, group.buyerId, loc.cityId, group.positionId).map((n) => ({ supplierId: n.card.supplierId, releasedAt: "" }))
+      ? notifiedSuppliers(data, group.buyerId, loc.cityId, group.positionId)
+          .filter((n) => !group.dispatch?.supplierId || n.card.supplierId === group.dispatch.supplierId)
+          .map((n) => ({ supplierId: n.card.supplierId, releasedAt: "" }))
       : group.supplierIds.map((supplierId) => ({ supplierId, releasedAt: group.createdAt })))
   const phase = groupPhase(group)
   const filled = filledCount(group)
@@ -118,7 +123,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
         slot,
         pro: slot.proId ? data.pros.find((p) => p.id === slot.proId && (ws.kind !== "supplier" || p.supplierId === ws.supplierId)) : undefined,
         otherSupplier: ws.kind === "supplier" && slot.proId ? data.pros.find((p) => p.id === slot.proId && p.supplierId !== ws.supplierId)?.supplierId : undefined,
-        ts: slot.proId ? data.timesheets.find((t) => t.groupId === group.id && t.proId === slot.proId) : undefined,
+        ...sheetsOf(data.timesheets, group, slot.id, slot.proId),
         roster: slot.proId && ws.buyerId ? data.roster.find((r) => r.buyerId === ws.buyerId && r.proId === slot.proId) : undefined,
       })),
     [group, data.pros, data.timesheets, data.roster, ws.buyerId, ws.kind, ws.supplierId],
@@ -311,7 +316,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {staffed.map(({ slot, pro, ts, roster }) => (
+                  {staffed.map(({ slot, pro, ts, shown, parts, roster }) => (
                     <motion.tr
                       key={slot.id}
                       layout="position"
@@ -330,17 +335,24 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                               <span className="inline-flex items-center gap-1 text-caption-1 text-faded">
                                 <Star className="size-3 fill-warning text-warning" /> {pro.rating ? pro.rating.toFixed(2) : "New"} · {isSupplier ? pro.code : supplier(pro.supplierId).shortName}
                               </span>
+                              {slot.moves?.length ? (
+                                <Tip content={slot.moves.map((m) => `${position(m.positionId).name} from ${formatClockShort(m.at)} at ${money(m.billRate)}/hr, by ${m.by}${m.note ? `: ${m.note}` : ""}`).join(". ")}>
+                                  <span className="inline-flex items-center gap-1 text-caption-1 font-medium text-primary">
+                                    <ArrowRightLeft className="size-3" /> {position(slot.moves.at(-1)!.positionId).name} from {formatClockShort(slot.moves.at(-1)!.at)}
+                                  </span>
+                                </Tip>
+                              ) : null}
                             </span>
                           </button>
                         )}
                       </td>
                       {timed && (
                         <>
-                          <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockIn) : <span className="text-subtle">--</span>}</td>
-                          <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockOut) : <span className="text-subtle">--</span>}</td>
-                          <td className="px-3 py-2.5 tabular">{ts ? ts.breakMins : <span className="text-subtle">--</span>}</td>
-                          <td className="px-3 py-2.5 text-right font-semibold tabular">{ts ? ts.hours.toFixed(2) : <span className="font-normal text-subtle">--</span>}</td>
-                          {hasTips && <td className="px-3 py-2.5 text-right tabular">{ts?.tips ? money(ts.tips) : <span className="text-subtle">--</span>}</td>}
+                          <td className="px-3 py-2.5 tabular">{shown ? formatClock(shown.clockIn) : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 tabular">{shown ? formatClock(shown.clockOut) : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 tabular">{shown ? shown.breakMins : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold tabular">{shown ? shown.hours.toFixed(2) : <span className="font-normal text-subtle">--</span>}</td>
+                          {hasTips && <td className="px-3 py-2.5 text-right tabular">{shown?.tips ? money(shown.tips) : <span className="text-subtle">--</span>}</td>}
                         </>
                       )}
                       <td className="px-3 py-2.5">
@@ -389,6 +401,14 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                                   </DropdownMenuItem>
                                 </>
                               )}
+                              {(isBuyer || ws.kind === "compass") &&
+                                (phase === "in_progress" || phase === "past") &&
+                                slot.status !== "no_show" &&
+                                !parts.some((t) => t.status === "approved" || t.status === "invoiced") && (
+                                  <DropdownMenuItem onSelect={() => setMoving(slot.id)}>
+                                    <ArrowRightLeft /> Move to another role
+                                  </DropdownMenuItem>
+                                )}
                               {(phase === "in_progress" || phase === "past") && slot.status !== "no_show" && !ts?.invoiceId && ws.kind !== "compass" && (
                                 <DropdownMenuItem
                                   onSelect={() => {
@@ -541,6 +561,9 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
       </div>
 
       <ProSheet proId={proId} onOpenChange={(o) => !o && setProId(undefined)} />
+      {moving && group.slots.some((s) => s.id === moving) && (
+        <MoveDialog group={group} slot={group.slots.find((s) => s.id === moving)!} open onOpenChange={(o) => !o && setMoving(undefined)} />
+      )}
       {isSupplier && <AssignProsDialog group={group} open={assignOpen} onOpenChange={setAssignOpen} />}
 
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -787,4 +810,16 @@ function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], 
     if (inv) items.push({ at: new Date(`${inv.issuedOn}T07:00:00`).toISOString(), text: `Billed on invoice ${inv.number}`, dot: "bg-border-strong" })
   }
   return items.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** A worker's timesheets on a shift, in order, and the times they add up to when a role change split them. */
+function sheetsOf(timesheets: Timesheet[], group: ShiftGroup, slotId: string, proId?: string) {
+  if (!proId) return { ts: undefined, shown: undefined, parts: [] as Timesheet[] }
+  const parts = timesheets
+    .filter((t) => t.groupId === group.id && t.slotId === slotId && t.status !== "removed")
+    .sort((a, b) => spanMinutes(group.start, a.scheduledStart) - spanMinutes(group.start, b.scheduledStart))
+  const ts = parts[0]
+  if (parts.length < 2) return { ts, shown: ts, parts }
+  const sum = (pick: (t: Timesheet) => number) => round2(parts.reduce((total, t) => total + pick(t), 0))
+  return { ts, shown: { ...ts, clockOut: parts[parts.length - 1].clockOut, breakMins: sum((t) => t.breakMins), hours: sum((t) => t.hours), tips: sum((t) => t.tips) }, parts }
 }

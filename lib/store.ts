@@ -50,6 +50,10 @@ interface StoreState {
   assignPros: (groupId: string, proIds: string[]) => Promise<number>
   releasePro: (groupId: string, slotId: string) => Promise<void>
   markNoShow: (groupId: string, slotId: string) => Promise<void>
+  /** Moves a worker to another role from a time during the shift. Resolves to the new role's bill rate. */
+  moveToRole: (input: { groupId: string; slotId: string; positionId: string; at: string; note?: string }) => Promise<{ positionId: string; billRate: number; split: boolean } | undefined>
+  /** Turns automatic submission on or off for an agency. Resolves to how many waiting drafts went in. */
+  setAutoSubmit: (supplierId: string, enabled: boolean) => Promise<number | undefined>
   setRoster: (buyerId: string, proIds: string[], status: RosterStatus | null) => Promise<void>
   /** Approves pending hours onto this week's open invoice. A reason approves flagged ones as billed. Hours from a closed week are invoiced right away. */
   approveTimesheets: (ids: string[], reason?: string) => Promise<ApproveResult | undefined>
@@ -269,6 +273,8 @@ export const useStore = create<StoreState>()((set, get) => {
     assignPros: async (groupId, proIds) => (await send("assignPros", { groupId, proIds })) ?? 0,
     releasePro: async (groupId, slotId) => void (await send("releasePro", { groupId, slotId })),
     markNoShow: async (groupId, slotId) => void (await send("markNoShow", { groupId, slotId })),
+    moveToRole: async (input) => send("moveToRole", input),
+    setAutoSubmit: async (supplierId, enabled) => send("setAutoSubmit", { supplierId, enabled }),
     setRoster: async (buyerId, proIds, status) => void (await send("setRoster", { buyerId, proIds, status })),
     approveTimesheets: async (ids, reason) => send("approveTimesheets", { ids, reason }),
     correctTimesheet: async (id, times, reason) => send("correctTimesheet", { id, ...times, reason }),

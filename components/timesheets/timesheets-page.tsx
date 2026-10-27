@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Check, Clock, Download, Send, ShieldCheck, X } from "lucide-react"
+import { ArrowRightLeft, Check, Clock, Download, Send, ShieldCheck, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
+import { InfoTip } from "@/components/common/info-tip"
 import { MultiSelectFilter, ResetFilters, SearchInput, SelectFilter } from "@/components/common/filters"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
@@ -16,6 +17,7 @@ import { ProAvatar } from "@/components/common/pro-avatar"
 import { ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { TimesheetSheet } from "@/components/timesheets/timesheet-sheet"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -26,7 +28,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { STATUS_LABEL, timesheetAmount, withAgency } from "@/lib/timesheets"
+import { STATUS_LABEL, matchesClock, timesheetAmount, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -66,7 +68,7 @@ const DESCRIPTION: Record<PersonaKind, string> = {
   buyer:
     "Every worker's hours, checked against Iris's clock before you approve. Approve the clean ones together; for the rest, Iris proposes a fix. The work week runs Saturday to Friday, and approved hours are invoiced when it closes.",
   supplier:
-    "Timesheets from your finished shifts, prefilled from the clock. Check the times and submit them. The buyer sees Iris's clock beside what you bill.",
+    "Iris drafts a timesheet for every finished shift from its own clock, so there's nothing to upload. Submit the ones that match in one click, or let them go on their own and handle only the exceptions.",
   compass: "Every timesheet in the program, with Iris's clock beside what each agency billed and the buyer's decision.",
 }
 
@@ -147,6 +149,15 @@ export function TimesheetsPage() {
   }
   const listed = filtered.filter(matches[quick])
   const rows = quick === "needs_approval" ? [...listed].sort(newestFirst).sort((a, b) => Number(isFlagged(b)) - Number(isFlagged(a))) : listed
+  const matching = kind === "supplier" ? filtered.filter((t) => matchesClock(t, filtered.filter((o) => o.proId === t.proId))) : []
+  const autoOn = !!ws.supplierId && !!data.settings?.autoSubmit?.includes(ws.supplierId)
+  const toggleAuto = async (on: boolean) => {
+    if (!ws.supplierId) return
+    const n = await useStore.getState().setAutoSubmit(ws.supplierId, on)
+    if (n === undefined) return
+    if (on) toast.success("Clock-matched timesheets now go in on their own", { description: n ? `${plural(n, "timesheet")} waiting went in just now. Only the exceptions stay with you.` : "Only the exceptions will wait for you." })
+    else toast("Timesheets wait for you again", { description: "Iris still drafts them from the clock." })
+  }
   const clean = rows.filter((t) => t.status === "pending_approval" && !isFlagged(t))
   const selectable = (t: Timesheet) =>
     kind === "buyer" ? t.status === "pending_approval" && !isFlagged(t) : kind === "supplier" ? withAgency(t) && !!t.clockIn && !!t.clockOut : false
@@ -226,6 +237,12 @@ export function TimesheetsPage() {
           <span className="text-caption-1 text-faded">
             {formatDay(t.date)} · {shortRange(t.scheduledStart, t.scheduledEnd)}
           </span>
+          {(t.movedFrom || t.movedTo) && (
+            <span className="inline-flex items-center gap-1 text-caption-1 font-medium text-primary">
+              <ArrowRightLeft className="size-3 shrink-0" />
+              <span className="truncate">{t.movedFrom ? `Moved from ${position(t.movedFrom.positionId).name}` : `Then ${position(t.movedTo!.positionId).name}`}</span>
+            </span>
+          )}
         </span>
       ),
     },
@@ -327,6 +344,18 @@ export function TimesheetsPage() {
         description={DESCRIPTION[kind]}
         actions={
           <>
+            {kind === "supplier" && (
+              <label className="flex items-center gap-2 text-body-3 text-faded">
+                <Switch checked={autoOn} onCheckedChange={toggleAuto} />
+                Send clock-matched hours automatically
+                <InfoTip>Drafts billed exactly as Iris&apos;s clock shows go for approval on their own. Missing punches and hours that differ from the clock still wait for you.</InfoTip>
+              </label>
+            )}
+            {kind === "supplier" && matching.length > 0 && (
+              <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={busy} onClick={() => submitMany(matching.map((t) => t.id))}>
+                <Send className="size-4" /> Submit {plural(matching.length, "timesheet")} that match the clock
+              </Button>
+            )}
             {kind === "buyer" && quick === "needs_approval" && clean.length > 0 && (
               <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={busy} onClick={() => approveMany(clean.map((t) => t.id))} data-tour="approve-clean">
                 <Check className="size-4" /> Approve {plural(clean.length, "clean timesheet")}

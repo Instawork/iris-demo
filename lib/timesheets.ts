@@ -1,6 +1,6 @@
 import { minutesOf, paidHours, spanMinutes, weekEndISO, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
-import type { BilledTimes, ClockRecord, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
+import type { BilledTimes, ClockRecord, RoleMove, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
 
 /**
  * Timesheet rules shared by the server and the browser: paid hours, the four-hour minimum, overtime, and the checks
@@ -53,6 +53,18 @@ export function hoursAboveClock(t: Pick<Timesheet, "hours" | "clock" | "sentHome
   return over >= 0.25 ? over : 0
 }
 
+/** A draft billed exactly as Iris's clock shows, with nothing for the agency to fix: it can go for approval as it is. */
+export const matchesClock = (t: Timesheet, others: Timesheet[] = []) =>
+  t.status === "draft" &&
+  !!t.clockIn &&
+  !!t.clockOut &&
+  !!t.clock?.in &&
+  !!t.clock.out &&
+  t.clockIn === t.clock.in &&
+  t.clockOut === t.clock.out &&
+  t.breakMins === t.clock.breakMins &&
+  timesheetChecks(t, others).length === 0
+
 /** The agency has to act: complete and submit a draft, or fix a rejected one. */
 export const withAgency = (t: Timesheet) => t.status === "draft" || t.status === "rejected"
 
@@ -67,6 +79,73 @@ export const change = (at: string, by: string, action: TimesheetAction, extra?: 
   action,
   ...extra,
 })
+
+/* ------------------------------ Role changes ------------------------------ */
+
+/** Strictly after `from` and before `to`, across midnight if the shift runs past it. */
+const within = (from: string | undefined, to: string | undefined, at: string) => !!from && !!to && spanMinutes(from, at) > 0 && spanMinutes(from, at) < spanMinutes(from, to)
+
+/** Whether a time falls inside a shift's scheduled hours. */
+export const duringShift = (start: string, end: string, at: string) => within(start, end, at)
+
+/** The part of a shift, split by role or not, that was being worked at a time. */
+export const partAt = (parts: Timesheet[], at: string) =>
+  parts.find((t) => {
+    const [from, to] = splitSpan(t)
+    return within(from, to, at)
+  })
+
+/** Where a split can fall: inside the billed times, else the clock, else the schedule. */
+export function splitSpan(t: Timesheet): [string, string] {
+  if (t.clockIn && t.clockOut) return [t.clockIn, t.clockOut]
+  if (t.clock?.in && t.clock.out) return [t.clock.in, t.clock.out]
+  return [t.scheduledStart, t.scheduledEnd]
+}
+
+/**
+ * Splits a timesheet where the worker moved to another role: this part ends at the move, and a new timesheet for the
+ * new role starts there at that role's rate. The clock and the schedule split at the same minute, so each part is
+ * checked against its own share of them. The unpaid break stays with the longer part.
+ */
+export function splitForMove(t: Timesheet, move: RoleMove, newId: string, now: string, names: { from: string; to: string }): [Timesheet, Timesheet] | undefined {
+  const [from, to] = splitSpan(t)
+  if (!within(from, to, move.at)) return undefined
+  const billed = !!(t.clockIn && t.clockOut)
+  const clockSplits = !!t.clock && within(t.clock.in, t.clock.out, move.at)
+  const scheduleSplits = within(t.scheduledStart, t.scheduledEnd, move.at)
+  const breakFirst = spanMinutes(from, move.at) >= spanMinutes(move.at, to)
+  const when = fmt(move.at)
+
+  const firstBilled = billed ? { clockIn: t.clockIn, clockOut: move.at, breakMins: breakFirst ? t.breakMins : 0 } : { breakMins: t.breakMins }
+  const first: Timesheet = {
+    ...t,
+    ...firstBilled,
+    scheduledEnd: scheduleSplits ? move.at : t.scheduledEnd,
+    scheduledBreakMins: breakFirst ? t.scheduledBreakMins : 0,
+    clock: t.clock && clockSplits ? { ...t.clock, out: move.at, breakMins: breakFirst ? t.clock.breakMins : 0 } : t.clock,
+    sentHome: undefined,
+    hours: hoursFor(firstBilled.clockIn, firstBilled.clockOut, firstBilled.breakMins),
+    movedTo: { timesheetId: newId, positionId: move.positionId, at: move.at },
+    history: [...t.history, change(now, move.by, "moved", { note: `${names.to} from ${when}${move.note ? `. ${move.note}` : ""}` })],
+  }
+  const secondBilled = billed ? { clockIn: move.at, clockOut: t.clockOut, breakMins: breakFirst ? 0 : t.breakMins } : { breakMins: breakFirst ? 0 : t.breakMins }
+  const second: Timesheet = {
+    ...t,
+    ...secondBilled,
+    id: newId,
+    positionId: move.positionId,
+    billRate: move.billRate,
+    scheduledStart: scheduleSplits ? move.at : t.scheduledStart,
+    scheduledBreakMins: breakFirst ? 0 : t.scheduledBreakMins,
+    clock: t.clock && clockSplits ? { ...t.clock, in: move.at, breakMins: breakFirst ? 0 : t.clock.breakMins } : t.clock,
+    hours: hoursFor(secondBilled.clockIn, secondBilled.clockOut, secondBilled.breakMins, t.sentHome),
+    otHours: 0,
+    tips: 0,
+    movedFrom: { timesheetId: t.id, positionId: t.positionId, at: move.at },
+    history: [change(now, move.by, "moved", { note: `Moved from ${names.from} at ${when}${move.note ? `. ${move.note}` : ""}` })],
+  }
+  return [first, second]
+}
 
 /* --------------------------------- Checks --------------------------------- */
 

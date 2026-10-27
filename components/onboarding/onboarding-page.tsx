@@ -14,9 +14,9 @@ import { AgencyDialog } from "@/components/onboarding/agency-dialog"
 import { UnitDialog } from "@/components/onboarding/unit-dialog"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { readiness } from "@/lib/compliance"
 import { daysFromToday, formatDateShort } from "@/lib/dates"
 import { pct, plural } from "@/lib/format"
+import { complianceScore, scoreTone } from "@/lib/metrics"
 import { BUYERS, LOCATIONS, SUPPLIERS, buyer, city, position, requirementLabel } from "@/lib/reference"
 import type { DemoData, Location, Supplier } from "@/lib/types"
 
@@ -212,14 +212,37 @@ export function AgenciesPage() {
       id: "pros",
       header: "Pros",
       align: "right",
+      sortValue: (s) => complianceScore(data, s.id).active,
       cell: (s) => {
-        const pros = data.pros.filter((p) => p.supplierId === s.id && p.status === "active")
-        const cleared = pros.filter((p) => readiness(p).ready).length
+        const c = complianceScore(data, s.id)
         return (
           <span className="flex flex-col items-end">
-            <span className="font-medium tabular">{pros.length}</span>
-            <span className="text-caption-1 text-faded tabular">{pros.length ? `${pct(cleared / pros.length)} cleared` : "None yet"}</span>
+            <span className="font-medium tabular">{c.active}</span>
+            <span className="text-caption-1 text-faded tabular">{c.onboarding ? `${c.onboarding} onboarding` : c.active ? "active" : "None yet"}</span>
           </span>
+        )
+      },
+    },
+    {
+      id: "compliance",
+      header: "Compliance",
+      info: "Out of 100. Most of it is the share of active Pros cleared to work today; the rest is the share with no document expiring in the next 30 days.",
+      align: "right",
+      sortValue: (s) => complianceScore(data, s.id).score,
+      cell: (s) => {
+        const c = complianceScore(data, s.id)
+        if (!c.active) return <span className="text-faded">No Pros yet</span>
+        return (
+          <Tip content={`${c.cleared} of ${c.active} cleared today · ${plural(c.expiring, "Pro")} with a document expiring within 30 days${c.held ? ` · ${plural(c.held, "document")} held for Compass` : ""}`}>
+            <span className="flex flex-col items-end">
+              <StatusBadge tone={scoreTone(c.score)} size="sm">
+                {c.score}
+              </StatusBadge>
+              <span className="text-caption-1 text-faded tabular">
+                {pct(c.cleared / c.active)} cleared{c.expiring ? ` · ${c.expiring} expiring` : ""}
+              </span>
+            </span>
+          </Tip>
         )
       },
     },

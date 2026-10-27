@@ -277,6 +277,27 @@ export interface Slot {
   punches?: Punches
   /** The buyer sent the worker home early, so the four-hour minimum applies. */
   sentHome?: boolean
+  /** Roles the worker moved to partway through the shift, in order. */
+  moves?: RoleMove[]
+}
+
+/** A worker moved to another role during a shift, billed at that role's rate from then on. */
+export interface RoleMove {
+  /** Wall-clock time the new role started. */
+  at: string
+  fromPositionId: string
+  positionId: string
+  billRate: number
+  by: string
+  recordedAt: string
+  note?: string
+}
+
+/** One side of a timesheet split where the worker changed roles. */
+export interface RoleLink {
+  timesheetId: string
+  positionId: string
+  at: string
 }
 
 export interface Punches {
@@ -319,6 +340,8 @@ export interface ShiftGroup {
   liveFill?: { startedAt: string }
   /** Set when the order went over the unit's budget and needed an approver. */
   approval?: ApprovalRequest
+  /** Who the buyer sent it to when not everyone in the release order: one agency, and named Pros booked first. */
+  dispatch?: { supplierId?: string; proIds?: string[] }
 }
 
 /** Fieldglass's time sheet statuses, which Compass's approvers already know. */
@@ -339,7 +362,7 @@ export interface BilledTimes {
   hours: number
 }
 
-export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "approved" | "rejected" | "removed" | "invoiced" | "credited"
+export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "moved" | "approved" | "rejected" | "removed" | "invoiced" | "credited"
 
 export interface TimesheetChange {
   at: string
@@ -391,6 +414,10 @@ export interface Timesheet {
   rejection?: TimesheetRejection
   history: TimesheetChange[]
   invoiceId?: string
+  /** The role worked before this part of the shift, when the worker moved partway through. */
+  movedFrom?: RoleLink
+  /** The role the worker moved to after this part. */
+  movedTo?: RoleLink
 }
 
 /** "open" is this week's invoice: Iris adds approved hours to it until the week closes, then issues it. */
@@ -638,6 +665,10 @@ export interface DemoData {
   reports: SavedReport[]
   directory: Directory
   /** Presenter controls for the demo tenant. */
-  settings?: { pausedAgencies?: string[] }
+  settings?: {
+    pausedAgencies?: string[]
+    /** Agencies whose drafts go for approval on their own when they match Iris's clock. */
+    autoSubmit?: string[]
+  }
   counters: Counters
 }
