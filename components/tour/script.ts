@@ -7,12 +7,12 @@ import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
-import { billingFindings, billingToReview, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
+import { billingFindings, billingToReview, complianceScore, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
-import { city, location, position, supplier } from "@/lib/reference"
+import { SUPPLIERS, city, location, position, supplier } from "@/lib/reference"
 import { eligiblePros, useStore } from "@/lib/store"
-import { clockHours, timesheetChecks } from "@/lib/timesheets"
-import type { DemoData, Pro, RequirementId } from "@/lib/types"
+import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
+import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { reportHref } from "@/lib/reports"
 import { CHECKS } from "@/lib/verification"
 
@@ -98,7 +98,7 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Shift creation",
     short: "Shifts",
     icon: CalendarPlus,
-    blurb: "Book in a sentence. Iris prices it, releases it to agencies in order, and routes over-budget orders for approval.",
+    blurb: "Book in a sentence. Iris prices it, releases it to agencies in order, and routes over-budget orders for approval. Or send it to one agency, or to Pros you name.",
     fieldglass: "Job Posting",
   },
   compliance: {
@@ -106,7 +106,7 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Assignment and compliance",
     short: "Compliance",
     icon: ShieldCheck,
-    blurb: "Agencies can only assign Pros who are cleared. Documents are attested, checked with the issuer, and escalated when they fail.",
+    blurb: "Agencies can only assign Pros who are cleared. Documents are attested, checked with the issuer, and escalated when they fail. Every roster carries a score.",
     fieldglass: "Job Seeker and Attestations",
   },
   timesheets: {
@@ -114,7 +114,7 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Timesheets",
     short: "Timesheets",
     icon: Clock,
-    blurb: "Hours checked against Iris's clock, corrected in a click, and sent back when an invoice bills them anyway.",
+    blurb: "Agencies stop uploading hours Iris already has. Buyers approve at the clock, split a shift by role, and send back what an invoice bills anyway.",
     fieldglass: "Timesheet",
   },
   reporting: {
@@ -130,9 +130,9 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
 /** What the last card lists, one line per part. */
 export const RECAP: { chapter: ChapterId; label: string }[] = [
   { chapter: "onboarding", label: "Added Soldier Field and Northwind Event Staffing, and audited Harbor's rate card" },
-  { chapter: "shifts", label: "Booked a shift in a sentence and routed an over-budget order to its approver" },
-  { chapter: "compliance", label: "Assigned a Crewline Pro, verified a document with its issuer, and reviewed one that failed" },
-  { chapter: "timesheets", label: "Approved hours at the clock and sent back hours an invoice billed above it" },
+  { chapter: "shifts", label: "Booked a shift in a sentence, routed an over-budget order to its approver, and requested Pros by name" },
+  { chapter: "compliance", label: "Assigned a Crewline Pro, verified a document with its issuer, reviewed one that failed, and scored every roster" },
+  { chapter: "timesheets", label: "Let Harbor's clock-matched hours go in on their own, split a shift by role, approved at the clock, and sent back hours an invoice billed above it" },
   { chapter: "reporting", label: "Turned a question into a saved report emailed every Monday" },
 ]
 
@@ -141,6 +141,7 @@ const DANA = "ws-levy-dm"
 const COMPASS = "ws-compass"
 const CREWLINE = "ws-crewline"
 const METRO = "ws-metro"
+const HARBOR = "ws-harbor"
 
 const one = (selector: string) => document.querySelector(selector)
 const last = (selector: string) => {
@@ -246,10 +247,16 @@ const agencyStage = (id: string, stage: string, title: string, body: string, act
 const ordersSince = (ctx: TourContext) => ctx.data.groups.filter((g) => g.buyerId === "levy-chi" && serial(g.id) >= ctx.base.sg).sort((a, b) => serial(b.id) - serial(a.id))
 
 /** The shift the player booked in the chat. */
-const booked = (ctx: TourContext) => ordersSince(ctx).find((g) => !g.approval)
+const booked = (ctx: TourContext) => ordersSince(ctx).find((g) => !g.approval && !g.dispatch)
 
 /** The order the player sent over budget. */
-const bigOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.approval)
+const bigOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.approval && !g.dispatch)
+
+/** The order the player posted from the form, asking for Pros by name. */
+const requestedOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.dispatch?.proIds?.length)
+
+const DISPATCH = '[data-tour="dispatch"]'
+const prosPicked = () => document.querySelectorAll(`${DISPATCH} li button[aria-pressed="true"]`).length
 
 const hasDraft = (ctx: TourContext, label?: string) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift" && (!label || a.label === label)))
 
@@ -329,7 +336,50 @@ const submitVerify = () => {
   later(() => click('[data-tour="verify-submit"]'), 1600)
 }
 
+/** Agencies with Pros on the program, best roster first. */
+const scored = (data: DemoData) =>
+  SUPPLIERS.map((s) => ({ s, c: complianceScore(data, s.id) }))
+    .filter((x) => x.c.active > 0)
+    .sort((a, b) => b.c.score - a.c.score)
+
 /* -------------------------------- Timesheets ------------------------------- */
+
+/** Harbor's timesheets still with Harbor, and the ones that match Iris's clock exactly. */
+const harborDrafts = (data: DemoData) => {
+  const mine = data.timesheets.filter((t) => t.supplierId === "harbor")
+  const waiting = mine.filter(withAgency)
+  return { waiting, matching: waiting.filter((t) => matchesClock(t, mine.filter((o) => o.proId === t.proId))) }
+}
+
+const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart)
+
+/**
+ * A clean Levy timesheet on the first page of Needs approval, for a Pro their agency also has another approved role and
+ * rate for. A concessions worker who could have gone to the suites as a barback if there is one.
+ */
+const movable = (data: DemoData) => {
+  const pending = data.timesheets.filter((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && !t.movedFrom && !t.movedTo)
+  const flaggedCount = pending.filter((t) => timesheetChecks(t).length).length
+  const page = pending
+    .filter((t) => !timesheetChecks(t).length)
+    .sort(newestFirst)
+    .slice(0, Math.max(0, 25 - flaggedCount))
+  const options = page.flatMap((t) => {
+    const pro = data.pros.find((p) => p.id === t.proId)
+    if (!pro) return []
+    const loc = location(t.locationId)
+    return data.rateCards
+      .filter((c) => c.supplierId === t.supplierId && c.cityId === loc.cityId && c.status === "active" && c.positionId !== t.positionId && canWork(pro, c.positionId, t.date, t.locationId).ok)
+      .map((card) => ({ t, pro, card }))
+  })
+  return options.find((o) => o.t.positionId === "concessions" && o.card.positionId === "barback") ?? options[0]
+}
+
+const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a")
+
+const tourSheet = (ctx: TourContext) => ctx.data.timesheets.find((t) => t.id === ctx.sheetId)
+
+const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.movedFrom && t.history.some((h) => h.action === "moved" && h.at >= ctx.base.at))
 
 const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv && i.status !== "open")
 
@@ -620,7 +670,7 @@ export const SCRIPT: TourItem[] = [
     line: "Booking takes a sentence. The program's rules apply on their own.",
     wsId: LEVY,
     href: "/",
-    shows: "Book a concert night at West Loop Arena, then send an order over the week's budget to its approver.",
+    shows: "Book a concert night at West Loop Arena, send an order over the week's budget to its approver, and ask for Pros by name.",
   },
   {
     kind: "step",
@@ -753,6 +803,88 @@ export const SCRIPT: TourItem[] = [
       return filled >= g.slots.length ? `All ${g.slots.length} spots filled` : `${filled} of ${g.slots.length} spots filled`
     },
     skip: () => undefined,
+  },
+  {
+    kind: "step",
+    id: "form-open",
+    chapter: "shifts",
+    wsId: LEVY,
+    path: /^\/shifts/,
+    href: (ctx) => {
+      const g = booked(ctx)
+      return g ? `/shifts/${g.id}` : "/shifts"
+    },
+    title: "Or say who gets it",
+    body: "The release order is the default, not the only way. From the New shift form an order can go to one agency only, or to Pros Levy already knows.",
+    action: "Click New shift",
+    targets: () => [one('[data-tour="book"]')],
+    placement: "bottom",
+    done: (ctx) => ctx.path === "/shifts/new",
+    skip: (_, api) => api.push("/shifts/new"),
+  },
+  {
+    kind: "step",
+    id: "form-review",
+    chapter: "shifts",
+    wsId: LEVY,
+    path: /^\/shifts\/new/,
+    href: () => "/shifts/new",
+    title: "Keep the defaults",
+    body: "Venue, role, date, times and headcount are filled in from Levy's usual order. The form can book several dates at once.",
+    action: "Click Review",
+    targets: () => [one('[data-tour="booking-review"]')],
+    placement: "top",
+    done: () => !!one(DISPATCH),
+    skip: () => click('[data-tour="booking-review"]'),
+  },
+  {
+    kind: "step",
+    id: "form-pros",
+    chapter: "shifts",
+    wsId: LEVY,
+    path: /^\/shifts\/new/,
+    href: () => "/shifts/new",
+    title: "Ask for Pros by name",
+    body: "Levy's Favorites and the Pros who've worked this venue in this role, each with Iris's check for the date. Iris books the ones still cleared and free and tells their agencies. The spots left over go out in the release order.",
+    action: "Click Specific Pros, then pick two",
+    targets: () => [one(DISPATCH)],
+    placement: "left",
+    done: () => !!one(`${DISPATCH} [role="tab"][data-value="pros"][aria-selected="true"]`) && prosPicked() >= 1,
+    status: () => (prosPicked() ? `${plural(prosPicked(), "Pro")} picked` : undefined),
+    back: "form-review",
+    skip: () => {
+      click(`${DISPATCH} [role="tab"][data-value="pros"]`)
+      const pick = (left: number) => {
+        if (left <= 0) return
+        const row = [...document.querySelectorAll<HTMLButtonElement>(`${DISPATCH} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
+        row?.click()
+        if (row) later(() => pick(left - 1), 200)
+      }
+      later(() => pick(2 - prosPicked()), 250)
+    },
+  },
+  {
+    kind: "step",
+    id: "form-post",
+    chapter: "shifts",
+    wsId: LEVY,
+    path: /^\/shifts\/new/,
+    href: () => "/shifts/new",
+    title: "Post it",
+    body: "The budget check and the release rule still apply. The Pros you named are placed first; nobody else sees those spots.",
+    action: () => `Click ${one('[data-tour="booking-post"]')?.textContent?.trim() || "Post"}`,
+    targets: () => [one('[data-tour="booking-post"]')],
+    placement: "top",
+    done: (ctx) => !!requestedOrder(ctx),
+    success: (ctx) => {
+      const g = requestedOrder(ctx)
+      if (g?.approval?.status === "pending") return "Sent for approval. Iris books them once it's approved"
+      const asked = new Set(g?.dispatch?.proIds ?? [])
+      const placed = g ? g.slots.filter((s) => !!s.proId && asked.has(s.proId)).length : 0
+      return placed ? `Booked ${plural(placed, "requested Pro")}` : "Posted"
+    },
+    back: "form-pros",
+    skip: () => click('[data-tour="booking-post"]'),
   },
   {
     kind: "chapter",
@@ -1060,7 +1192,7 @@ export const SCRIPT: TourItem[] = [
     line: "Compass reviews the exceptions, not every document.",
     wsId: COMPASS,
     href: "/",
-    shows: "Decide on the document Iris couldn't verify.",
+    shows: "Decide on the document Iris couldn't verify, then see every agency's roster scored.",
     again: true,
   },
   {
@@ -1100,8 +1232,87 @@ export const SCRIPT: TourItem[] = [
       if (ctx.proId && ctx.docId) void useStore.getState().reviewDocument(ctx.proId, ctx.docId, "accept")
     },
   },
+  {
+    kind: "step",
+    id: "scores-open",
+    chapter: "compliance",
+    wsId: COMPASS,
+    path: /^\/professionals/,
+    href: () => "/professionals",
+    title: "One score per roster",
+    body: "Decisions like that one add up to a number Compass can hold each agency to, instead of a stack of attestations.",
+    action: "Open Agencies in the menu",
+    targets: () => [one('nav a[href="/agencies"], aside a[href="/agencies"]')],
+    placement: "right",
+    done: (ctx) => ctx.path === "/agencies",
+    skip: (_, api) => api.push("/agencies"),
+  },
+  {
+    kind: "step",
+    id: "scores",
+    chapter: "compliance",
+    wsId: COMPASS,
+    path: /^\/agencies$/,
+    href: () => "/agencies",
+    title: "Compliance, scored",
+    body: (ctx) => {
+      const list = scored(ctx.data)
+      const lead = "Each agency's roster out of 100: mostly the share of its Pros cleared to work today, the rest the share with nothing expiring in the next 30 days."
+      if (list.length < 2) return lead
+      const top = list[0]
+      const low = list[list.length - 1]
+      const off = low.c.active - low.c.cleared
+      return `${lead} ${top.s.shortName} leads at ${top.c.score}. ${low.s.shortName} trails at ${low.c.score}${off ? `, with ${plural(off, "Pro")} kept off shifts` : ""}. Each agency's page shows the same score.`
+    },
+    targets: () => [one('[data-tour="agencies-table"]')],
+    placement: "top",
+    skip: () => undefined,
+  },
 
   /* ------------------------------ 4. Timesheets ------------------------------ */
+  {
+    kind: "chapter",
+    id: "chapter-agency-hours",
+    chapter: "timesheets",
+    title: "Timesheets",
+    line: "Agencies stop uploading hours Iris already has.",
+    wsId: HARBOR,
+    href: "/timesheets",
+    shows: "See the timesheets Iris drafted for Harbor from its clock, and let the ones that match go in on their own.",
+  },
+  {
+    kind: "step",
+    id: "agency-drafts",
+    chapter: "timesheets",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Already drafted",
+    body: (ctx) => {
+      const { waiting, matching } = harborDrafts(ctx.data)
+      const lead = "Harbor sends hours by CSV. Iris drafts a timesheet for every finished shift from its own clock, the worker's check-in at the venue, so there's nothing to upload."
+      return waiting.length ? `${lead} ${matching.length} of the ${plural(waiting.length, "timesheet")} waiting match the clock exactly; the rest have a missing punch or hours that differ.` : lead
+    },
+    targets: () => [one("table")],
+    placement: "top",
+    skip: () => undefined,
+  },
+  {
+    kind: "step",
+    id: "auto-submit",
+    chapter: "timesheets",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Let the clean ones go in",
+    body: "With this on, every timesheet that matches the clock goes to the buyer for approval without Harbor touching it, starting with the ones waiting now. Only the exceptions stay with Harbor.",
+    action: "Turn on Send clock-matched hours automatically",
+    targets: () => [one('[data-tour="auto-submit"]')],
+    placement: "bottom",
+    done: (ctx) => !!ctx.data.settings?.autoSubmit?.includes("harbor"),
+    success: () => "Clock-matched hours now go in on their own",
+    skip: () => void useStore.getState().setAutoSubmit("harbor", true),
+  },
   {
     kind: "chapter",
     id: "chapter-timesheets",
@@ -1110,7 +1321,7 @@ export const SCRIPT: TourItem[] = [
     line: "Every billed hour, lined up against Iris's own clock.",
     wsId: LEVY,
     href: "/",
-    shows: "Approve last night's hours, including the one billed above the clock.",
+    shows: "Approve last night's hours: correct the one billed above the clock, split one by role, and approve the rest.",
     again: true,
   },
   {
@@ -1125,7 +1336,7 @@ export const SCRIPT: TourItem[] = [
     action: "Open the to-do",
     targets: () => [one('[data-tour="todo-approve"]')],
     placement: "bottom",
-    done: (ctx) => ctx.path === "/timesheets",
+    done: (ctx) => ctx.path === "/timesheets" && !one('[data-tour="auto-submit"]'),
     skip: (_, api) => api.push("/timesheets"),
   },
   {
@@ -1164,6 +1375,88 @@ export const SCRIPT: TourItem[] = [
     success: () => "Corrected to the clock and approved",
     back: "review-hours",
     skip: () => click('[data-tour="accept-proposal"]'),
+  },
+  {
+    kind: "step",
+    id: "move-pick",
+    chapter: "timesheets",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Someone changed roles",
+    body: (ctx) => {
+      const m = movable(ctx.data)
+      if (!m) return "On an event floor people move mid-shift. Open a timesheet to split it by role."
+      const from = position(m.t.positionId).name.toLowerCase()
+      const to = position(m.card.positionId).name.toLowerCase()
+      return `${fullName(m.pro)} worked as ${article(from)} ${from} at ${location(m.t.locationId).name}. Say ${m.pro.firstName} moved to ${to} partway through: the hours after that bill at the ${to} rate.`
+    },
+    action: "Open the highlighted timesheet",
+    targets: (ctx) => {
+      const m = movable(ctx.data)
+      return [m && one(`tr[data-row-id="${m.t.id}"]`)]
+    },
+    placement: "bottom",
+    done: (ctx) => {
+      const t = ctx.data.timesheets.find((x) => x.id === ctx.params.get("ts"))
+      return !!t && t.status === "pending_approval" && !t.movedFrom && !t.movedTo && !timesheetChecks(t).length && !!one('[data-tour="split-role"]')
+    },
+    onDone: (ctx, api) => api.remember({ sheetId: ctx.params.get("ts") ?? undefined }),
+    skip: (ctx, api) => {
+      const m = movable(ctx.data)
+      if (!m) return
+      api.remember({ sheetId: m.t.id })
+      api.push(`/timesheets?ts=${m.t.id}`)
+    },
+  },
+  {
+    kind: "step",
+    id: "move-split",
+    chapter: "timesheets",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
+    title: "Split it by role",
+    body: "Without this, the whole shift bills at one rate, or an agency reissues the timesheet by hand.",
+    action: "Click Split by role",
+    targets: () => [one('[data-tour="split-role"]')],
+    placement: "top",
+    anchor: () => one('[data-tour="timesheet-sheet"]'),
+    done: () => !!one('[data-tour="move-dialog"]'),
+    back: "move-pick",
+    skip: () => click('[data-tour="split-role"]'),
+  },
+  {
+    kind: "step",
+    id: "move-confirm",
+    chapter: "timesheets",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
+    title: "Pick the role and the minute",
+    body: (ctx) => {
+      const t = tourSheet(ctx)
+      const sup = t ? supplier(t.supplierId).shortName : "the agency"
+      return `Only roles the Pro is cleared for, at ${sup}'s rate for each. The timesheet splits at that minute into two, each checked against its share of the clock, and the invoice bills each part at its own rate.`
+    },
+    action: "Pick a role, set when they switched, then Move",
+    targets: () => [one('[data-tour="move-dialog"]')],
+    placement: "right",
+    done: (ctx) => !!movedSince(ctx),
+    success: (ctx) => {
+      const t = movedSince(ctx)
+      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name} then ${position(t.positionId).name}` : "Split by role"
+    },
+    onDone: (_, api) => api.push("/timesheets"),
+    back: "move-split",
+    skip: (_, api) => {
+      const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-tour="move-dialog"] li button:not(:disabled)')]
+      ;(rows.find((b) => b.textContent?.includes("Barback")) ?? rows[0])?.click()
+      later(() => {
+        click('[data-tour="move-submit"]')
+        later(() => api.push("/timesheets"), 900)
+      }, 200)
+    },
   },
   {
     kind: "step",

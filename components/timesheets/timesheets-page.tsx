@@ -345,7 +345,7 @@ export function TimesheetsPage() {
         actions={
           <>
             {kind === "supplier" && (
-              <label className="flex items-center gap-2 text-body-3 text-faded">
+              <label className="flex items-center gap-2 text-body-3 text-faded" data-tour="auto-submit">
                 <Switch checked={autoOn} onCheckedChange={toggleAuto} />
                 Send clock-matched hours automatically
                 <InfoTip>Drafts billed exactly as Iris&apos;s clock shows go for approval on their own. Missing punches and hours that differ from the clock still wait for you.</InfoTip>

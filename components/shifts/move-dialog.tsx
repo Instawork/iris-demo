@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 export function MoveDialog({ group, slot, open, onOpenChange }: { group: ShiftGroup; slot: Slot; open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">{open && <MoveBody group={group} slot={slot} onDone={() => onOpenChange(false)} />}</DialogContent>
+      <DialogContent className="sm:max-w-lg" data-tour="move-dialog">{open && <MoveBody group={group} slot={slot} onDone={() => onOpenChange(false)} />}</DialogContent>
     </Dialog>
   )
 }
@@ -147,7 +147,7 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
         <Button variant="outline" onClick={onDone}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={!chosen || outside || busy}>
+        <Button onClick={submit} disabled={!chosen || outside || busy} data-tour="move-submit">
           Move {pro.firstName}
         </Button>
       </DialogFooter>

@@ -1270,7 +1270,8 @@ function resolveUpload(data: DemoData, ctx: CommandContext, input: { id: string;
 /* ---------------------------------- Demo ----------------------------------- */
 
 function resetDemo(data: DemoData): Outcome<null> {
-  return { data: { ...generateDemoData(), settings: data.settings }, result: null, replaced: true }
+  const paused = data.settings?.pausedAgencies
+  return { data: { ...generateDemoData(), settings: paused ? { pausedAgencies: paused } : undefined }, result: null, replaced: true }
 }
 
 /** Presenter switch: whether Iris staffs an agency's shifts when nobody is signed in as that agency. */

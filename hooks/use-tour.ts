@@ -19,6 +19,7 @@ export interface TourPicks {
   invoiceId?: string
   groupId?: string
   docId?: RequirementId
+  sheetId?: string
 }
 
 /** Where the guided tour stands. Kept for the tab's session, so a reload picks up the same step. */
@@ -48,7 +49,7 @@ export const useTour = create<TourState>()(
       base: { sg: 0, inv: 0, rep: 0, at: "" },
       done: [],
       skipped: [],
-      open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined }),
+      open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined, sheetId: undefined }),
       begin: (base) => set((s) => ({ base, index: s.index + 1, enteredAt: now() })),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>
@@ -65,7 +66,7 @@ export const useTour = create<TourState>()(
       name: "iris-tour-v2",
       storage: createJSONStorage(() => sessionStorage),
       skipHydration: true,
-      partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId }),
+      partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }),
     },
   ),
 )

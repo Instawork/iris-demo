@@ -227,13 +227,13 @@ export function BookingWizard() {
             {step === 0 ? (
               <Tip content={scheduleErrors.length ? scheduleErrors.join(" · ") : undefined}>
                 <span>
-                  <Button className="h-10 gap-1.5 rounded-lg px-5 font-semibold" disabled={scheduleErrors.length > 0} onClick={() => go(1)}>
+                  <Button className="h-10 gap-1.5 rounded-lg px-5 font-semibold" disabled={scheduleErrors.length > 0} onClick={() => go(1)} data-tour="booking-review">
                     Review <ArrowRight className="size-4" />
                   </Button>
                 </span>
               </Tip>
             ) : (
-              <Button className="h-11 gap-2 rounded-lg px-6 text-body-2 font-semibold shadow-raised" disabled={!quotes.length || submitting} onClick={submit}>
+              <Button className="h-11 gap-2 rounded-lg px-6 text-body-2 font-semibold shadow-raised" disabled={!quotes.length || submitting} onClick={submit} data-tour="booking-post">
                 <BadgeCheck className="size-5" /> {preview?.needsApproval ? "Send for approval" : `Post ${spots} spot${spots === 1 ? "" : "s"}`}
               </Button>
             )}
@@ -550,7 +550,7 @@ function ReviewStep({
         ))}
       </dl>
       {preview && <OrderChecks preview={preview} locationName={loc.name} />}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2" data-tour="dispatch">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
             Who gets it

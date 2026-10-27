@@ -68,6 +68,7 @@ function contextNow(): TourContext {
     invoiceId: tour.invoiceId,
     groupId: tour.groupId,
     docId: tour.docId,
+    sheetId: tour.sheetId,
   }
 }
 
@@ -657,7 +658,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
           The core workflows, end to end
         </h2>
         <p className="relative mt-2 text-[15px] leading-relaxed text-pretty text-muted-foreground">
-          In the order of the Fieldglass modules, played as the people who do the work: Compass, a buyer, its approver and two agencies. Each step says what&apos;s on screen and why it matters. Do it for me does any step.
+          In the order of the Fieldglass modules, played as the people who do the work: Compass, a buyer, its approver and three agencies. Each step says what&apos;s on screen and why it matters. Do it for me does any step.
         </p>
       </div>
       <ol className="flex flex-col gap-2 px-7">

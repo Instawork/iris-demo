@@ -388,7 +388,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               <Pencil className="size-4" /> Correct the times
             </Button>
             {slot && (
-              <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => setMoving(true)}>
+              <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => setMoving(true)} data-tour="split-role">
                 <ArrowRightLeft className="size-4" /> Split by role
               </Button>
             )}
