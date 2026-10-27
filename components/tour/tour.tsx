@@ -89,6 +89,18 @@ const topModal = () => {
   return open[open.length - 1] ?? null
 }
 
+/** Resolves once the browser is on this page, or after a few seconds if the navigation never lands. */
+const arrivedAt = (href: string) =>
+  new Promise<void>((resolve) => {
+    const target = new URL(href, window.location.origin).pathname
+    const started = performance.now()
+    const check = () => {
+      if (window.location.pathname === target || performance.now() - started > 4000) resolve()
+      else window.setTimeout(check, 50)
+    }
+    check()
+  })
+
 const inView = (el: Element) => {
   const r = el.getBoundingClientRect()
   return r.top >= 56 && r.bottom <= window.innerHeight - 24
@@ -610,10 +622,12 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
   const play = async (chapter: TourChapter) => {
     await resetting
     const store = useStore.getState()
-    if (store.workspaceId !== chapter.wsId) store.setWorkspace(chapter.wsId)
+    const switching = store.workspaceId !== chapter.wsId ? store.setWorkspace(chapter.wsId) : undefined
     useAgentThreads.getState().clear(chapter.wsId)
     useUi.getState().setAgentOpen(false)
     router.push(chapter.href)
+    // The part's first step must not judge the page being left: its sheet or labels can look like that step done.
+    await Promise.all([switching, arrivedAt(chapter.href)])
     useTour.getState().go(index + 1)
   }
 
@@ -626,6 +640,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.12 } }}
       transition={{ duration: 0.2 }}
+      style={{ pointerEvents: "auto" }}
     >
       <motion.div
         role="dialog"

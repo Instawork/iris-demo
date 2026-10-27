@@ -1186,8 +1186,10 @@ export const SCRIPT: TourItem[] = [
     anchor: () => one('[data-tour="doc-accept"]')?.closest('[role="dialog"]'),
     done: (ctx) => !!ctx.docId && !held(ctx),
     success: (ctx) => (docItem(ctx)?.status === "complete" ? "Accepted by Compass" : "Sent back to Metro"),
-    skip: (ctx) => {
+    onDone: (_, api) => later(() => api.push("/professionals?filter=not_compliant"), 1100),
+    skip: (ctx, api) => {
       if (ctx.proId && ctx.docId) void useStore.getState().reviewDocument(ctx.proId, ctx.docId, "accept")
+      api.push("/professionals?filter=not_compliant")
     },
   },
   {
