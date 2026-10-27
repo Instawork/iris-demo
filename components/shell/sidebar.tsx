@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Check, ChevronRight, ChevronsUpDown, CircleHelp, LogOut, RefreshCcw, RotateCcw, Settings, SlidersHorizontal, UserRound } from "lucide-react"
+import { Check, ChevronRight, ChevronsUpDown, LogOut, RefreshCcw, RotateCcw, Settings, SlidersHorizontal, UserRound } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -245,7 +245,6 @@ function WorkspaceSwitcher({ collapsed, onNavigate }: { collapsed: boolean; onNa
 
 function UserMenu({ collapsed }: { collapsed: boolean }) {
   const { ws } = useWorkspace()
-  const openHelp = useUi((s) => s.openHelp)
   const resetWelcome = useUi((s) => s.resetWelcome)
   const resetDemo = useStore((s) => s.resetDemo)
   const signOut = useStore((s) => s.signOut)
@@ -300,10 +299,6 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setConfirmReset(true)}>
             <RefreshCcw /> Reset demo data
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => openHelp()}>
-            <CircleHelp /> Help and support
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void signOut()}>

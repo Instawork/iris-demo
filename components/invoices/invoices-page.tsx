@@ -41,16 +41,16 @@ import type { Invoice, InvoiceGroup, PersonaKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type Tab = "groups" | "invoices"
-type Quick = "all" | "flagged" | "open" | "outstanding" | "overdue" | "paid"
+type Quick = "all" | "flagged" | "open" | "outstanding" | "paid"
 type GroupRow = InvoiceGroup & ReturnType<typeof groupTotals>
 
 const QUICK: Record<PersonaKind, Quick[]> = {
   compass: ["all", "flagged", "open", "outstanding", "paid"],
-  buyer: ["all", "open", "outstanding", "overdue", "paid"],
-  supplier: ["all", "open", "outstanding", "overdue", "paid"],
+  buyer: ["all", "open", "outstanding", "paid"],
+  supplier: ["all", "open", "outstanding", "paid"],
 }
 
-const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", overdue: "Overdue", paid: "Paid" }
+const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", paid: "Paid" }
 
 const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 
@@ -92,7 +92,8 @@ export function InvoicesPage() {
   const canSelect = ws.kind !== "supplier"
   const quickOptions = QUICK[ws.kind]
   const tab: Tab = params.get("tab") === "groups" ? "groups" : "invoices"
-  const quick = quickOptions.find((q) => q === params.get("filter")) ?? "all"
+  const asked = params.get("filter")
+  const quick = quickOptions.find((q) => q === asked) ?? (asked === "overdue" ? "outstanding" : "all")
   const openGroupId = params.get("group") ?? undefined
 
   const mine = useMemo(() => data.invoices.filter((i) => inScope(scope, i)), [data.invoices, scope])
@@ -111,7 +112,6 @@ export function InvoicesPage() {
       flagged: (i) => needsReview(data, i),
       open: (i) => invoiceStatus(i) === "open",
       outstanding: (i) => OUTSTANDING.includes(invoiceStatus(i)),
-      overdue: (i) => invoiceStatus(i) === "overdue",
       paid: (i) => invoiceStatus(i) === "paid",
     }),
     [data],
@@ -152,19 +152,11 @@ export function InvoicesPage() {
       header: "Invoice",
       sortValue: (i) => i.number,
       cell: (i) => {
-        const g = i.groupId ? groupOf.get(i.groupId) : undefined
         return (
           <span className="flex flex-col">
             <span className="font-semibold">{i.number}</span>
             <span className="text-caption-1 text-faded">
               {formatDateShort(i.periodStart)} – {formatDateShort(i.periodEnd)}
-              {g && (
-                <Tip content={g.name}>
-                  <span className="ml-1.5 inline-flex items-center gap-1">
-                    <Layers className="size-3" /> {g.code}
-                  </span>
-                </Tip>
-              )}
             </span>
           </span>
         )
@@ -365,46 +357,42 @@ export function InvoicesPage() {
         title="Invoices"
         description={DESCRIPTION[ws.kind]}
         actions={
-          <>
-            <PillTabs
-              value={tab}
-              onChange={(v) => {
-                setSelected(new Set())
-                setParams({ tab: v === "groups" ? "groups" : undefined })
-              }}
-              items={[
-                { value: "groups", label: "Consolidated", count: groupRows.length, tooltip: "One invoice for each buyer's week across every agency, reviewed and paid as one" },
-                { value: "invoices", label: "Invoices", count: mine.length },
-              ]}
-            />
-            <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={tab === "groups" ? !groupRows.length : !rows.length} onClick={exportCsv}>
-              <Download className="size-4" /> Download CSV
-            </Button>
-          </>
+          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={tab === "groups" ? !groupRows.length : !rows.length} onClick={exportCsv}>
+            <Download className="size-4" /> Download CSV
+          </Button>
         }
       />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PillTabs
+          size="sm"
+          value={tab === "groups" ? "groups" : quick}
+          onChange={(v) => {
+            setSelected(new Set())
+            setParams(v === "groups" ? { tab: "groups", filter: undefined } : { tab: undefined, filter: v === "all" ? undefined : v })
+          }}
+          items={[
+            ...quickOptions
+              .filter((q) => q !== "open" || quick === "open" || filtered.some(matches.open))
+              .map((q) => ({
+                value: q as Quick | "groups",
+                label: QUICK_LABEL[q],
+                count: q === "all" || q === "paid" ? undefined : filtered.filter(matches[q]).length,
+                tooltip: q === "flagged" ? "Anomalous invoices waiting for your review" : undefined,
+              })),
+            ...(groupRows.length || tab === "groups"
+              ? [{ value: "groups" as const, label: "Consolidated", count: groupRows.length, tooltip: "One invoice for each buyer's week across every agency, reviewed and paid as one" }]
+              : []),
+          ]}
+        />
+        {tab === "invoices" && (
+          <span className="text-body-3 text-faded">
+            <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
+          </span>
+        )}
+      </div>
       <motion.div key={tab} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
         {tab === "invoices" ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <PillTabs
-                size="sm"
-                value={quick}
-                onChange={(v) => {
-                  setSelected(new Set())
-                  setParams({ filter: v === "all" ? undefined : v })
-                }}
-                items={quickOptions.map((q) => ({
-                  value: q,
-                  label: QUICK_LABEL[q],
-                  count: q === "all" || q === "paid" ? undefined : filtered.filter(matches[q]).length,
-                  tooltip: q === "flagged" ? "Anomalous invoices waiting for your review" : undefined,
-                }))}
-              />
-              <span className="text-body-3 text-faded">
-                <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
-              </span>
-            </div>
             <div className="flex flex-wrap items-center gap-2">
               <SearchInput value={query} onChange={setQuery} placeholder="Search invoices" className="w-52" />
               {ws.kind !== "supplier" && (

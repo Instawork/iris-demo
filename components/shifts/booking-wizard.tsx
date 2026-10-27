@@ -513,7 +513,7 @@ function ReviewStep({ draft, quotes, spots, preview }: { draft: Draft; quotes: Q
       <div className="flex flex-col gap-2">
         <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
           Supplier release order
-          <InfoTip>Suppliers you approved for this role receive the shift in Dashboard priority order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Each Pro is billed at their supplier&apos;s rate.</InfoTip>
+          <InfoTip>Suppliers you approved for this role receive the shift in your release order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Each Pro is billed at their supplier&apos;s rate.</InfoTip>
         </h3>
         {quotes.length ? (
           <ul className="divide-y divide-border rounded-lg border border-border">

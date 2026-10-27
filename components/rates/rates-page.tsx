@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Check, Download, FileUp, MapPin, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -275,7 +275,13 @@ function RateComparison() {
         }
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PillTabs value={cityId} onChange={setCityId} items={cities.map((c) => ({ value: c.id, label: `${c.name}, ${c.state}` }))} />
+        {cities.length > 1 ? (
+          <PillTabs value={cityId} onChange={setCityId} items={cities.map((c) => ({ value: c.id, label: `${c.name}, ${c.state}` }))} />
+        ) : (
+          <span className="text-body-2 font-semibold">
+            {city(cityId).name}, {city(cityId).state}
+          </span>
+        )}
         {!isBuyer && (
           <PillTabs
             size="sm"
@@ -321,48 +327,52 @@ function RateComparison() {
               </tr>
             </thead>
             <tbody>
-              {matrix.map((row) => (
-                <tr key={`${cityId}-${row.position.id}`} className="border-b border-border/70 transition-colors duration-100 last:border-0 hover:bg-hover/60">
-                  <td className="sticky left-0 z-10 bg-card px-4 py-3">
-                    <span className="flex flex-col">
-                      <span className="font-semibold">{row.position.name}</span>
-                      <span className="text-caption-1 text-faded">{row.position.category}</span>
-                    </span>
-                  </td>
-                  {row.cards.map((c, i) => {
-                    const s = suppliers[i]
-                    if (!c)
+              {matrix.map((row, index) => (
+                <Fragment key={`${cityId}-${row.position.id}`}>
+                  {row.position.category !== matrix[index - 1]?.position.category && (
+                    <tr className="border-b border-border/70 bg-page-faded">
+                      <td colSpan={suppliers.length + 1} className="px-4 py-1.5 text-caption-1 font-semibold text-faded">
+                        {row.position.category}
+                      </td>
+                    </tr>
+                  )}
+                  <tr className="border-b border-border/70 transition-colors duration-100 last:border-0 hover:bg-hover/60">
+                    <td className="sticky left-0 z-10 bg-card px-4 py-3 font-semibold">{row.position.name}</td>
+                    {row.cards.map((c, i) => {
+                      const s = suppliers[i]
+                      if (!c)
+                        return (
+                          <td key={s.id} className="px-4 py-3">
+                            <Tip content={`${s.shortName} doesn't staff ${row.position.name} in ${city(cityId).name}`}>
+                              <span className="text-subtle">—</span>
+                            </Tip>
+                          </td>
+                        )
+                      const lowest = c.billRate === row.low
                       return (
-                        <td key={s.id} className="px-4 py-3">
-                          <Tip content={`${s.shortName} doesn't staff ${row.position.name} in ${city(cityId).name}`}>
-                            <span className="text-subtle">—</span>
+                        <td key={s.id} className="px-4 py-2.5">
+                          <Tip
+                            content={
+                              isBuyer
+                                ? `${s.shortName} · ${row.position.name}: ${money(c.billRate)}/hr`
+                                : `${s.shortName} · ${row.position.name}: pay rate ${money(c.proRate)} + markup ${money(c.billRate - c.proRate)} = ${money(c.billRate)}/hr`
+                            }
+                          >
+                            <span className={cn("inline-flex min-w-28 flex-col rounded-lg px-2.5 py-1.5", lowest && shown === "bill" && "bg-positive-faded ring-1 ring-positive-border")}>
+                              <span className="flex items-center gap-1.5 font-bold tabular">
+                                {value(c)}
+                                {lowest && shown === "bill" && <Check className="size-3.5 text-positive" />}
+                              </span>
+                              <span className={cn("text-caption-1 tabular", lowest && shown === "bill" ? "text-positive-fg" : "text-faded")}>
+                                {shown === "bill" ? (lowest ? "Lowest" : `+${money(c.billRate - row.low)}`) : shown === "markup" ? `${c.markupPct}%` : `${money(c.billRate)} bill`}
+                              </span>
+                            </span>
                           </Tip>
                         </td>
                       )
-                    const lowest = c.billRate === row.low
-                    return (
-                      <td key={s.id} className="px-4 py-2.5">
-                        <Tip
-                          content={
-                            isBuyer
-                              ? `${s.shortName} · ${row.position.name}: ${money(c.billRate)}/hr`
-                              : `${s.shortName} · ${row.position.name}: pay rate ${money(c.proRate)} + markup ${money(c.billRate - c.proRate)} = ${money(c.billRate)}/hr`
-                          }
-                        >
-                          <span className={cn("inline-flex min-w-28 flex-col rounded-lg px-2.5 py-1.5", lowest && shown === "bill" && "bg-positive-faded ring-1 ring-positive-border")}>
-                            <span className="flex items-center gap-1.5 font-bold tabular">
-                              {value(c)}
-                              {lowest && shown === "bill" && <Check className="size-3.5 text-positive" />}
-                            </span>
-                            <span className={cn("text-caption-1 tabular", lowest && shown === "bill" ? "text-positive-fg" : "text-faded")}>
-                              {shown === "bill" ? (lowest ? "Lowest" : `+${money(c.billRate - row.low)}`) : shown === "markup" ? `${c.markupPct}%` : `${money(c.billRate)} bill`}
-                            </span>
-                          </span>
-                        </Tip>
-                      </td>
-                    )
-                  })}
-                </tr>
+                    })}
+                  </tr>
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { CalendarDays, CalendarPlus, Download, FileUp, List, Plus, UserPlus } from "lucide-react"
+import { CalendarDays, CalendarPlus, Download, FileUp, List, UserPlus } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -27,7 +27,7 @@ import { BUYERS, LOCATIONS, POSITIONS, SUPPLIERS, buyer, location, locationsFor,
 import type { ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Tab = "upcoming" | "hours" | "past"
+type Tab = "upcoming" | "past"
 
 interface HoursState {
   label: string
@@ -40,7 +40,7 @@ interface HoursState {
 function hoursState(g: ShiftGroup, sheets: Timesheet[], ws: Workspace): HoursState {
   const phase = groupPhase(g)
   if (g.cancelledAt) return { label: "Cancelled", tone: "neutral" }
-  if (phase === "upcoming") return { label: "Not started", tone: "neutral" }
+  if (phase === "upcoming") return { label: "", tone: "neutral" }
   if (phase === "in_progress") return { label: "In progress", tone: "positive" }
   const mine = (ws.kind === "supplier" ? sheets.filter((t) => t.supplierId === ws.supplierId) : sheets).filter((t) => t.status !== "removed")
   if (!mine.length) return { label: ws.kind === "supplier" ? "None of your Pros" : "No hours yet", tone: "neutral" }
@@ -63,8 +63,6 @@ function hoursState(g: ShiftGroup, sheets: Timesheet[], ws: Workspace): HoursSta
   return done
 }
 
-const needsHoursAction = (s: HoursState) => s.action === "approve" || s.action === "respond" || (s.action === "submit" && s.tone === "warning")
-
 export function ShiftsPage() {
   const data = useData()
   const { ws, scope } = useWorkspace()
@@ -73,7 +71,7 @@ export function ShiftsPage() {
   const view = useUi((s) => s.shiftsView)
   const setView = useUi((s) => s.setShiftsView)
   const openUpload = useUi((s) => s.openUpload)
-  const [tab, setTab] = useState<Tab>(params.get("filter") === "hours" ? "hours" : params.get("timeframe") === "past" ? "past" : "upcoming")
+  const [tab, setTab] = useState<Tab>(params.get("filter") === "hours" || params.get("timeframe") === "past" ? "past" : "upcoming")
   const [locations, setLocations] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [buyers, setBuyers] = useState<string[]>([])
@@ -110,8 +108,7 @@ export function ShiftsPage() {
     () => rows.filter((r) => groupPhase(r.group) === "past").sort((a, b) => b.group.date.localeCompare(a.group.date) || b.group.start.localeCompare(a.group.start)),
     [rows],
   )
-  const toAct = useMemo(() => past.filter((r) => needsHoursAction(r.hours)), [past])
-  const list = tab === "upcoming" ? upcoming : tab === "hours" ? toAct : past
+  const list = tab === "upcoming" ? upcoming : past
 
   const hasFilters = locations.length + suppliers.length + buyers.length + positions.length > 0 || !!range.from
   const reset = () => {
@@ -148,8 +145,6 @@ export function ShiftsPage() {
     onAssign: (g) => setAssignFor(g.id),
   })
 
-  const hoursLabel = ws.kind === "buyer" ? "Hours to approve" : ws.kind === "supplier" ? "Hours to submit" : undefined
-
   return (
     <>
       <div className="flex flex-col gap-4 pt-4">
@@ -165,19 +160,7 @@ export function ShiftsPage() {
               ]}
             />
             {ws.kind === "buyer" && (
-              <>
-                <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => openUpload("shifts")}>
-                  <FileUp className="size-4" /> Upload CSV
-                </Button>
-                <Button asChild className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold">
-                  <Link href="/shifts/new">
-                    <Plus className="size-4" /> New shift
-                  </Link>
-                </Button>
-              </>
-            )}
-            {ws.kind === "supplier" && (
-              <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => openUpload()}>
+              <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => openUpload("shifts")}>
                 <FileUp className="size-4" /> Upload CSV
               </Button>
             )}
@@ -189,7 +172,6 @@ export function ShiftsPage() {
             onChange={setTab}
             items={[
               { value: "upcoming", label: "Upcoming", count: upcoming.length },
-              ...(hoursLabel ? [{ value: "hours" as const, label: hoursLabel, count: toAct.length }] : []),
               { value: "past", label: "Past", count: past.length },
             ]}
           />
@@ -227,17 +209,13 @@ export function ShiftsPage() {
       ) : list.length === 0 ? (
         <EmptyState
           icon={CalendarPlus}
-          title={tab === "hours" ? "Nothing to do here" : "No shifts"}
+          title="No shifts"
           description={
             hasFilters
               ? "Try changing or clearing your filters."
-              : tab === "hours"
-                ? ws.kind === "buyer"
-                  ? "Every submitted hour is approved."
-                  : "Every hour is submitted."
-                : ws.kind === "supplier"
-                  ? "Shifts appear here when a buyer that approved you posts one."
-                  : "Nothing scheduled yet."
+              : ws.kind === "supplier"
+                ? "Shifts appear here when a buyer that approved you posts one."
+                : "Nothing scheduled yet."
           }
           actions={
             hasFilters ? (
@@ -379,6 +357,7 @@ function columnsFor(ws: Workspace, actions: { onHours: (g: ShiftGroup) => void; 
           </Button>
         )
       }
+      if (!h.label) return null
       return (
         <StatusBadge tone={h.tone} dot={h.tone === "positive"}>
           {h.label}

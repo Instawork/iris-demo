@@ -380,7 +380,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
             <div className="mt-5 flex flex-col gap-3">
               <p className="flex items-center gap-1.5 text-caption-1 text-faded">
                 CSV templates
-                <InfoTip>Upload these from Uploads, or drop them on our SFTP folder. Templates come prefilled with your shifts and Pros.</InfoTip>
+                <InfoTip>Upload these with Upload CSV at the top of any page, or drop them on our SFTP folder. Templates come prefilled with your shifts and Pros.</InfoTip>
               </p>
               <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
                 {specsFor("supplier").map((s) => (

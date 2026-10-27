@@ -25,8 +25,8 @@ type Section = "resume" | "interviews" | "offers" | "documents" | "reviews"
 
 const SECTIONS: { value: Section; label: string; kinds: PersonaKind[] }[] = [
   { value: "resume", label: "Resume", kinds: ["supplier", "buyer", "compass"] },
-  { value: "interviews", label: "Interviews", kinds: ["supplier", "compass"] },
-  { value: "offers", label: "Offers", kinds: ["supplier", "compass"] },
+  { value: "interviews", label: "Interviews", kinds: ["supplier"] },
+  { value: "offers", label: "Offers", kinds: ["supplier"] },
   { value: "documents", label: "Documents", kinds: ["supplier", "buyer", "compass"] },
   { value: "reviews", label: "Reviews", kinds: ["supplier", "buyer", "compass"] },
 ]

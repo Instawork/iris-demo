@@ -192,18 +192,18 @@ export function ProfessionalsPage() {
         ]
       : []),
     {
-      id: "onboarding",
-      header: "Onboarding",
-      info: "New Pros finish onboarding when every document their positions need is complete.",
-      sortValue: (r) => r.onboarding.left,
-      cell: (r) => <OnboardingLabel status={r.onboarding} />,
-    },
-    {
-      id: "compliance",
-      header: "Compliance",
-      info: "Background check (BGC), I-9, Compass orientation and the food handler or alcohol certs each position needs.",
-      sortValue: (r) => TONE_RANK[r.compliance.tone] * 10 + r.compliance.issues.length,
-      cell: (r) => <ComplianceBadge status={r.compliance} />,
+      id: "status",
+      header: "Status",
+      info: "New Pros finish onboarding when every document their positions need is complete. After that, Iris checks the background check (BGC), I-9, Compass orientation and the food handler or alcohol certs each position needs before every shift.",
+      sortValue: (r) => (r.standing === "onboarding" ? 30 + r.onboarding.left : TONE_RANK[r.compliance.tone] * 10 + r.compliance.issues.length),
+      cell: (r) =>
+        r.standing === "onboarding" ? (
+          <OnboardingLabel status={r.onboarding} />
+        ) : r.compliance.issues.length ? (
+          <ComplianceBadge status={r.compliance} />
+        ) : (
+          <span className="text-faded">Compliant</span>
+        ),
     },
     { id: "rating", header: "Rating", align: "right", sortValue: (r) => r.pro.rating, cell: (r) => <Rating value={r.pro.rating} /> },
     {
@@ -259,7 +259,11 @@ export function ProfessionalsPage() {
       />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <PillTabs value={filter} onChange={changeFilter} items={FILTERS.map((f) => ({ value: f.value, label: f.label, tooltip: f.tooltip, count: counts[f.value] }))} />
+          <PillTabs
+            value={filter}
+            onChange={changeFilter}
+            items={FILTERS.filter((f) => !(buyerId && f.value === "onboarding")).map((f) => ({ value: f.value, label: f.label, tooltip: f.tooltip, count: counts[f.value] }))}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <SearchInput value={query} onChange={setQuery} placeholder="Name or Pro ID" className="w-52" />
             {showSupplier && (
