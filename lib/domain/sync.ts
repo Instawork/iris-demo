@@ -15,7 +15,8 @@ export interface Changes {
   values?: Partial<Record<keyof DemoData, unknown>>
 }
 
-const isKeyedArray = (value: unknown): value is Keyed[] => Array.isArray(value)
+/** Only arrays of entities merge by id. Others, like weekly budgets, are sent whole. */
+const isKeyedArray = (value: unknown): value is Keyed[] => Array.isArray(value) && value.every((item) => typeof (item as Partial<Keyed> | null)?.id === "string")
 
 /** Diffs by reference, which is exact on the server because commands copy only what they change. */
 export function diffData(before: DemoData, after: DemoData): Changes {
