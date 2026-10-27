@@ -72,33 +72,29 @@ export interface TourChapter {
   id: string
   chapter: ChapterId
   title: string
-  line: string
   wsId: string
   href: string
-  /** What this stretch shows, in a sentence. */
+  /** What this part does, in a few words. */
   shows: string
-  again?: boolean
 }
 
 export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep | { kind: "finale"; id: "finale" }
 
 export const CHAPTER_ORDER: ChapterId[] = ["onboarding", "shifts", "compliance", "timesheets", "reporting"]
 
-export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon; blurb: string; fieldglass: string }> = {
+export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon; fieldglass: string }> = {
   onboarding: {
     number: 1,
     label: "Onboarding",
     short: "Onboarding",
     icon: Building2,
-    blurb: "Add a unit and an agency in forms Iris checks as you type, then audit an agency's rate card.",
-    fieldglass: "Onboarding (upload buyer, supplier and rate card)",
+    fieldglass: "Onboarding",
   },
   shifts: {
     number: 2,
     label: "Shift creation",
     short: "Shifts",
     icon: CalendarPlus,
-    blurb: "Book in a sentence. Iris prices it, releases it to agencies in order, and routes over-budget orders for approval. Or send it to one agency, or to Pros you name.",
     fieldglass: "Job Posting",
   },
   compliance: {
@@ -106,7 +102,6 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Assignment and compliance",
     short: "Compliance",
     icon: ShieldCheck,
-    blurb: "Agencies can only assign Pros who are cleared. Documents are attested, checked with the issuer, and escalated when they fail. Every roster carries a score.",
     fieldglass: "Job Seeker and Attestations",
   },
   timesheets: {
@@ -114,7 +109,6 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Timesheets",
     short: "Timesheets",
     icon: Clock,
-    blurb: "Agencies stop uploading hours Iris already has. Buyers approve at the clock, split a shift by role, and send back what an invoice bills anyway.",
     fieldglass: "Timesheet",
   },
   reporting: {
@@ -122,19 +116,9 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
     label: "Reporting",
     short: "Reporting",
     icon: ChartColumn,
-    blurb: "Ask for a number, open it as a report, save it for the team and email it on a schedule.",
     fieldglass: "Reporting",
   },
 }
-
-/** What the last card lists, one line per part. */
-export const RECAP: { chapter: ChapterId; label: string }[] = [
-  { chapter: "onboarding", label: "Added Soldier Field and Northwind Event Staffing, and audited Harbor's rate card" },
-  { chapter: "shifts", label: "Booked a shift in a sentence, routed an over-budget order to its approver, and requested Pros by name" },
-  { chapter: "compliance", label: "Assigned a Crewline Pro, verified a document with its issuer, reviewed one that failed, and scored every roster" },
-  { chapter: "timesheets", label: "Let Harbor's clock-matched hours go in on their own, split a shift by role, approved at the clock, and sent back hours an invoice billed above it" },
-  { chapter: "reporting", label: "Turned a question into a saved report emailed every Monday" },
-]
 
 const LEVY = "ws-levy"
 const DANA = "ws-levy-dm"
@@ -418,10 +402,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-onboarding",
     chapter: "onboarding",
     title: "Onboarding",
-    line: "Units and agencies are added in a form, checked as you type, and live everywhere the moment they're saved.",
     wsId: COMPASS,
     href: "/units",
-    shows: "Add Soldier Field for Levy and Northwind Event Staffing for Chicago, then audit an agency's rates.",
+    shows: "Add a unit and an agency, then check an agency's rates.",
   },
   {
     kind: "step",
@@ -667,10 +650,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-shifts",
     chapter: "shifts",
     title: "Shift creation",
-    line: "Booking takes a sentence. The program's rules apply on their own.",
     wsId: LEVY,
     href: "/",
-    shows: "Book a concert night at West Loop Arena, send an order over the week's budget to its approver, and ask for Pros by name.",
+    shows: "Book shifts in a sentence, send one over budget, and request Pros by name.",
   },
   {
     kind: "step",
@@ -891,10 +873,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-approval",
     chapter: "shifts",
     title: "Shift creation",
-    line: "Over-budget orders wait for one decision.",
     wsId: DANA,
     href: "/approvals",
-    shows: "Approve the order Jordan sent over West Loop Arena's budget, from the inbox built for a phone.",
+    shows: "Approve the order that went over budget.",
   },
   {
     kind: "step",
@@ -925,10 +906,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-compliance",
     chapter: "compliance",
     title: "Assignment and compliance",
-    line: "Every agency, one standard, checked before every shift.",
     wsId: CREWLINE,
     href: "/shifts",
-    shows: "Assign a Crewline Pro to a Levy shift and see who Iris keeps off it and why.",
+    shows: "Assign a Pro to a Levy shift.",
   },
   {
     kind: "step",
@@ -1008,10 +988,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-documents",
     chapter: "compliance",
     title: "Assignment and compliance",
-    line: "The agency attests. Iris checks with the issuer. Compass sees only what fails.",
     wsId: METRO,
     href: "/",
-    shows: "Clear a Pro Iris pulled off the schedule, then attest a document that doesn't check out.",
+    shows: "Renew an expired document, then submit one that fails the check.",
   },
   {
     kind: "step",
@@ -1189,11 +1168,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-review",
     chapter: "compliance",
     title: "Assignment and compliance",
-    line: "Compass reviews the exceptions, not every document.",
     wsId: COMPASS,
     href: "/",
-    shows: "Decide on the document Iris couldn't verify, then see every agency's roster scored.",
-    again: true,
+    shows: "Review the failed document and see each agency's score.",
   },
   {
     kind: "step",
@@ -1275,10 +1252,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-agency-hours",
     chapter: "timesheets",
     title: "Timesheets",
-    line: "Agencies stop uploading hours Iris already has.",
     wsId: HARBOR,
     href: "/timesheets",
-    shows: "See the timesheets Iris drafted for Harbor from its clock, and let the ones that match go in on their own.",
+    shows: "Let timesheets that match the clock submit themselves.",
   },
   {
     kind: "step",
@@ -1318,11 +1294,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-timesheets",
     chapter: "timesheets",
     title: "Timesheets",
-    line: "Every billed hour, lined up against Iris's own clock.",
     wsId: LEVY,
     href: "/",
-    shows: "Approve last night's hours: correct the one billed above the clock, split one by role, and approve the rest.",
-    again: true,
+    shows: "Approve last night's hours and split one by role.",
   },
   {
     kind: "step",
@@ -1482,11 +1456,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-invoices",
     chapter: "timesheets",
     title: "Timesheets",
-    line: "What a buyer approves anyway still gets checked.",
     wsId: COMPASS,
     href: "/",
-    shows: "Send back hours an invoice billed above the clock, and watch the agency credit them.",
-    again: true,
+    shows: "Send back hours an invoice billed above the clock.",
   },
   {
     kind: "step",
@@ -1601,11 +1573,9 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-reporting",
     chapter: "reporting",
     title: "Reporting",
-    line: "Anyone can build the report they need, keep it, and have it arrive.",
     wsId: COMPASS,
     href: "/",
-    shows: "Ask Iris a spend question, open the answer as a report, save it for the team and schedule it.",
-    again: true,
+    shows: "Ask a spend question and save the answer as a scheduled report.",
   },
   {
     kind: "step",

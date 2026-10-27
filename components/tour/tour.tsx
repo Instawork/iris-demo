@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Check, CornerDownLeft, MousePointerClick, Play, RotateCcw, WandSparkles, X } from "lucide-react"
+import { ArrowRight, Check, CornerDownLeft, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { useAgentThreads } from "@/components/agent/agent-store"
@@ -12,7 +12,6 @@ import { COMPOSER_ID } from "@/components/home/agent-home"
 import {
   CHAPTERS,
   CHAPTER_ORDER,
-  RECAP,
   SCRIPT,
   STEPS,
   indexOf,
@@ -605,9 +604,6 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     useTour.getState().go(index + 1)
   }
 
-  const previous = SCRIPT[index - 1]
-  const continued = item.kind === "chapter" && previous?.kind === "step" && previous.chapter === item.chapter
-
   return (
     <motion.div
       data-tour-layer
@@ -630,7 +626,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
         transition={{ duration: 0.38, ease: EASE }}
       >
         {item.kind === "intro" && <IntroCard onStart={start} onClose={exit} />}
-        {item.kind === "chapter" && <ChapterCard item={item} continued={continued} onPlay={() => play(item)} onExit={exit} />}
+        {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} />}
         {item.kind === "finale" && <FinaleCard onReplay={() => useTour.getState().open()} onClose={exit} />}
       </motion.div>
     </motion.div>
@@ -651,72 +647,42 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
-        <span className="relative inline-flex items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-semibold tracking-[0.06em] text-background uppercase">
-          <Play className="size-3 fill-current" /> Guided demo · five parts
-        </span>
-        <h2 id="tour-card-title" className="relative mt-4 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
-          The core workflows, end to end
+        <span className="relative text-[12px] font-medium text-muted-foreground">Guided demo</span>
+        <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
+          Five workflows, end to end
         </h2>
-        <p className="relative mt-2 text-[15px] leading-relaxed text-pretty text-muted-foreground">
-          In the order of the Fieldglass modules, played as the people who do the work: Compass, a buyer, its approver and three agencies. Each step says what&apos;s on screen and why it matters. Do it for me does any step.
-        </p>
       </div>
-      <ol className="flex flex-col gap-2 px-7">
+      <ol className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         {CHAPTER_ORDER.map((id, i) => {
           const c = CHAPTERS[id]
           return (
             <motion.li
               key={id}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, ease: EASE, delay: 0.12 + i * 0.06 }}
-              className="flex items-center gap-3.5 rounded-xl border border-border bg-page-faded/60 px-3.5 py-2.5"
+              transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}
+              className="flex items-center gap-3 px-4 py-2.5"
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/30 text-brand-foreground ring-1 ring-brand-foreground/15 ring-inset dark:bg-brand/12 dark:text-brand">
-                <c.icon className="size-[18px]" strokeWidth={1.9} />
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="text-[14px] font-semibold">{c.label}</span>
-                <span className="text-[13px] leading-snug text-muted-foreground">{c.blurb}</span>
-              </span>
-              <span className="ml-auto pl-2 font-mono text-[12px] text-subtle">0{c.number}</span>
+              <c.icon className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={1.9} />
+              <span className="text-[14px] font-semibold">{c.label}</span>
+              <span className="ml-auto font-mono text-[12px] text-subtle">0{c.number}</span>
             </motion.li>
           )
         })}
       </ol>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-7 pt-5 pb-6">
-        <span className="max-w-[16rem] text-[12.5px] leading-snug text-subtle">Starting resets the demo data for everyone using this demo.</span>
-        <span className="flex gap-2">
-          <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
-            Not now
-          </Button>
-          <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onStart} autoFocus>
-            Start <ArrowRight className="size-4" />
-          </Button>
-        </span>
+      <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
+        <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
+          Not now
+        </Button>
+        <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onStart} autoFocus>
+          Start <ArrowRight className="size-4" />
+        </Button>
       </div>
     </>
   )
 }
 
-function ChapterRail({ current }: { current: ChapterId }) {
-  const at = CHAPTER_ORDER.indexOf(current)
-  return (
-    <div className="relative mt-5 grid grid-cols-5 gap-1.5">
-      {CHAPTER_ORDER.map((id, i) => (
-        <span key={id} className="flex min-w-0 flex-col gap-1.5">
-          <span className={cn("h-1 rounded-full", i < at ? "bg-brand" : i === at ? "bg-foreground" : "bg-foreground/10")} />
-          <span className={cn("truncate text-[11.5px] font-medium", i === at ? "text-foreground" : "text-subtle")}>
-            {i < at && <Check className="mr-1 inline size-3 text-brand-strong" strokeWidth={3} />}
-            {CHAPTERS[id].short}
-          </span>
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function ChapterCard({ item, continued, onPlay, onExit }: { item: TourChapter; continued: boolean; onPlay: () => void; onExit: () => void }) {
+function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () => void; onExit: () => void }) {
   const meta = CHAPTERS[item.chapter]
   const ws = workspace(item.wsId)
   return (
@@ -724,36 +690,22 @@ function ChapterCard({ item, continued, onPlay, onExit }: { item: TourChapter; c
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
         <span className="relative text-[12px] font-medium text-muted-foreground">
-          Part {meta.number} of {CHAPTER_ORDER.length}
-          {continued ? ", continued" : ""} · In Fieldglass: {meta.fieldglass}
+          Part {meta.number} of {CHAPTER_ORDER.length} · Fieldglass {meta.fieldglass}
         </span>
-        <div className="relative mt-1.5 flex items-end justify-between gap-4">
-          <h2 id="tour-card-title" className="font-heading text-[38px] leading-[1.05] font-semibold tracking-[-0.02em] text-balance">
-            {item.title}
-          </h2>
-          <span aria-hidden className="font-heading text-[72px] leading-[0.75] font-semibold text-foreground/[0.07] tabular">
-            0{meta.number}
-          </span>
-        </div>
-        <p className="relative mt-3 text-[16px] leading-snug text-pretty text-muted-foreground">{item.line}</p>
-        <ChapterRail current={item.chapter} />
+        <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] text-balance">
+          {item.title}
+        </h2>
+        <p className="relative mt-2 text-[15px] leading-snug text-pretty text-muted-foreground">{item.shows}</p>
       </div>
-      <div className="mx-7 flex items-center gap-3.5 rounded-xl border border-border bg-page-faded/60 px-4 py-3.5">
+      <div className="mx-7 flex items-center gap-3 rounded-xl border border-border bg-page-faded/60 px-4 py-3">
         <WorkspaceAvatar ws={ws} size="lg" />
         <span className="flex min-w-0 flex-col">
-          <span className="text-[14px] font-semibold">
-            You&apos;re {ws.user.name}
-            {item.again ? " again" : ""}
-          </span>
+          <span className="text-[14px] font-semibold">{ws.user.name}</span>
           <span className="truncate text-[13px] text-muted-foreground">
             {ws.user.title} · {ws.name}
           </span>
         </span>
       </div>
-      <p className="mx-7 mt-3.5 text-[14px] leading-relaxed text-pretty">
-        <span className="font-semibold">Next: </span>
-        {item.shows}
-      </p>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onExit}>
           Exit tour
@@ -771,32 +723,29 @@ function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () =
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
-        <span className="relative text-[12px] font-medium text-muted-foreground">All five parts done</span>
+        <span className="relative text-[12px] font-medium text-muted-foreground">Guided demo</span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-tight font-semibold tracking-tight">
-          What the demo covered
+          All five done
         </h2>
-        <p className="relative mt-1 text-[15px] text-pretty text-muted-foreground">Everything you did is still there to explore, from any of the roles.</p>
+        <p className="relative mt-1 text-[15px] text-pretty text-muted-foreground">Everything you did is still there to explore.</p>
       </div>
       <ul className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
-        {RECAP.map((r, i) => (
+        {CHAPTER_ORDER.map((id, i) => (
           <motion.li
-            key={r.chapter}
+            key={id}
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, ease: EASE, delay: 0.15 + i * 0.06 }}
-            className="flex items-start gap-3 px-4 py-2.5"
+            transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}
+            className="flex items-center gap-3 px-4 py-2.5"
           >
-            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
               <Check className="size-3" strokeWidth={3.2} />
             </span>
-            <span className="flex min-w-0 flex-col">
-              <span className="text-[14px] font-semibold">{CHAPTERS[r.chapter].label}</span>
-              <span className="text-[13px] leading-snug text-muted-foreground">{r.label}</span>
-            </span>
+            <span className="text-[14px] font-semibold">{CHAPTERS[id].label}</span>
           </motion.li>
         ))}
       </ul>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-7 pt-5 pb-6">
+      <div className="flex items-center justify-between gap-3 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 gap-1.5 rounded-lg" onClick={onReplay}>
           <RotateCcw className="size-4" /> Start over
         </Button>
