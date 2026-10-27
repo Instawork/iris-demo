@@ -89,14 +89,14 @@ export function navFor(ws: Workspace): NavItem[] {
     },
     {
       id: "rates",
-      label: "Supplier Rates",
+      label: "Rate Cards",
       href: "/rates",
       icon: BadgeDollarSign,
       tooltip:
         kind === "supplier"
           ? "Your pay rate, markup and bill rate by city"
           : kind === "buyer"
-            ? "Bill rates in your cities. Open a supplier to approve it for your shifts."
+            ? "Every agency's rate for each role. Pick the best offer."
             : "Every supplier's rates side by side, and every change to them",
     },
     {
@@ -149,7 +149,7 @@ export const SECTION_LABELS: Record<string, string> = {
   shifts: "Shifts",
   timesheets: "Timesheets",
   professionals: "Professionals",
-  rates: "Supplier Rates",
+  rates: "Rate Cards",
   invoices: "Invoices",
   reports: "Reports",
   uploads: "Uploads",

@@ -327,7 +327,7 @@ export function AgentHome() {
                     Today
                   </Button>
                 </div>
-                <AgentMessages messages={agent.messages} onRun={agent.runAction} />
+                <AgentMessages messages={agent.messages} onRun={agent.runAction} onPickFirst={agent.pickFirst} />
               </div>
             </motion.div>
           )}

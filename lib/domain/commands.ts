@@ -2,7 +2,7 @@ import { planImport } from "@/lib/csv"
 import { canWork } from "@/lib/compliance"
 import { addDaysISO, formatClockShort, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { budgetCheck, releasePlan } from "@/lib/domain/budget"
-import { eligiblePros, event, joinNames, merge, notifiedSuppliers, placeRequested, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
+import { eligiblePros, event, joinNames, merge, notifiedSuppliers, offerKey, placeRequested, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, fullName, money, round2 } from "@/lib/format"
@@ -141,10 +141,12 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const breakMins = num(input.breakMins ?? 0, "Break", 0, 120)
   const headcount = Math.round(num(input.headcount, "Headcount", 1, 60))
   if (headcount * dates.length > policy.maxSpotsPerOrder) fail(`${policy.sector} orders can create up to ${policy.maxSpotsPerOrder} spots at a time.`)
-  const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, pos.id)
-  if (!notified.length) fail(`None of your approved suppliers has an active ${pos.name} rate at ${loc.name}.`)
   const only = optStr(input.onlyAgencyId, 40)
-  const lead = only ? (notified.find((n) => n.card.supplierId === only) ?? fail(`That agency isn't approved for ${pos.name}s at ${loc.name}.`)) : notified[0]
+  const firstPick = optStr(input.firstAgencyId, 40)
+  const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, pos.id, only ?? firstPick)
+  if (!notified.length) fail(`None of your approved suppliers has an active ${pos.name} rate at ${loc.name}.`)
+  if ((only ?? firstPick) && notified[0].card.supplierId !== (only ?? firstPick)) fail(`That agency isn't approved for ${pos.name}s at ${loc.name}.`)
+  const lead = notified[0]
   const card = lead.card
   const ordered = only ? [only] : notified.map((n) => n.card.supplierId)
   const proIds = input.requestedProIds?.length ? [...new Set(strList(input.requestedProIds, "Pros", 60))] : []
@@ -242,7 +244,7 @@ function decideApproval(data: DemoData, ctx: CommandContext, input: { groupIds: 
   const updated = new Map(
     pending.map((g) => {
       const approval = { ...g.approval!, ...decided, status: approve ? ("approved" as const) : ("declined" as const) }
-      const ordered = g.dispatch?.supplierId ? [g.dispatch.supplierId] : notifiedSuppliers(data, g.buyerId, location(g.locationId).cityId, g.positionId).map((n) => n.card.supplierId)
+      const ordered = g.dispatch?.supplierId ? [g.dispatch.supplierId] : notifiedSuppliers(data, g.buyerId, location(g.locationId).cityId, g.positionId, g.supplierId).map((n) => n.card.supplierId)
       const next: ShiftGroup = approve ? placeRequested(data, released({ ...g, approval }, ordered.length ? ordered : [g.supplierId], ctx.now), ctx.now) : { ...g, approval, cancelledAt: ctx.now }
       return [g.id, next]
     }),
@@ -507,15 +509,39 @@ function setSupplierApproval(data: DemoData, ctx: CommandContext, input: { buyer
   )
 }
 
-function moveSupplierPriority(data: DemoData, ctx: CommandContext, input: { buyerId: string; supplierId: string; direction: -1 | 1 }): Outcome<null> {
+/** Picks the agency that sees a role's new shifts first in one market. No agency clears the pick, so the lowest rate goes first. */
+function pickOffer(data: DemoData, ctx: CommandContext, input: { buyerId: string; cityId: string; positionId: string; supplierId?: string | null }): Outcome<null> {
   const buyerId = str(input?.buyerId, "Buyer")
-  if (!ownsBuyer(ctx.ws, buyerId)) forbid("Only the buyer or Compass can reorder agencies.")
-  const current = [...(data.approvals[buyerId] ?? [])]
-  const index = current.indexOf(input.supplierId)
-  const target = index + (input.direction === -1 ? -1 : 1)
-  if (index < 0 || target < 0 || target >= current.length) return done(data, null)
-  ;[current[index], current[target]] = [current[target], current[index]]
-  return done(data, null, { approvals: { ...data.approvals, [buyerId]: current } })
+  if (!ownsBuyer(ctx.ws, buyerId)) forbid("Only the buyer or Compass can pick an agency.")
+  const c = need(findCity(str(input.cityId, "Market")), "That market doesn't exist")
+  const pos = need(findPosition(str(input.positionId, "Position")), "That position doesn't exist")
+  const key = offerKey(c.id, pos.id)
+  const picks = { ...(data.offerPicks?.[buyerId] ?? {}) }
+  const supplierId = optStr(input.supplierId, 40)
+  if (supplierId && !notifiedSuppliers(data, buyerId, c.id, pos.id).some((n) => n.supplier.id === supplierId))
+    fail(`Approve that agency for ${pos.name}s in ${c.name} first.`)
+  if (picks[key] === supplierId) return done(data, null)
+  if (supplierId) picks[key] = supplierId
+  else delete picks[key]
+  const card = supplierId ? data.rateCards.find((r) => r.supplierId === supplierId && r.cityId === c.id && r.positionId === pos.id && r.status === "active") : undefined
+  return done(
+    data,
+    null,
+    { offerPicks: { ...data.offerPicks, [buyerId]: picks } },
+    event(
+      data,
+      {
+        text: supplierId
+          ? `${actorName(ctx)} picked ${supplier(supplierId).shortName}'s ${money(card!.billRate)}/hr ${pos.name} rate in ${c.name}. ${supplier(supplierId).shortName} sees new ${pos.name} shifts first`
+          : `${actorName(ctx)} cleared the ${pos.name} pick in ${c.name}. The lowest rate sees new shifts first`,
+        actor: actorName(ctx),
+        tone: "primary",
+        buyerId,
+        ...(supplierId ? { supplierId } : {}),
+      },
+      ctx.now,
+    ),
+  )
 }
 
 function setRoster(data: DemoData, ctx: CommandContext, input: { buyerId: string; proIds: string[]; status: RosterStatus | null }): Outcome<null> {
@@ -1423,7 +1449,7 @@ export interface AgencyInput {
 
 /**
  * Adds an agency: who to call, where and what it staffs, its paperwork, its rate card and its Pros. Each buyer that
- * approves it adds it to the end of its release order, so it gets shifts the others leave open.
+ * approves it sees its rates next to the others, and it takes its place in the release order by rate.
  */
 function onboardAgency(data: DemoData, ctx: CommandContext, input: AgencyInput): Outcome<string> {
   if (!isCompass(ctx.ws)) forbid("Only the Compass program office adds agencies.")
@@ -1584,7 +1610,7 @@ export const COMMANDS = {
   markNoShow,
   moveToRole,
   setSupplierApproval,
-  moveSupplierPriority,
+  pickOffer,
   setRoster,
   approveTimesheets,
   correctTimesheet,

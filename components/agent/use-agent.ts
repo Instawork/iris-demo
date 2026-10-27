@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from "react"
 
-import { NO_MESSAGES, useAgentThreads, type AgentAction } from "@/components/agent/agent-store"
+import { NO_MESSAGES, useAgentThreads, type AgentAction, type AgentMessage } from "@/components/agent/agent-store"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
 import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/lib/agent-hours"
@@ -14,8 +14,8 @@ import { previewOrder } from "@/lib/domain/order"
 import { money, moneyWhole, round2 } from "@/lib/format"
 import { PROGRAM, approversFor, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
 import { detectUploadType, isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
-import { joinNames, notifiedSuppliers, useStore, type BookingInput } from "@/lib/store"
-import type { UploadType } from "@/lib/types"
+import { joinNames, notifiedSuppliers, pickedOffer, useStore, type BookingInput } from "@/lib/store"
+import type { DemoData, UploadType } from "@/lib/types"
 
 export const AGENT_FILE_ACCEPT =
   ".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -36,70 +36,35 @@ export function useAgent() {
 
   const proposeShift = useCallback(
     (request: ParsedAgentShift) => {
-      const buyerId = ws.buyerId!
-      const data = useStore.getState().data
-      const loc = location(request.locationId)
       const pos = position(request.positionId)
-      const hours = paidHours(request.start, request.end, request.breakMins)
-      const quotes = notifiedSuppliers(data, buyerId, loc.cityId, request.positionId)
-      if (!quotes.length) {
-        add({ from: "agent", text: `None of your approved suppliers currently staff ${pos.name} in ${loc.name}. Approve a matching supplier before posting this shift.` })
-        return
-      }
-      const totals = quotes.map(({ card }) => round2(card.billRate * hours * request.headcount))
-      const input: BookingInput = {
-        locationId: request.locationId,
-        positionId: request.positionId,
-        dates: [request.date],
-        start: request.start,
-        end: request.end,
-        breakMins: request.breakMins,
-        headcount: request.headcount,
-        instructions: pos.duties,
-        attire: pos.attire,
-        tips: pos.alcohol,
-      }
-      const preview = previewOrder(data, input)
-      const week = preview?.check.worst
-      const budget = !week?.budget
-        ? undefined
-        : preview?.needsApproval
-          ? {
-              over: true,
-              text: `${(week.overPct * 100).toFixed(1)}% over ${loc.name}'s ${moneyWhole(week.budget)} for the week of ${formatDateShort(week.weekStart)}, so ${joinNames(preview.approvers.map((a) => a.user.name))} approves it first`,
-            }
-          : { over: false, text: `Fits the week's ${moneyWhole(week.budget)} (${moneyWhole(week.committed + week.adding)} with this order)` }
-      const held = preview?.held && preview.firstRelease
-      const gap = preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore
-      const low = Math.min(...totals)
-      const high = Math.max(...totals)
-      add({
-        from: "agent",
-        text: preview?.needsApproval ? "Here's the draft. It goes for approval before any agency sees it." : "Here's the draft. Nothing is booked until you click Create and send.",
-        draft: {
-          headcount: request.headcount,
-          position: pos.name,
-          location: loc.name,
-          when: formatDay(request.date, "EEE, MMM d"),
-          time: `${formatClockShort(request.start)}–${formatClockShort(request.end)}`,
-          hours,
+      add(
+        shiftDraft(useStore.getState().data, ws.buyerId!, {
+          locationId: request.locationId,
+          positionId: request.positionId,
+          dates: [request.date],
+          start: request.start,
+          end: request.end,
           breakMins: request.breakMins,
-          release: quotes.map(({ supplier: item, card }, index) => ({
-            supplierId: item.id,
-            name: item.shortName,
-            rate: card.billRate,
-            at: index ? `+${index * gap}h` : held ? "First" : "Now",
-          })),
-          total: `${money(low)}${low === high ? "" : `–${money(high)}`}`,
-          ...(budget ? { budget } : {}),
-          ...(held
-            ? { note: `${preview.policy.sector} holds orders until ${preview.policy.releaseLeadHours} hours before the shift, so ${quotes[0].supplier.shortName} sees it ${formatTimestamp(preview.firstRelease!.toISOString())}.` }
-            : {}),
-        },
-        actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input, key: crypto.randomUUID() }],
-      })
+          headcount: request.headcount,
+          instructions: pos.duties,
+          attire: pos.attire,
+          tips: pos.alcohol,
+        }),
+      )
     },
     [add, ws.buyerId],
+  )
+
+  /** Redrafts an unsent order with this agency first. */
+  const pickFirst = useCallback(
+    (messageId: number, supplierId: string) => {
+      const message = (useAgentThreads.getState().threads[ws.id] ?? []).find((m) => m.id === messageId)
+      const action = message?.actions?.find((a) => a.kind === "create-shift")
+      if (!message || !action || action.kind !== "create-shift") return
+      const next = shiftDraft(useStore.getState().data, ws.buyerId!, { ...action.input, firstAgencyId: supplierId })
+      useAgentThreads.getState().update(ws.id, messageId, { text: next.text, draft: next.draft, actions: next.actions })
+    },
+    [ws.id, ws.buyerId],
   )
 
   const respond = useCallback(
@@ -318,5 +283,57 @@ export function useAgent() {
 
   const clear = useCallback(() => clearThread(ws.id), [clearThread, ws.id])
 
-  return { messages, respond, attach, runAction, draftShift, clear }
+  return { messages, respond, attach, runAction, draftShift, pickFirst, clear }
+}
+
+/** The draft card for an order: priced at each agency's rate, checked against the budget, in release order. */
+function shiftDraft(data: DemoData, buyerId: string, input: BookingInput): Omit<AgentMessage, "id"> {
+  const loc = location(input.locationId)
+  const pos = position(input.positionId)
+  const hours = paidHours(input.start, input.end, input.breakMins)
+  const quotes = notifiedSuppliers(data, buyerId, loc.cityId, input.positionId, input.firstAgencyId)
+  if (!quotes.length) return { from: "agent", text: `None of your approved suppliers currently staff ${pos.name} in ${loc.name}. Approve a matching supplier before posting this shift.` }
+  const totals = quotes.map(({ card }) => round2(card.billRate * hours * input.headcount))
+  const preview = previewOrder(data, input)
+  const week = preview?.check.worst
+  const budget = !week?.budget
+    ? undefined
+    : preview?.needsApproval
+      ? {
+          over: true,
+          text: `${(week.overPct * 100).toFixed(1)}% over ${loc.name}'s ${moneyWhole(week.budget)} for the week of ${formatDateShort(week.weekStart)}, so ${joinNames(preview.approvers.map((a) => a.user.name))} approves it first`,
+        }
+      : { over: false, text: `Fits the week's ${moneyWhole(week.budget)} (${moneyWhole(week.committed + week.adding)} with this order)` }
+  const held = preview?.held && preview.firstRelease
+  const gap = preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore
+  const low = Math.min(...totals)
+  const high = Math.max(...totals)
+  const lowRate = Math.min(...quotes.map((q) => q.card.billRate))
+  const picked = pickedOffer(data, buyerId, loc.cityId, input.positionId)
+  const lead = quotes[0]
+  const why = input.firstAgencyId ? "Picked for this order" : picked === lead.supplier.id ? "Your pick" : lead.card.billRate === lowRate ? "Lowest rate" : undefined
+  return {
+    from: "agent",
+    text: preview?.needsApproval ? "Here's the draft. It goes for approval before any agency sees it." : "Here's the draft. Nothing is booked until you click Create and send.",
+    draft: {
+      headcount: input.headcount,
+      position: pos.name,
+      location: loc.name,
+      when: formatDay(input.dates[0], "EEE, MMM d"),
+      time: `${formatClockShort(input.start)}–${formatClockShort(input.end)}`,
+      hours,
+      breakMins: input.breakMins,
+      release: quotes.map(({ supplier: item, card }, index) => ({
+        supplierId: item.id,
+        name: item.shortName,
+        rate: card.billRate,
+        at: index ? `+${index * gap}h` : held ? "First" : "Now",
+        ...(index === 0 && why ? { why } : {}),
+      })),
+      total: `${money(low)}${low === high ? "" : `–${money(high)}`}`,
+      ...(budget ? { budget } : {}),
+      ...(held ? { note: `${preview.policy.sector} holds orders until ${preview.policy.releaseLeadHours} hours before the shift, so ${lead.supplier.shortName} sees it ${formatTimestamp(preview.firstRelease!.toISOString())}.` } : {}),
+    },
+    actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input, key: crypto.randomUUID() }],
+  }
 }

@@ -98,15 +98,15 @@ export function HubDiagram({ className }: { className?: string }) {
       <div className="flex min-w-0 flex-col items-start gap-4">
         {(
           [
-            ["instawork", instawork],
             ["crewline", crewline],
             ["harbor", harbor],
+            ["instawork", instawork],
             ["metro", metro],
           ] as const
         ).map(([id, ref]) => {
           const s = supplier(id)
           return (
-            <Node key={id} nodeRef={ref} label={s.shortName} sub={s.integration === "api" ? "API · real time" : "CSV uploads"} side="right">
+            <Node key={id} nodeRef={ref} label={s.shortName} sub={s.integration === "api" ? "API" : "CSV uploads"} side="right">
               <SupplierLogo supplierId={id} size="md" />
             </Node>
           )

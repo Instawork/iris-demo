@@ -65,7 +65,7 @@ export function AgentChat() {
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5 scrollbar-thin">
-              <AgentMessages compact onRun={agent.runAction} messages={[{ id: 0, from: "agent", text: INTRO[ws.kind] }, ...agent.messages]} />
+              <AgentMessages compact onRun={agent.runAction} onPickFirst={agent.pickFirst} messages={[{ id: 0, from: "agent", text: INTRO[ws.kind] }, ...agent.messages]} />
             </div>
             <div className="flex flex-col gap-3 border-t border-border bg-page-faded p-4">
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">

@@ -154,7 +154,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is live` : "Add a unit"}</DialogTitle>
           <DialogDescription>
-            {created ? "It can book shifts now. Every order there goes to its agencies in the buyer's release order." : "A unit is one location with its own cost center: a venue, a campus, a hospital."}
+            {created ? "It can book shifts now. Every order there goes to the buyer's pick for the role first, then the other agencies by rate." : "A unit is one location with its own cost center: a venue, a campus, a hospital."}
           </DialogDescription>
         </DialogHeader>
 
@@ -342,7 +342,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                   <Users className="mt-0.5 size-4 shrink-0" />
                   <span className="text-body-3">
                     {order.length
-                      ? `Orders go to ${joinNames(order.map((id) => SUPPLIERS.find((s) => s.id === id)!.shortName))}, in ${buyer(form.buyerId).name}'s release order, ${policyFor(form.buyerId).tierGapHours} hours apart.`
+                      ? `Orders go to ${joinNames(order.map((id) => SUPPLIERS.find((s) => s.id === id)!.shortName))}, best offer first, then by rate, ${policyFor(form.buyerId).tierGapHours} hours apart.`
                       : `None of ${buyer(form.buyerId).name}'s approved agencies has rates for these roles here yet.`}
                   </span>
                 </div>

@@ -249,7 +249,7 @@ export function TimesheetsPage() {
     {
       id: "billed",
       header: "Billed",
-      info: "What the agency billed, which approval and the invoice use. Iris's own clock, from the Instawork app or the worker's check-in, shows underneath when it doesn't match.",
+      info: "What the agency billed, which approval and the invoice use. Iris's own clock, from the agency's app or the worker's check-in, shows underneath when it doesn't match.",
       cell: (t) => {
         const off = differsFromClock(t)
         const flagged = checks.get(t.id)?.some((c) => c.id === "above_clock" || c.id === "early" || c.id === "over_schedule")

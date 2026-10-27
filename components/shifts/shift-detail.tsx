@@ -511,7 +511,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <Surface elevated data-tour="release">
             <SurfaceHeader
               title="Suppliers"
-              info="Approved suppliers receive this shift in priority order until it fills. Each Pro is billed at their own supplier's rate."
+              info="Your pick for the role sees this shift first, then the other approved agencies by rate, until it fills. Each Pro is billed at their own agency's rate."
               description={`${group.supplierIds.length} of ${supplierReleases.length} released`}
             />
             <ul className="flex flex-col px-3 pt-2 pb-2">

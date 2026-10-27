@@ -659,6 +659,8 @@ export interface DemoData {
   activity: ActivityEvent[]
   /** Buyer id to the supplier ids it approved. Only approved suppliers are sent its new shifts. */
   approvals: Record<string, string[]>
+  /** Buyer id to the agency it picked per market and role (`cityId:positionId`). Without a pick, the lowest rate goes first. */
+  offerPicks?: Record<string, Record<string, string>>
   reviews: ProReview[]
   businessActivity: BusinessActivity[]
   budgets: UnitBudget[]

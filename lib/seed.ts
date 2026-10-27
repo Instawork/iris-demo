@@ -65,16 +65,16 @@ const POSITION_SETS = {
   ],
 }
 
-const PRO_COUNTS: Record<string, number> = { instawork: 136, crewline: 70, harbor: 48, metro: 46 }
-const ONBOARDING_COUNTS: Record<string, number> = { instawork: 4, crewline: 3, harbor: 2, metro: 6 }
-const EXPIRED_RATE: Record<string, number> = { instawork: 0.0, crewline: 0.06, harbor: 0.05, metro: 0.14 }
-const EXPIRING_RATE: Record<string, number> = { instawork: 0.05, crewline: 0.07, harbor: 0.06, metro: 0.12 }
+const PRO_COUNTS: Record<string, number> = { instawork: 84, crewline: 78, harbor: 56, metro: 50 }
+const ONBOARDING_COUNTS: Record<string, number> = { instawork: 3, crewline: 3, harbor: 2, metro: 6 }
+const EXPIRED_RATE: Record<string, number> = { instawork: 0.05, crewline: 0.06, harbor: 0.05, metro: 0.14 }
+const EXPIRING_RATE: Record<string, number> = { instawork: 0.07, crewline: 0.07, harbor: 0.06, metro: 0.12 }
 const CITY_WEIGHT: Record<string, number> = { chi: 0.7, atl: 0.19, dal: 0.11 }
 
 /** Each buyer's approved suppliers on first load. Metro and Harbor are each left unchecked by one buyer. */
 export const INITIAL_APPROVALS: Record<string, string[]> = {
-  "levy-chi": ["instawork", "crewline", "harbor"],
-  "chartwells-south": ["instawork", "crewline", "metro"],
+  "levy-chi": ["crewline", "harbor", "instawork"],
+  "chartwells-south": ["crewline", "instawork", "metro"],
 }
 
 interface EventTemplate {
@@ -291,18 +291,8 @@ function generatePros(r: Random, counters: Counters, today: string): Pro[] {
       )
       const positionIds = r.pick(POSITION_SETS[family])
       const isOnboarding = i < onboarding
-      const isIW = s.isInstawork
-      const shiftsWorked = isOnboarding ? 0 : isIW ? r.int(18, 340) : r.int(6, 160)
+      const shiftsWorked = isOnboarding ? 0 : r.int(6, 220)
       const joinedOn = isOnboarding ? addDaysISO(today, -r.int(2, 12)) : addDaysISO(today, -r.int(40, 980))
-      const level = !isIW || isOnboarding
-        ? null
-        : shiftsWorked > 220
-          ? "platinum"
-          : shiftsWorked > 110
-            ? "gold"
-            : shiftsWorked > 45
-              ? "silver"
-              : "bronze"
       const code = `P-${counters.pro++}`
       pros.push({
         id: code.toLowerCase(),
@@ -314,12 +304,12 @@ function generatePros(r: Random, counters: Counters, today: string): Pro[] {
         phone: `(${cityId === "chi" ? "312" : cityId === "atl" ? "404" : "214"}) 555-${String(r.int(100, 9999)).padStart(4, "0")}`,
         cityId,
         positionIds: [...positionIds],
-        rating: isOnboarding ? 0 : round2(isIW ? r.float(4.55, 5) : r.float(4.05, 4.9)),
+        rating: isOnboarding ? 0 : round2(r.float(4.1, 4.95)),
         shiftsWorked,
         reliability: isOnboarding ? 0 : Math.round(Math.min(100, s.profile.fillRate * 100 + r.float(-6, 4))),
         joinedOn,
         status: isOnboarding ? "onboarding" : "active",
-        level,
+        level: null,
         compliance: makeCompliance(r, s.id, positionIds, joinedOn, isOnboarding, today),
       })
     }
@@ -371,7 +361,7 @@ interface FillTarget {
 }
 
 const FILL_TARGET: FillTarget = {
-  instawork: (d) => (d <= 7 ? 1 : 0.86),
+  instawork: (d) => (d <= 2 ? 0.95 : d <= 7 ? 0.82 : 0.6),
   crewline: (d) => (d <= 2 ? 0.95 : d <= 7 ? 0.8 : 0.55),
   harbor: (d) => (d <= 2 ? 0.9 : d <= 7 ? 0.68 : 0.42),
   metro: (d) => (d <= 2 ? 0.58 : d <= 7 ? 0.44 : 0.28),
@@ -499,7 +489,7 @@ export function generateDemoData(today = todayISO()): DemoData {
           const isApp = sup.integration === "api"
           const drift = isApp ? r.int(-6, 4) : r.int(-10, 10)
           let outDrift = isApp ? r.int(-4, 9) : r.int(-8, 14)
-          if (r.chance(sup.isInstawork ? 0.015 : 0.05)) outDrift += r.int(55, 95)
+          if (r.chance(isApp ? 0.025 : 0.05)) outDrift += r.int(55, 95)
           const inAt = hhmmFromMinutes(minutesOf(group.start) + drift)
           const outAt = hhmmFromMinutes(minutesOf(group.end) + outDrift)
           const breakMins = group.breakMins && r.chance(0.04) ? 0 : group.breakMins

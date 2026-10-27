@@ -57,7 +57,7 @@ export function TimesheetStatusBadge({ t, kind, size = "md" }: { t: Timesheet; k
   )
 }
 
-export const CLOCK_SOURCE: Record<ClockRecord["source"], string> = { instawork_app: "Instawork app", iris_checkin: "Iris check-in" }
+export const CLOCK_SOURCE: Record<ClockRecord["source"], string> = { instawork_app: "Agency app", iris_checkin: "Iris check-in" }
 
 export const timeRange = (from?: string, to?: string) => (from || to ? `${from ? formatClock(from) : "--"} – ${to ? formatClock(to) : "--"}` : "--")
 

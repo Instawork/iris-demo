@@ -387,7 +387,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                           <span className="flex flex-col">
                             <span className="text-body-3 font-semibold">{b.name}</span>
                             <span className="text-caption-1 text-faded">
-                              {units} {units === 1 ? "unit" : "units"} in its markets · joins the end of the release order
+                              {units} {units === 1 ? "unit" : "units"} in its markets · competes on rate for their shifts
                             </span>
                           </span>
                         </label>

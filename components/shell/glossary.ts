@@ -6,9 +6,9 @@ export interface Term {
 }
 
 export const GLOSSARY: Term[] = [
-  { id: "pro", term: "Pro", group: "Staffing", definition: "A worker supplied by Instawork or another staffing agency. Every Pro belongs to exactly one supplier." },
+  { id: "pro", term: "Pro", group: "Staffing", definition: "A worker supplied by a staffing agency. Every Pro belongs to exactly one supplier." },
   { id: "buyer", term: "Buyer", group: "Staffing", definition: "A Compass location group, like Levy · Chicago. Buyers post shifts and approve hours." },
-  { id: "supplier", term: "Supplier", group: "Staffing", definition: "A staffing agency on Iris, including Instawork. Suppliers upload their rates and Pros, fill shifts and submit hours." },
+  { id: "supplier", term: "Supplier", group: "Staffing", definition: "A staffing agency on Iris. Suppliers upload their rates and Pros, fill shifts and submit hours." },
   { id: "approved", term: "Approved supplier", group: "Staffing", definition: "A supplier a buyer checked on its Dashboard. Only approved suppliers are notified when that buyer posts a shift." },
   { id: "shift-group", term: "Shift group ID", group: "Staffing", definition: "Links shifts that belong to the same request, for example 5 servers for one event. The ID (like SG-48210) ties shifts, timesheets and tips together in uploads." },
   { id: "roster", term: "Roster", group: "Staffing", definition: "Your lists of Pros: Favorites get first look at your shifts, Ok to return can book after them, Blocked can never book your shifts." },

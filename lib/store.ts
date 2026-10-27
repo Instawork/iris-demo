@@ -9,7 +9,7 @@ import { applyChanges, type Changes } from "@/lib/domain/sync"
 import { DEFAULT_WORKSPACE_ID, syncDirectory, workspace } from "@/lib/reference"
 import type { DemoData, ReportSchedule, ReportSpec, RequirementId, RosterStatus, Upload, Verification } from "@/lib/types"
 
-export { eligiblePros, emptyData, joinNames, notifiedSuppliers, supplierReleasePlan } from "@/lib/domain/core"
+export { eligiblePros, emptyData, joinNames, notifiedSuppliers, pickedOffer, supplierReleasePlan } from "@/lib/domain/core"
 export type { BookingInput, Patch, RateCardInput } from "@/lib/domain/core"
 
 type UploadRecord = Omit<Upload, "id" | "code">
@@ -46,7 +46,8 @@ interface StoreState {
   cancelGroup: (groupId: string) => Promise<void>
   setHeadcount: (groupId: string, headcount: number) => Promise<void>
   setSupplierApproval: (buyerId: string, supplierId: string, approved: boolean) => Promise<void>
-  moveSupplierPriority: (buyerId: string, supplierId: string, direction: -1 | 1) => Promise<void>
+  /** Picks the agency that sees a role's new shifts first in a market. `null` goes back to lowest rate first. */
+  pickOffer: (buyerId: string, cityId: string, positionId: string, supplierId: string | null) => Promise<void>
   assignPros: (groupId: string, proIds: string[]) => Promise<number>
   releasePro: (groupId: string, slotId: string) => Promise<void>
   markNoShow: (groupId: string, slotId: string) => Promise<void>
@@ -269,7 +270,7 @@ export const useStore = create<StoreState>()((set, get) => {
     cancelGroup: async (groupId) => void (await send("cancelGroup", { groupId })),
     setHeadcount: async (groupId, headcount) => void (await send("setHeadcount", { groupId, headcount })),
     setSupplierApproval: async (buyerId, supplierId, approved) => void (await send("setSupplierApproval", { buyerId, supplierId, approved })),
-    moveSupplierPriority: async (buyerId, supplierId, direction) => void (await send("moveSupplierPriority", { buyerId, supplierId, direction })),
+    pickOffer: async (buyerId, cityId, positionId, supplierId) => void (await send("pickOffer", { buyerId, cityId, positionId, supplierId })),
     assignPros: async (groupId, proIds) => (await send("assignPros", { groupId, proIds })) ?? 0,
     releasePro: async (groupId, slotId) => void (await send("releasePro", { groupId, slotId })),
     markNoShow: async (groupId, slotId) => void (await send("markNoShow", { groupId, slotId })),

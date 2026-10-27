@@ -26,8 +26,8 @@ import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatDateShort } from "@/lib/dates"
 import { money, pct } from "@/lib/format"
 import { formatTimeToFill, metricsFor } from "@/lib/metrics"
-import { CITIES, POSITIONS, SUPPLIERS, city, locationsFor, position, supplier } from "@/lib/reference"
-import { useStore } from "@/lib/store"
+import { CITIES, POSITIONS, PROGRAM, SUPPLIERS, city, locationsFor, policyFor, position, supplier } from "@/lib/reference"
+import { joinNames, notifiedSuppliers, pickedOffer, useStore } from "@/lib/store"
 import type { RateCard } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -208,6 +208,7 @@ type Metric = "bill" | "pay" | "markup"
 function RateComparison() {
   const data = useData()
   const { ws } = useWorkspace()
+  const pickOffer = useStore((s) => s.pickOffer)
   const isBuyer = ws.kind === "buyer"
   const cities = useMemo(() => {
     if (!isBuyer) return CITIES
@@ -217,19 +218,32 @@ function RateComparison() {
   const [cityId, setCityId] = useState(cities[0].id)
   const [metric, setMetric] = useState<Metric>("bill")
   const suppliers = SUPPLIERS.filter((s) => s.cityIds.includes(cityId))
-  const approved = isBuyer ? (data.approvals[ws.buyerId!] ?? []) : []
+  const approved = useMemo(() => (isBuyer ? (data.approvals[ws.buyerId!] ?? []) : []), [data.approvals, isBuyer, ws.buyerId])
   const shown: Metric = isBuyer ? "bill" : metric
+  const gap = isBuyer ? policyFor(ws.buyerId!).tierGapHours : PROGRAM.cascadeHoursBefore
 
   const matrix = useMemo(
     () =>
       POSITIONS.map((p) => {
         const cards = suppliers.map((s) => data.rateCards.find((c) => c.supplierId === s.id && c.cityId === cityId && c.positionId === p.id && c.status === "active"))
-        const live = cards.filter((c): c is RateCard => !!c)
+        const live = cards.filter((c): c is RateCard => !!c && (!isBuyer || approved.includes(c.supplierId)))
         const low = live.length ? Math.min(...live.map((c) => c.billRate)) : 0
-        return { position: p, cards, low }
+        const order = isBuyer ? notifiedSuppliers(data, ws.buyerId!, cityId, p.id) : []
+        const picked = isBuyer ? pickedOffer(data, ws.buyerId!, cityId, p.id) : undefined
+        return { position: p, cards, low, first: order[0]?.supplier.id, picked: order[0]?.supplier.id === picked ? picked : undefined, order }
       }).filter((row) => row.cards.some(Boolean)),
-    [data.rateCards, suppliers, cityId],
+    [data, suppliers, cityId, isBuyer, ws.buyerId, approved],
   )
+
+  const pick = (row: (typeof matrix)[number], supplierId: string | null) => {
+    void pickOffer(ws.buyerId!, cityId, row.position.id, supplierId).then(() => {
+      const order = notifiedSuppliers(useStore.getState().data, ws.buyerId!, cityId, row.position.id)
+      const rest = order.slice(1).map((n) => n.supplier.shortName)
+      toast.success(`${order[0]?.supplier.shortName} sees new ${row.position.name} shifts first`, {
+        description: rest.length ? `Then ${joinNames(rest)}, by rate, ${gap} hours apart while spots are open.` : undefined,
+      })
+    })
+  }
 
   const value = (c: RateCard) => (shown === "bill" ? money(c.billRate) : shown === "pay" ? money(c.proRate) : money(c.billRate - c.proRate))
 
@@ -262,11 +276,11 @@ function RateComparison() {
     <>
       <PageHeader
         className="pt-4"
-        title="Supplier Rates"
+        title="Rate Cards"
         description={
           isBuyer
-            ? "What each supplier charges per hour in your cities. Open one to see how it performs at your locations and choose whether it gets your shifts."
-            : "Every supplier's rates by city, side by side. Suppliers upload their own; invoices use the bill rate for the shift's city."
+            ? `Every agency's rate for each role in your cities. Click a rate to send that role's shifts there first. The rest follow by rate, ${gap} hours apart.`
+            : "Every agency's rates by city, side by side. Agencies upload their own; invoices use the bill rate for the shift's city."
         }
         actions={
           <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3 text-faded" onClick={exportCsv}>
@@ -295,12 +309,20 @@ function RateComparison() {
           />
         )}
       </div>
-      <Surface elevated className="overflow-hidden">
+      <Surface elevated className="overflow-hidden" data-tour="offers">
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full min-w-[720px] border-collapse text-left text-body-3">
             <thead>
               <tr className="border-b border-border bg-page-faded">
                 <th className="sticky left-0 z-10 bg-page-faded px-4 py-3 text-caption-1 font-medium text-faded">Position</th>
+                {isBuyer && (
+                  <th className="px-4 py-3 text-caption-1 font-medium text-faded">
+                    <span className="flex items-center gap-1">
+                      Sees it first
+                      <InfoTip>Your pick for the role, or the lowest rate if you haven&apos;t picked. The other agencies follow by rate.</InfoTip>
+                    </span>
+                  </th>
+                )}
                 {suppliers.map((s) => {
                   const m = metricsFor(data, s.id, ws.buyerId)
                   return (
@@ -331,13 +353,36 @@ function RateComparison() {
                 <Fragment key={`${cityId}-${row.position.id}`}>
                   {row.position.category !== matrix[index - 1]?.position.category && (
                     <tr className="border-b border-border/70 bg-page-faded">
-                      <td colSpan={suppliers.length + 1} className="px-4 py-1.5 text-caption-1 font-semibold text-faded">
+                      <td colSpan={suppliers.length + (isBuyer ? 2 : 1)} className="px-4 py-1.5 text-caption-1 font-semibold text-faded">
                         {row.position.category}
                       </td>
                     </tr>
                   )}
-                  <tr className="border-b border-border/70 transition-colors duration-100 last:border-0 hover:bg-hover/60">
+                  <tr className="border-b border-border/70 transition-colors duration-100 last:border-0 hover:bg-hover/60" data-position={row.position.id}>
                     <td className="sticky left-0 z-10 bg-card px-4 py-3 font-semibold">{row.position.name}</td>
+                    {isBuyer && (
+                      <td className="px-4 py-2.5">
+                        {row.first ? (
+                          <span className="flex items-center gap-2">
+                            <SupplierLogo supplierId={row.first} size="sm" />
+                            <span className="flex flex-col">
+                              <span className="font-semibold">{supplier(row.first).shortName}</span>
+                              {row.picked ? (
+                                <button type="button" className="text-left text-caption-1 text-faded underline-offset-4 hover:text-foreground hover:underline" onClick={() => pick(row, null)}>
+                                  Your pick · use lowest
+                                </button>
+                              ) : (
+                                <span className="text-caption-1 text-faded">Lowest rate</span>
+                              )}
+                            </span>
+                          </span>
+                        ) : (
+                          <Tip content={`None of your approved agencies staffs ${row.position.name} in ${city(cityId).name}`}>
+                            <span className="text-subtle">—</span>
+                          </Tip>
+                        )}
+                      </td>
+                    )}
                     {row.cards.map((c, i) => {
                       const s = suppliers[i]
                       if (!c)
@@ -349,15 +394,52 @@ function RateComparison() {
                           </td>
                         )
                       const lowest = c.billRate === row.low
+                      if (isBuyer) {
+                        const open = approved.includes(s.id)
+                        const first = row.first === s.id
+                        const rank = row.order.findIndex((n) => n.supplier.id === s.id)
+                        return (
+                          <td key={s.id} className="px-4 py-2.5">
+                            <Tip
+                              content={
+                                !open
+                                  ? `Approve ${s.shortName} on its page to send it ${row.position.name} shifts`
+                                  : first
+                                    ? row.picked
+                                      ? `Your pick: ${s.shortName} sees new ${row.position.name} shifts first. Click to go back to lowest rate first.`
+                                      : `Lowest rate, so ${s.shortName} sees new ${row.position.name} shifts first. Click to keep it first even if rates change.`
+                                    : `Send ${row.position.name} shifts to ${s.shortName} first. Now it sees them ${rank * gap} hours after the first.`
+                              }
+                            >
+                              <button
+                                type="button"
+                                aria-disabled={!open}
+                                aria-pressed={first}
+                                data-tour="offer"
+                                data-supplier={s.id}
+                                onClick={() => {
+                                  if (open) pick(row, first && row.picked ? null : s.id)
+                                }}
+                                className={cn(
+                                  "inline-flex min-w-28 flex-col rounded-lg px-2.5 py-1.5 text-left transition-colors duration-100",
+                                  first ? "bg-primary-faded ring-2 ring-primary" : open ? "ring-1 ring-border hover:bg-hover hover:ring-border-strong" : "cursor-default opacity-50",
+                                )}
+                              >
+                                <span className="flex items-center gap-1.5 font-bold tabular">
+                                  {money(c.billRate)}
+                                  {first && <Check className="size-3.5" />}
+                                </span>
+                                <span className={cn("text-caption-1 tabular", open && lowest ? "text-positive-fg" : "text-faded")}>
+                                  {!open ? "Not approved" : first ? (lowest ? "Lowest · first" : "Sees it first") : lowest ? "Lowest" : `+${money(c.billRate - row.low)}`}
+                                </span>
+                              </button>
+                            </Tip>
+                          </td>
+                        )
+                      }
                       return (
                         <td key={s.id} className="px-4 py-2.5">
-                          <Tip
-                            content={
-                              isBuyer
-                                ? `${s.shortName} · ${row.position.name}: ${money(c.billRate)}/hr`
-                                : `${s.shortName} · ${row.position.name}: pay rate ${money(c.proRate)} + markup ${money(c.billRate - c.proRate)} = ${money(c.billRate)}/hr`
-                            }
-                          >
+                          <Tip content={`${s.shortName} · ${row.position.name}: pay rate ${money(c.proRate)} + markup ${money(c.billRate - c.proRate)} = ${money(c.billRate)}/hr`}>
                             <span className={cn("inline-flex min-w-28 flex-col rounded-lg px-2.5 py-1.5", lowest && shown === "bill" && "bg-positive-faded ring-1 ring-positive-border")}>
                               <span className="flex items-center gap-1.5 font-bold tabular">
                                 {value(c)}

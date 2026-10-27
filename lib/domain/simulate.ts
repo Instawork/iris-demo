@@ -10,9 +10,9 @@ import type { ClockRecord, DemoData, ShiftGroup, Slot, Timesheet } from "@/lib/t
 
 /** How fast each agency staffs a shift when nobody is playing it: odds per tick, Pros per burst, and the share it can fill. */
 const PACE: Record<string, { chance: number; burst: [number, number]; cap: number }> = {
-  instawork: { chance: 0.95, burst: [1, 3], cap: 1 },
-  crewline: { chance: 0.55, burst: [1, 1], cap: 0.92 },
-  harbor: { chance: 0.42, burst: [1, 1], cap: 0.85 },
+  instawork: { chance: 0.7, burst: [1, 2], cap: 0.92 },
+  crewline: { chance: 0.7, burst: [1, 2], cap: 0.92 },
+  harbor: { chance: 0.55, burst: [1, 2], cap: 0.88 },
   metro: { chance: 0.28, burst: [1, 1], cap: 0.7 },
 }
 

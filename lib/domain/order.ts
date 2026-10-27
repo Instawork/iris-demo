@@ -20,11 +20,11 @@ export interface OrderPreview {
 /** What the server will decide about an order, shown before anyone posts it. Same rules as the command. */
 export function previewOrder(
   data: DemoData,
-  input: Pick<BookingInput, "locationId" | "positionId" | "dates" | "start" | "end" | "breakMins" | "headcount">,
+  input: Pick<BookingInput, "locationId" | "positionId" | "dates" | "start" | "end" | "breakMins" | "headcount" | "onlyAgencyId" | "firstAgencyId">,
   now = new Date(),
 ): OrderPreview | undefined {
   const loc = location(input.locationId)
-  const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, input.positionId)
+  const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, input.positionId, input.onlyAgencyId ?? input.firstAgencyId)
   if (!notified.length || !input.dates.length) return undefined
   const policy = policyFor(loc.buyerId)
   const perDate = round2(paidHours(input.start, input.end, input.breakMins) * notified[0].card.billRate * input.headcount)

@@ -42,7 +42,7 @@ export function AgencyPage({ id }: { id: string }) {
           description={found ? "Agencies only see their own page." : "It may have been removed or the link is wrong."}
           actions={
             <Button asChild variant="outline">
-              <Link href={ws.kind === "compass" ? "/agencies" : "/rates"}>{ws.kind === "compass" ? "Back to Agencies" : "Back to Supplier Rates"}</Link>
+              <Link href={ws.kind === "compass" ? "/agencies" : "/rates"}>{ws.kind === "compass" ? "Back to Agencies" : "Back to Rate Cards"}</Link>
             </Button>
           }
         />

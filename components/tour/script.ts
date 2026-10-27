@@ -10,7 +10,7 @@ import { fullName, money, plural } from "@/lib/format"
 import { billingFindings, billingToReview, complianceScore, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { SUPPLIERS, location, position, supplier } from "@/lib/reference"
-import { eligiblePros, useStore } from "@/lib/store"
+import { eligiblePros, notifiedSuppliers, pickedOffer, useStore } from "@/lib/store"
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { reportHref } from "@/lib/reports"
@@ -239,8 +239,10 @@ const bigOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.approval
 /** The order the player posted from the form, asking for Pros by name. */
 const requestedOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.dispatch?.proIds?.length)
 
+const OFFERS = '[data-tour="offers"]'
 const DISPATCH = '[data-tour="dispatch"]'
-const prosPicked = () => document.querySelectorAll(`${DISPATCH} li button[aria-pressed="true"]`).length
+const PRO_PICKER = `${DISPATCH} [data-tour="request-pros"]`
+const prosPicked = () => document.querySelectorAll(`${PRO_PICKER} li button[aria-pressed="true"]`).length
 
 const hasDraft = (ctx: TourContext, label?: string) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift" && (!label || a.label === label)))
 
@@ -647,8 +649,29 @@ export const SCRIPT: TourItem[] = [
     chapter: "shifts",
     title: "Shift creation",
     wsId: LEVY,
-    href: "/",
-    shows: "Book shifts in a sentence, send one over budget, and request Pros by name.",
+    href: "/rates",
+    shows: "Pick the best offer for a role, book shifts in a sentence, send one over budget, and request Pros by name.",
+  },
+  {
+    kind: "step",
+    id: "pick-offer",
+    chapter: "shifts",
+    wsId: LEVY,
+    path: /^\/rates/,
+    href: () => "/rates",
+    title: "Every agency's rate, side by side",
+    body: "The lowest is marked. The rate you pick sees that role's shifts first, and the rest follow by rate.",
+    action: "Pick an agency for Bartender",
+    targets: () => [one(`${OFFERS} tr[data-position="bartender"]`)],
+    placement: "bottom",
+    done: (ctx) => !!pickedOffer(ctx.data, "levy-chi", "chi", "bartender"),
+    success: (ctx) => `${supplier(pickedOffer(ctx.data, "levy-chi", "chi", "bartender")!).shortName} sees Levy's bartender shifts first`,
+    onDone: (_, api) => later(() => api.push("/"), 1100),
+    skip: (ctx, api) => {
+      const best = notifiedSuppliers(ctx.data, "levy-chi", "chi", "bartender")[0]
+      if (best) void useStore.getState().pickOffer("levy-chi", "chi", "bartender", best.supplier.id)
+      api.push("/")
+    },
   },
   {
     kind: "step",
@@ -688,7 +711,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Check the draft",
-    body: "Priced from each agency's rate and checked against the budget. Nothing is booked yet.",
+    body: "Priced from each agency's rate, best offer first, and checked against the budget. Nothing is booked yet.",
     action: "Click Create and send",
     targets: () => [last('[data-tour="agent-draft"]')],
     placement: "right",
@@ -765,10 +788,11 @@ export const SCRIPT: TourItem[] = [
       const g = booked(ctx)
       return g ? `/shifts/${g.id}` : "/shifts"
     },
-    title: "Released in the order Levy set",
+    title: "Best offer first",
     body: (ctx) => {
       const g = booked(ctx)
-      return g && filledCount(g) >= g.slots.length ? "Instawork filled it, so the other agencies never saw it." : "Instawork has it first. The next agencies see only what's left."
+      const name = g ? supplier(g.supplierId).shortName : "Levy's pick"
+      return g && filledCount(g) >= g.slots.length ? `${name} filled it, so the other agencies never saw it.` : `${name} has it first. The next agencies, by rate, see only what's left.`
     },
     targets: () => [one('[data-tour="release"]'), one('[data-tour="roster"]')],
     placement: "bottom",
@@ -832,7 +856,7 @@ export const SCRIPT: TourItem[] = [
       click(`${DISPATCH} [role="tab"][data-value="pros"]`)
       const pick = (left: number) => {
         if (left <= 0) return
-        const row = [...document.querySelectorAll<HTMLButtonElement>(`${DISPATCH} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
+        const row = [...document.querySelectorAll<HTMLButtonElement>(`${PRO_PICKER} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
         row?.click()
         if (row) later(() => pick(left - 1), 200)
       }
@@ -887,7 +911,10 @@ export const SCRIPT: TourItem[] = [
       const status = bigOrder(ctx)?.approval?.status
       return !!status && status !== "pending"
     },
-    success: (ctx) => (bigOrder(ctx)?.approval?.status === "approved" ? "Approved and released to Instawork" : "Declined. Jordan has been told"),
+    success: (ctx) => {
+      const g = bigOrder(ctx)
+      return g?.approval?.status === "approved" ? `Approved and released to ${supplier(g.supplierId).shortName}` : "Declined. Jordan has been told"
+    },
     skip: (ctx) => {
       const g = bigOrder(ctx)
       if (g) void useStore.getState().decideApproval([g.id], "approve")

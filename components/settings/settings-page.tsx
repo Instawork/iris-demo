@@ -412,7 +412,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
   return (
     <>
       <Surface elevated className="overflow-hidden">
-        <SurfaceHeader title="One connection to every supplier" info="Instawork and other agencies connect to Iris once. You never integrate with them one by one." />
+        <SurfaceHeader title="One connection to every supplier" info="Every agency connects to Iris once, by API or CSV. You never integrate with them one by one." />
         <div className="px-4 pb-4">
           <HubDiagram />
         </div>
@@ -426,7 +426,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
                   <SupplierLogo supplierId={s.id} size="lg" />
                   <div className="flex flex-col">
                     <span className="text-body-2 font-bold">{s.name}</span>
-                    <span className="text-caption-1 text-faded">{s.integration === "api" ? (s.isInstawork ? "Native · syncs in real time" : "API · syncs hourly") : "CSV uploads · next morning"}</span>
+                    <span className="text-caption-1 text-faded">{s.integration === "api" ? "API · syncs hourly" : "CSV uploads · next morning"}</span>
                   </div>
                 </div>
                 <StatusBadge tone="positive" dot>

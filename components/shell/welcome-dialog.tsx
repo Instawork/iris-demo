@@ -12,9 +12,9 @@ import type { PersonaKind } from "@/lib/types"
 
 const COPY: Record<PersonaKind, { lead: string; points: string[] }> = {
   buyer: {
-    lead: "Post shifts to Instawork and the other agencies you approve, without a ticketing maze.",
+    lead: "Compare every agency's rates, pick the best offer and post shifts once, without a ticketing maze.",
     points: [
-      "Approve suppliers on Supplier Rates after comparing rates and track records",
+      "Compare each agency's rate for a role on Rate Cards and pick who sees it first",
       "Post a shift once and every approved supplier is notified",
       "Approve hours on Timesheets and Iris generates the invoice",
     ],

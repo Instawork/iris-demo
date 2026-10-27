@@ -120,7 +120,7 @@ export function ReleaseCard({ group }: { group: ShiftGroup }) {
           <span className="text-caption-1 text-faded">
             {held
               ? `${policy.sector} releases orders ${policy.releaseLeadHours} hours before the shift. ${name} sees it first.`
-              : `If spots are still open then, ${name} is next in your release order.`}
+              : `If spots are still open then, ${name} is next, by rate.`}
           </span>
         </span>
       </div>

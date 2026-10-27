@@ -106,7 +106,7 @@ export function UnitsPage() {
     {
       id: "agencies",
       header: "Staffed by",
-      info: "The buyer's approved agencies with rates in this market, in release order.",
+      info: "The buyer's approved agencies with rates in this market.",
       cell: (l) => (
         <span className="flex -space-x-1">
           {staffing(data, l).map((id) => (

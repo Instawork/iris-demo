@@ -58,7 +58,7 @@ function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: 
 }
 
 /** A drafted order laid out the way a buyer checks one: what, when, what it costs, and who sees it in what order. */
-function DraftCard({ draft }: { draft: ShiftDraft }) {
+function DraftCard({ draft, onPick }: { draft: ShiftDraft; onPick?: (supplierId: string) => void }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-body-3 shadow-raised">
       <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
@@ -92,16 +92,30 @@ function DraftCard({ draft }: { draft: ShiftDraft }) {
         </div>
       </dl>
       <div className="border-t border-border px-4 py-3">
-        <span className="text-caption-1 text-faded">Release order</span>
-        <ol className="mt-2 flex flex-col gap-1.5">
-          {draft.release.map((r) => (
-            <li key={r.supplierId} className="flex items-center gap-2.5">
-              <span className="w-10 text-caption-1 text-faded tabular">{r.at}</span>
-              <SupplierLogo supplierId={r.supplierId} size="sm" />
-              <span className="font-medium">{r.name}</span>
-              <span className="ml-auto tabular text-faded">${r.rate.toFixed(2)}/hr</span>
-            </li>
-          ))}
+        <span className="text-caption-1 text-faded">{onPick && draft.release.length > 1 ? "Release order · click an agency to send it there first" : "Release order"}</span>
+        <ol className="mt-2 flex flex-col gap-0.5" data-tour="agent-release">
+          {draft.release.map((r, index) => {
+            const row = (
+              <>
+                <span className="w-10 text-caption-1 text-faded tabular">{r.at}</span>
+                <SupplierLogo supplierId={r.supplierId} size="sm" />
+                <span className="font-medium">{r.name}</span>
+                {r.why && <span className="rounded-full bg-muted px-1.5 py-px text-caption-2 font-medium text-faded">{r.why}</span>}
+                <span className="ml-auto tabular text-faded">${r.rate.toFixed(2)}/hr</span>
+              </>
+            )
+            return (
+              <li key={r.supplierId}>
+                {onPick && index ? (
+                  <button type="button" onClick={() => onPick(r.supplierId)} className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-2.5 rounded-md px-1.5 py-1 text-left hover:bg-hover">
+                    {row}
+                  </button>
+                ) : (
+                  <span className="-mx-1.5 flex items-center gap-2.5 px-1.5 py-1">{row}</span>
+                )}
+              </li>
+            )
+          })}
         </ol>
       </div>
       {draft.note && <p className="border-t border-border px-4 py-2.5 text-caption-1 text-faded">{draft.note}</p>}
@@ -110,7 +124,18 @@ function DraftCard({ draft }: { draft: ShiftDraft }) {
 }
 
 /** The conversation itself. Agent replies read as prose next to Iris's mark; the user's turns sit in bubbles. */
-export function AgentMessages({ messages, onRun, compact }: { messages: AgentMessage[]; onRun: RunAction; compact?: boolean }) {
+export function AgentMessages({
+  messages,
+  onRun,
+  onPickFirst,
+  compact,
+}: {
+  messages: AgentMessage[]
+  onRun: RunAction
+  /** Redrafts an unsent order with another agency first. */
+  onPickFirst?: (messageId: number, supplierId: string) => void
+  compact?: boolean
+}) {
   const reduce = useReducedMotion()
   return (
     <ol className={cn("flex flex-col", compact ? "gap-4" : "gap-6")}>
@@ -140,7 +165,12 @@ export function AgentMessages({ messages, onRun, compact }: { messages: AgentMes
                 </span>
               )}
               <p className="whitespace-pre-wrap text-pretty">{message.text}</p>
-              {message.draft && <DraftCard draft={message.draft} />}
+              {message.draft && (
+                <DraftCard
+                  draft={message.draft}
+                  onPick={onPickFirst && message.actions?.some((a) => a.kind === "create-shift") ? (supplierId) => onPickFirst(message.id, supplierId) : undefined}
+                />
+              )}
               {message.actions && (
                 <div className="flex flex-wrap gap-2">
                   {message.actions.map((action) => (

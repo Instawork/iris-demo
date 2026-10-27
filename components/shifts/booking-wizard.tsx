@@ -38,7 +38,7 @@ import { previewOrder, type OrderPreview } from "@/lib/domain/order"
 import { money, moneyWhole, pct, round2 } from "@/lib/format"
 import { formatTimeToFill, metricsFor, type SupplierMetrics } from "@/lib/metrics"
 import { POSITIONS, PROGRAM, city, location, locationsFor, position, requirementLabel, requirementsFor } from "@/lib/reference"
-import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
+import { joinNames, notifiedSuppliers, pickedOffer, useStore } from "@/lib/store"
 import type { RateCard, Supplier } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -59,6 +59,8 @@ interface Draft {
   tips: boolean
   dispatch: Dispatch
   onlyAgencyId: string
+  /** Who sees this order first, when not the buyer's pick for the role. */
+  firstAgencyId: string
   proIds: string[]
 }
 
@@ -104,6 +106,7 @@ export function BookingWizard() {
       tips: src ? src.badges.includes("TIPS") : position(posId).alcohol,
       dispatch: "release",
       onlyAgencyId: "",
+      firstAgencyId: "",
       proIds: [],
     }
   })
@@ -116,16 +119,29 @@ export function BookingWizard() {
 
   const quotes = useMemo<Quote[]>(
     () =>
-      notifiedSuppliers(data, ws.buyerId!, loc.cityId, draft.positionId).map((n) => ({
+      notifiedSuppliers(data, ws.buyerId!, loc.cityId, draft.positionId, draft.firstAgencyId || undefined).map((n) => ({
         ...n,
         metrics: metricsFor(data, n.supplier.id, ws.buyerId),
         total: round2(n.card.billRate * hrs * spots),
       })),
-    [data, ws.buyerId, loc.cityId, draft.positionId, hrs, spots],
+    [data, ws.buyerId, loc.cityId, draft.positionId, draft.firstAgencyId, hrs, spots],
   )
+  const firstAgencyId = draft.dispatch !== "agency" && draft.firstAgencyId && quotes[0]?.supplier.id === draft.firstAgencyId ? draft.firstAgencyId : undefined
+  const onlyAgencyId = draft.dispatch === "agency" && draft.onlyAgencyId ? draft.onlyAgencyId : undefined
   const preview = useMemo(
-    () => previewOrder(data, { locationId: draft.locationId, positionId: draft.positionId, dates: draft.dates, start: draft.start, end: draft.end, breakMins: draft.breakMins, headcount: draft.headcount }),
-    [data, draft.locationId, draft.positionId, draft.dates, draft.start, draft.end, draft.breakMins, draft.headcount],
+    () =>
+      previewOrder(data, {
+        locationId: draft.locationId,
+        positionId: draft.positionId,
+        dates: draft.dates,
+        start: draft.start,
+        end: draft.end,
+        breakMins: draft.breakMins,
+        headcount: draft.headcount,
+        onlyAgencyId,
+        firstAgencyId,
+      }),
+    [data, draft.locationId, draft.positionId, draft.dates, draft.start, draft.end, draft.breakMins, draft.headcount, onlyAgencyId, firstAgencyId],
   )
   const minTotal = quotes.length ? Math.min(...quotes.map((q) => q.total)) : 0
   const maxTotal = quotes.length ? Math.max(...quotes.map((q) => q.total)) : 0
@@ -163,7 +179,8 @@ export function BookingWizard() {
         instructions: draft.instructions,
         attire: pos.attire,
         tips: draft.tips,
-        ...(draft.dispatch === "agency" && draft.onlyAgencyId ? { onlyAgencyId: draft.onlyAgencyId } : {}),
+        ...(onlyAgencyId ? { onlyAgencyId } : {}),
+        ...(firstAgencyId ? { firstAgencyId } : {}),
         ...(draft.dispatch === "pros" && draft.proIds.length ? { requestedProIds: draft.proIds } : {}),
       },
       requestKey,
@@ -217,7 +234,7 @@ export function BookingWizard() {
             className="flex flex-col gap-4"
           >
             {step === 0 && <ScheduleStep draft={draft} set={set} setDraft={setDraft} locations={locations} hrs={hrs} />}
-            {step === 1 && <ReviewStep draft={draft} set={set} quotes={quotes} spots={spots} preview={preview} />}
+            {step === 1 && <ReviewStep draft={draft} set={set} quotes={quotes} spots={spots} preview={preview} picked={pickedOffer(data, ws.buyerId!, loc.cityId, draft.positionId)} />}
           </motion.div>
 
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
@@ -521,12 +538,15 @@ function ReviewStep({
   quotes,
   spots,
   preview,
+  picked,
 }: {
   draft: Draft
   set: <K extends keyof Draft>(key: K, value: Draft[K]) => void
   quotes: Quote[]
   spots: number
   preview?: OrderPreview
+  /** The buyer's pick for this role on Rate Cards, if any. */
+  picked?: string
 }) {
   const loc = location(draft.locationId)
   const pos = position(draft.positionId)
@@ -555,7 +575,7 @@ function ReviewStep({
           <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
             Who gets it
             <InfoTip>
-              By default your approved suppliers receive it in your release order, {PROGRAM.cascadeHoursBefore} hours apart until it fills. Send it to one agency only, or ask for Pros you know first. Each Pro is billed at their supplier&apos;s rate.
+              Your pick for the role sees it first, or the lowest rate if you haven&apos;t picked. The others follow by rate, {preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore} hours apart until it fills. Click an agency to send this order there first, send it to one agency only, or ask for Pros you know. Each Pro is billed at their agency&apos;s rate.
             </InfoTip>
           </h3>
           {quotes.length > 0 && (
@@ -579,30 +599,49 @@ function ReviewStep({
         ) : (
           <>
             {draft.dispatch === "pros" && quotes.length > 0 && <RequestPros draft={draft} set={set} quotes={quotes} />}
+            {quotes.length > 1 && <p className="text-caption-1 text-faded">Click an agency to send this order there first.</p>}
           {quotes.length ? (
-            <ul className="divide-y divide-border rounded-lg border border-border">
-              {quotes.map((q, index) => (
-                <li key={q.supplier.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-caption-1 font-bold tabular">{index + 1}</span>
-                  <SupplierLogo supplierId={q.supplier.id} size="md" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-body-3 font-semibold">{q.supplier.name}</span>
-                    <span className="truncate text-caption-1 text-faded">
-                      {index ? `Releases ${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h after the first` : preview?.held && preview.firstRelease ? `Releases ${formatTimestamp(preview.firstRelease.toISOString())}` : "Releases immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
-                    </span>
-                  </span>
-                  <span className="flex flex-col items-end">
-                    <span className="text-body-3 font-semibold tabular">{money(q.card.billRate)}/hr</span>
-                    <span className="text-caption-1 text-faded tabular">Est. {money(q.total)}</span>
-                  </span>
-                </li>
-              ))}
+            <ul className="divide-y divide-border rounded-lg border border-border" data-tour="release-order">
+              {quotes.map((q, index) => {
+                const low = Math.min(...quotes.map((x) => x.card.billRate))
+                const why = index ? undefined : draft.firstAgencyId ? "Picked for this order" : picked === q.supplier.id ? "Your pick" : q.card.billRate === low ? "Lowest rate" : undefined
+                return (
+                  <li key={q.supplier.id}>
+                    <button
+                      type="button"
+                      onClick={() => index && set("firstAgencyId", q.supplier.id)}
+                      aria-pressed={!index}
+                      className={cn("flex w-full items-center gap-3 px-4 py-3 text-left", index ? "hover:bg-hover" : "cursor-default bg-primary-faded/60")}
+                    >
+                      <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-caption-1 font-bold tabular", index ? "bg-muted" : "bg-primary text-primary-foreground")}>{index + 1}</span>
+                      <SupplierLogo supplierId={q.supplier.id} size="md" />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="flex items-center gap-1.5 truncate text-body-3 font-semibold">
+                          {q.supplier.name}
+                          {why && (
+                            <StatusBadge tone="neutral" size="sm">
+                              {why}
+                            </StatusBadge>
+                          )}
+                        </span>
+                        <span className="truncate text-caption-1 text-faded">
+                          {index ? `Sees it ${index * (preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore)}h after the first` : preview?.held && preview.firstRelease ? `Sees it ${formatTimestamp(preview.firstRelease.toISOString())}` : "Sees it immediately"} · {q.metrics.slotsFilled ? `${pct(q.metrics.fillRate)} fill` : "New to your locations"} · fills in about {formatTimeToFill(q.metrics.hoursToFill)}
+                        </span>
+                      </span>
+                      <span className="flex flex-col items-end">
+                        <span className="text-body-3 font-semibold tabular">{money(q.card.billRate)}/hr</span>
+                        <span className="text-caption-1 text-faded tabular">Est. {money(q.total)}</span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           ) : (
             <p className="rounded-lg border border-warning-border bg-warning-faded px-4 py-3 text-body-3">
               None of your approved suppliers staff {pos.name} in {city(loc.cityId).name}.{" "}
               <Link href="/rates" className="font-medium underline underline-offset-4">
-                Approve one on Supplier Rates
+                Compare agencies on Rate Cards
               </Link>
               .
             </p>
@@ -610,9 +649,9 @@ function ReviewStep({
           </>
         )}
         <p className="text-caption-1 text-faded">
-          Change who gets your shifts on{" "}
+          Pick who sees each role first on{" "}
           <Link href="/rates" className="underline underline-offset-4 hover:text-foreground">
-            Supplier Rates
+            Rate Cards
           </Link>
           . You only pay for hours you approve. Tips pass through with no markup.
         </p>
@@ -719,7 +758,7 @@ function RequestPros({ draft, set, quotes }: { draft: Draft; set: <K extends key
   return (
     <div className="flex flex-col gap-2">
       {candidates.length ? (
-        <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-lg border border-border scrollbar-thin">
+        <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-lg border border-border scrollbar-thin" data-tour="request-pros">
           {candidates.map(({ pro, favorite, worked, reason }) => {
             const on = draft.proIds.includes(pro.id)
             return (

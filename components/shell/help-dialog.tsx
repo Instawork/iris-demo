@@ -14,7 +14,7 @@ import type { PersonaKind } from "@/lib/types"
 
 const STEPS: Record<PersonaKind, { icon: typeof CalendarPlus; title: string; body: string }[]> = {
   buyer: [
-    { icon: Scale, title: "Approve your suppliers", body: "Compare rates and track records on Supplier Rates, then open the suppliers you trust and approve them." },
+    { icon: Scale, title: "Approve your suppliers", body: "Compare every agency's rate for a role on Rate Cards, pick the best offer, and approve the agencies you trust." },
     { icon: CalendarPlus, title: "Post a shift", body: "Pick a location, position and time. Every approved supplier is notified at once." },
     { icon: BadgeCheck, title: "Approve the hours", body: "Approve hours on Timesheets. Approving them generates the supplier's invoice." },
     { icon: Coins, title: "Review invoices", body: "Every invoice is built from approved hours, tips and the supplier's rate. Nobody uploads them." },
@@ -62,7 +62,7 @@ function HelpBody({ initialTab }: { initialTab: HelpTab }) {
         <DialogHeader className="gap-1 border-b border-border px-6 pt-6 pb-4">
           <DialogTitle className="text-featured-3 font-bold">How Iris works</DialogTitle>
           <DialogDescription className="text-body-3">
-            Six pages, the same for everyone: Dashboard, Shifts, Supplier Rates, Professionals, Invoices and Uploads.
+            Six pages, the same for everyone: Dashboard, Shifts, Rate Cards, Professionals, Invoices and Uploads.
           </DialogDescription>
           <PillTabs
             className="mt-3"

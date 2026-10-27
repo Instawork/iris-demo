@@ -24,7 +24,8 @@ export interface ShiftDraft {
   time: string
   hours: number
   breakMins: number
-  release: { supplierId: string; name: string; rate: number; at: string }[]
+  /** In release order. `why` says why the first one is first. */
+  release: { supplierId: string; name: string; rate: number; at: string; why?: string }[]
   total: string
   budget?: { text: string; over: boolean }
   note?: string
@@ -47,6 +48,7 @@ interface AgentState {
   push: (workspaceId: string, message: Omit<AgentMessage, "id">) => void
   clear: (workspaceId: string) => void
   dropActions: (workspaceId: string, messageId: number) => void
+  update: (workspaceId: string, messageId: number, patch: Partial<Omit<AgentMessage, "id">>) => void
 }
 
 /** One conversation per workspace, shared by Home and the Agent Chat sheet so a thread follows you between them. */
@@ -64,6 +66,13 @@ export const useAgentThreads = create<AgentState>()((set) => ({
       threads: {
         ...state.threads,
         [workspaceId]: (state.threads[workspaceId] ?? []).map((m) => (m.id === messageId ? { ...m, actions: undefined } : m)),
+      },
+    })),
+  update: (workspaceId, messageId, patch) =>
+    set((state) => ({
+      threads: {
+        ...state.threads,
+        [workspaceId]: (state.threads[workspaceId] ?? []).map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
       },
     })),
 }))

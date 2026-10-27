@@ -40,6 +40,8 @@ export interface BookingInput {
   tips: boolean
   /** Only this agency sees it, instead of the release order. */
   onlyAgencyId?: string
+  /** This agency sees it first instead of the buyer's pick for the role. The rest follow by rate. */
+  firstAgencyId?: string
   /** Pros to book first, if they're cleared and free. The rest of the spots go out as usual. */
   requestedProIds?: string[]
 }
@@ -105,15 +107,26 @@ export function placeRequested(data: DemoData, g: ShiftGroup, now: string): Shif
   return { ...g, slots }
 }
 
-/** The buyer's approved suppliers that can staff this role in the city, in program order. Their rate cards price the shift. */
-export function notifiedSuppliers(data: DemoData, buyerId: string, cityId: string, positionId: string) {
+export const offerKey = (cityId: string, positionId: string) => `${cityId}:${positionId}`
+
+/** The agency the buyer picked for this role in this market, if it picked one. */
+export const pickedOffer = (data: DemoData, buyerId: string, cityId: string, positionId: string): string | undefined => data.offerPicks?.[buyerId]?.[offerKey(cityId, positionId)]
+
+/**
+ * The buyer's approved suppliers that can staff this role in the city, in release order: the agency the buyer picked
+ * for the role first (or `first`, for one order), then the rest from lowest bill rate up. Their rate cards price the shift.
+ */
+export function notifiedSuppliers(data: DemoData, buyerId: string, cityId: string, positionId: string, first?: string) {
   const approved = data.approvals[buyerId] ?? []
-  return approved.flatMap((id) => {
-    const s = SUPPLIERS.find((candidate) => candidate.id === id)
-    if (!s || !s.cityIds.includes(cityId)) return []
-    const card = data.rateCards.find((c) => c.supplierId === s.id && c.cityId === cityId && c.positionId === positionId && c.status === "active")
-    return card ? [{ supplier: s, card }] : []
-  })
+  const lead = first ?? pickedOffer(data, buyerId, cityId, positionId)
+  return approved
+    .flatMap((id) => {
+      const s = SUPPLIERS.find((candidate) => candidate.id === id)
+      if (!s || !s.cityIds.includes(cityId)) return []
+      const card = data.rateCards.find((c) => c.supplierId === s.id && c.cityId === cityId && c.positionId === positionId && c.status === "active")
+      return card ? [{ supplier: s, card }] : []
+    })
+    .sort((a, b) => Number(b.supplier.id === lead) - Number(a.supplier.id === lead) || a.card.billRate - b.card.billRate || a.supplier.name.localeCompare(b.supplier.name))
 }
 
 export function supplierReleasePlan(supplierIds: string[], createdAt: string) {
