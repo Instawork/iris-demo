@@ -487,6 +487,9 @@ export interface Todo {
   cta: string
 }
 
+/** Issued and not yet paid. The buyer's to-do and the Invoices badge both count these. */
+export const isOutstanding = (i: Invoice) => !["paid", "in_process", "open"].includes(invoiceStatus(i))
+
 export function todosFor(data: DemoData, ws: Workspace): Todo[] {
   const scope = scopeOf(ws)
   const todos: Todo[] = []
@@ -524,7 +527,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
         cta: "Approve hours",
       })
     }
-    const open = data.invoices.filter((i) => inScope(scope, i) && !["paid", "in_process", "open"].includes(invoiceStatus(i)))
+    const open = data.invoices.filter((i) => inScope(scope, i) && isOutstanding(i))
     if (open.length) {
       const overdue = open.filter((i) => invoiceStatus(i) === "overdue")
       const balance = round2(open.reduce((s, i) => s + invoiceBalance(i), 0))
@@ -653,10 +656,11 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
       return summary === "action_needed" || summary === "onboarding"
     })
     if (safetyExceptions.length) {
+      const expiring = data.pros.filter((p) => summaryOf(p) === "expiring").length
       todos.push({
         id: "safety",
         title: `${plural(safetyExceptions.length, "professional")} requiring safety review`,
-        description: "Background checks, I-9s, orientation and role-specific documents that are pending, missing or expired.",
+        description: `Background checks, I-9s, orientation and role-specific documents that are pending, missing or expired.${expiring ? ` Another ${expiring} drop off shifts within 30 days unless a document is renewed.` : ""}`,
         count: safetyExceptions.length,
         href: "/professionals?filter=not_compliant",
         tone: "warning",

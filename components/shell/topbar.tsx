@@ -34,7 +34,7 @@ function useCrumbs(): Crumb[] {
     if (section === "shifts" && sub === "new") return [root, { label: "New shift" }]
     if (section === "shifts") {
       const g = data.groups.find((x) => x.id === sub)
-      return [root, { label: g ? `${position(g.positionId).name} · ${g.code}` : "Shift" }]
+      return [root, { label: g ? g.name || position(g.positionId).name : "Shift" }]
     }
     if (section === "invoices") {
       const inv = data.invoices.find((x) => x.id === sub)

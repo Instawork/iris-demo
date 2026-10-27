@@ -2,7 +2,7 @@ import { BadgeCheck, BadgeDollarSign, Building2, Calendar, ChartColumn, Clock, F
 
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
-import { awaitingApproval, filledCount, groupPhase, inScope, invoiceStatus, isOpenTo, needsReview } from "@/lib/metrics"
+import { awaitingApproval, filledCount, groupPhase, inScope, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
 import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
@@ -117,7 +117,7 @@ export function navFor(ws: Workspace): NavItem[] {
         kind === "compass"
           ? (data) => data.invoices.filter((i) => needsReview(data, i)).length
           : kind === "buyer"
-            ? (data, w) => data.invoices.filter((i) => i.buyerId === w.buyerId && invoiceStatus(i) === "overdue").length
+            ? (data, w) => data.invoices.filter((i) => i.buyerId === w.buyerId && isOutstanding(i)).length
             : undefined,
     },
     {

@@ -154,5 +154,6 @@ export function predictionsFor(data: DemoData, ws: Workspace): Prediction[] {
   const scope = scopeOf(ws)
   if (scope.kind === "buyer" && scope.buyerId) return recurringShifts(data, scope.buyerId)
   if (scope.kind === "supplier" && scope.supplierId) return [...fillRisks(data, scope.supplierId), expiringPros(data, scope.supplierId)].filter((p): p is Prediction => !!p)
-  return [...programSignals(data), expiringPros(data)].filter((p): p is Prediction => !!p)
+  const safetyTodo = data.pros.some((p) => ["action_needed", "onboarding"].includes(summaryOf(p)))
+  return [...programSignals(data), safetyTodo ? undefined : expiringPros(data)].filter((p): p is Prediction => !!p)
 }

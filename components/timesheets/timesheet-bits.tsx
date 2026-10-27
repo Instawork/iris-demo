@@ -67,9 +67,9 @@ export const shortRange = (from?: string, to?: string) => (from || to ? `${from 
 export function ChecksCell({ checks }: { checks: TimesheetCheck[] }) {
   if (!checks.length) {
     return (
-      <Tip content="Matches the clock and the schedule.">
-        <span className="inline-flex items-center gap-1 text-caption-1 text-positive-fg">
-          <CheckCircle2 className="size-3.5" /> Clean
+      <Tip content="Clean. It matches the clock and the schedule.">
+        <span className="inline-flex text-positive-fg/70" aria-label="Clean">
+          <CheckCircle2 className="size-3.5" />
         </span>
       </Tip>
     )

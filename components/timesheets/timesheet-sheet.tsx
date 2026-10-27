@@ -13,10 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { addDaysISO, formatClock, formatDateLong, formatDateShort, formatInterval, timeAgo, todayISO, weekEndISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, formatClock, formatDateLong, formatDateShort, timeAgo, todayISO, weekEndISO, weekStartISO } from "@/lib/dates"
 import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
-import { city, location, position, supplier } from "@/lib/reference"
+import { location, position, supplier } from "@/lib/reference"
 import { useStore, type TimesInput } from "@/lib/store"
 import { OVERTIME_RATE, clockHours, hoursFor, laborAmount, primaryProposal, scheduledHours, timesheetAmount, weekClosed, type Proposal } from "@/lib/timesheets"
 import type { Timesheet } from "@/lib/types"
@@ -165,7 +165,15 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
     })
 
   const draftHours = hoursFor(times.clockIn, times.clockOut, times.breakMins, t.sentHome)
-  const rows: { label: string; sub?: string; in?: string; out?: string; breakMins?: number; hours?: number; tone?: string }[] = [
+  const billed = !!(t.clockIn || t.clockOut)
+  const off = {
+    in: billed && !!t.clock && t.clockIn !== t.clock.in,
+    out: billed && !!t.clock && t.clockOut !== t.clock.out,
+    breakMins: billed && !!t.clock && t.breakMins !== t.clock.breakMins,
+    hours: billed && !!t.clock && t.hours !== onClock,
+  }
+  type Row = { label: string; sub?: string; in?: string; out?: string; breakMins?: number; hours?: number; off?: Partial<typeof off> }
+  const rows: Row[] = [
     { label: "Scheduled", in: t.scheduledStart, out: t.scheduledEnd, breakMins: t.scheduledBreakMins, hours: scheduled },
     t.clock
       ? { label: "Clock", sub: CLOCK_SOURCE[t.clock.source], in: t.clock.in, out: t.clock.out, breakMins: t.clock.breakMins, hours: onClock }
@@ -177,9 +185,10 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
       out: t.clockOut,
       breakMins: t.breakMins,
       hours: t.hours,
-      tone: flagged ? "bg-warning-faded/60" : undefined,
+      off,
     },
   ]
+  const mark = (on?: boolean) => (on ? "font-semibold text-warning-fg" : undefined)
 
   const st = round2(t.hours - t.otHours)
   const labor = laborAmount(t)
@@ -195,9 +204,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               <span>
                 {position(t.positionId).name} · {loc.name}
               </span>
-              <span>
-                {formatDateLong(t.date)} · {formatInterval(t.scheduledStart, t.scheduledEnd, city(loc.cityId).tz)}
-              </span>
+              <span>{formatDateLong(t.date)}</span>
             </SheetDescription>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <TimesheetStatusBadge t={t} kind={kind} />
@@ -228,17 +235,17 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.label} className={cn("border-t border-border/70", r.tone)}>
+                <tr key={r.label} className="border-t border-border/70">
                   <td className="py-2 pr-2">
                     <span className="flex flex-col">
                       <span className="font-semibold">{r.label}</span>
                       {r.sub && <span className="text-caption-1 text-faded">{r.sub}</span>}
                     </span>
                   </td>
-                  <td className="px-2 py-2 tabular">{r.in ? formatClock(r.in) : "--"}</td>
-                  <td className="px-2 py-2 tabular">{r.out ? formatClock(r.out) : "--"}</td>
-                  <td className="px-2 py-2 tabular">{r.in || r.out ? (r.breakMins ? `${r.breakMins} min` : "None") : "--"}</td>
-                  <td className="py-2 pl-2 text-right font-semibold tabular">{r.hours !== undefined && (r.in || r.out) ? r.hours.toFixed(2) : "--"}</td>
+                  <td className={cn("px-2 py-2 tabular", mark(r.off?.in))}>{r.in ? formatClock(r.in) : "--"}</td>
+                  <td className={cn("px-2 py-2 tabular", mark(r.off?.out))}>{r.out ? formatClock(r.out) : "--"}</td>
+                  <td className={cn("px-2 py-2 tabular", mark(r.off?.breakMins))}>{r.in || r.out ? (r.breakMins ? `${r.breakMins} min` : "None") : "--"}</td>
+                  <td className={cn("py-2 pl-2 text-right font-semibold tabular", mark(r.off?.hours))}>{r.hours !== undefined && (r.in || r.out) ? r.hours.toFixed(2) : "--"}</td>
                 </tr>
               ))}
             </tbody>
@@ -254,9 +261,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                   {st.toFixed(2)} hrs straight time + <span className="font-semibold text-warning-fg">{t.otHours.toFixed(2)} hrs overtime</span> at {OVERTIME_RATE}× · {money(t.billRate)}/hr
                 </>
               ) : (
-                <>
-                  {t.hours.toFixed(2)} hrs at {money(t.billRate)}/hr
-                </>
+                <>Billed at {money(t.billRate)}/hr</>
               )}
             </span>
             <span className="text-body-2 font-semibold tabular">{money(labor)}</span>
@@ -318,13 +323,14 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             {proposal && (
               <Panel>
                 <span className="flex items-baseline justify-between gap-3">
-                  <span className="text-body-3 font-semibold">Iris proposes {proposal.hours.toFixed(2)} hrs</span>
+                  <span className="text-body-3 font-semibold">Iris proposes</span>
                   <span className={cn("text-body-3 font-semibold tabular", proposal.hours < t.hours ? "text-positive-fg" : "text-faded")}>
                     {proposal.hours === t.hours ? "No change" : `${proposal.hours < t.hours ? "−" : "+"}${money(Math.abs(round2(proposal.hours - t.hours)) * t.billRate)}`}
                   </span>
                 </span>
                 <span className="text-body-3 text-faded">
-                  {timeRange(proposal.clockIn, proposal.clockOut)}, {proposal.breakMins ? `${proposal.breakMins} min break` : "no break"}. {proposal.reason}.
+                  {proposal.reason}: {timeRange(proposal.clockIn, proposal.clockOut)}, {proposal.breakMins ? `${proposal.breakMins} min break` : "no break"}
+                  {!(isBuyer && t.status === "pending_approval") && `, ${proposal.hours.toFixed(2)} hrs`}.
                 </span>
                 {isBuyer && t.status === "pending_approval" && mode === "idle" && (
                   <Button className="h-9 gap-1.5 self-start rounded-lg" disabled={busy} onClick={() => acceptProposal(proposal)} data-tour="accept-proposal">

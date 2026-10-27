@@ -56,7 +56,7 @@ import {
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatClock, formatDateLong, formatInterval, formatTimestamp, timeAgo } from "@/lib/dates"
-import { fullName, money, round2 } from "@/lib/format"
+import { fullName, money, plural, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
 import { buyer, city, location, position, supplier } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
@@ -153,6 +153,11 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
 
   const tz = city(loc.cityId).tz
   const hasTips = group.badges.includes("TIPS") || rows.some((r) => (r.ts?.tips ?? 0) > 0)
+  const timed = rows.some((r) => r.ts)
+  const staffed = rows.filter((r) => r.pro)
+  const openSpots = rows.filter((r) => !r.pro && !r.otherSupplier).length
+  const elsewhere = [...rows.reduce((m, r) => (!r.pro && r.otherSupplier ? m.set(r.otherSupplier, (m.get(r.otherSupplier) ?? 0) + 1) : m), new Map<string, number>())]
+  const lead = timed ? 5 + (hasTips ? 1 : 0) : 1
 
   return (
     <>
@@ -179,11 +184,9 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <div className="flex flex-col gap-0.5 text-body-2 text-faded">
             {group.eventName && <span className="font-medium text-primary">{group.eventName}</span>}
             <span>
-              {formatDateLong(group.date)} · {formatInterval(group.start, group.end, tz)}
-            </span>
-            <span>
-              {ws.kind !== "buyer" && `${buyer(group.buyerId).name} · `}
-              {loc.name} • {pos.name}
+              {formatDateLong(group.date)} · {formatInterval(group.start, group.end, tz)} · {ws.kind !== "buyer" && `${buyer(group.buyerId).name}, `}
+              {loc.name}
+              {group.name && group.name !== pos.name && ` · ${pos.name}`}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-caption-1 text-subtle">
@@ -294,17 +297,21 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                 <thead>
                   <tr className="text-caption-1 font-medium text-faded">
                     <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Clock-in</th>
-                    <th className="px-3 py-2">Clock-out</th>
-                    <th className="px-3 py-2">Break (mins)</th>
-                    <th className="px-3 py-2 text-right">Hours</th>
-                    {hasTips && <th className="px-3 py-2 text-right">Tips</th>}
+                    {timed && (
+                      <>
+                        <th className="px-3 py-2">Clock-in</th>
+                        <th className="px-3 py-2">Clock-out</th>
+                        <th className="px-3 py-2">Break (mins)</th>
+                        <th className="px-3 py-2 text-right">Hours</th>
+                        {hasTips && <th className="px-3 py-2 text-right">Tips</th>}
+                      </>
+                    )}
                     <th className="px-3 py-2">Status</th>
                     <th className="w-10 px-2 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ slot, pro, ts, roster, otherSupplier }) => (
+                  {staffed.map(({ slot, pro, ts, roster }) => (
                     <motion.tr
                       key={slot.id}
                       layout="position"
@@ -312,7 +319,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                       className="border-t border-border/70 transition-colors duration-100 hover:bg-hover"
                     >
                       <td className="px-3 py-2.5">
-                        {pro ? (
+                        {pro && (
                           <button type="button" onClick={() => setProId(pro.id)} className="flex items-center gap-2.5 text-left">
                             <ProAvatar pro={pro} size="sm" ring />
                             <span className="flex flex-col whitespace-nowrap">
@@ -321,32 +328,21 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                                 {roster?.status === "favorite" && <Heart className="ml-1 inline size-3 fill-critical text-critical" />}
                               </span>
                               <span className="inline-flex items-center gap-1 text-caption-1 text-faded">
-                                <Star className="size-3 fill-warning text-warning" /> {pro.rating ? pro.rating.toFixed(2) : "New"} · {pro.code}
+                                <Star className="size-3 fill-warning text-warning" /> {pro.rating ? pro.rating.toFixed(2) : "New"} · {isSupplier ? pro.code : supplier(pro.supplierId).shortName}
                               </span>
                             </span>
                           </button>
-                        ) : otherSupplier ? (
-                          <span className="flex items-center gap-2.5">
-                            <SupplierLogo supplierId={otherSupplier} size="md" />
-                            <span className="font-medium text-faded">Filled by {supplier(otherSupplier).shortName}</span>
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-2.5">
-                            <span className={cn("size-8 rounded-full border border-dashed border-border-strong", group.liveFill && "skeleton-shimmer border-transparent")} />
-                            <span className="flex flex-col whitespace-nowrap">
-                              <span className="font-medium text-faded">{group.cancelledAt ? "Cancelled" : group.liveFill && group.supplierIds.length ? "Finding a Pro…" : "Open spot"}</span>
-                              <span className="text-caption-1 text-subtle">
-                                {group.cancelledAt ? "—" : group.approval?.status === "pending" ? "Waiting for approval" : sent ? `Open to ${sent}` : "Held for release"}
-                              </span>
-                            </span>
-                          </span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockIn) : <span className="text-subtle">--</span>}</td>
-                      <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockOut) : <span className="text-subtle">--</span>}</td>
-                      <td className="px-3 py-2.5 tabular">{ts ? ts.breakMins : <span className="text-subtle">{pro ? group.breakMins : "--"}</span>}</td>
-                      <td className="px-3 py-2.5 text-right font-semibold tabular">{ts ? ts.hours.toFixed(2) : <span className="font-normal text-subtle">--</span>}</td>
-                      {hasTips && <td className="px-3 py-2.5 text-right tabular">{ts?.tips ? money(ts.tips) : <span className="text-subtle">--</span>}</td>}
+                      {timed && (
+                        <>
+                          <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockIn) : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 tabular">{ts ? formatClock(ts.clockOut) : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 tabular">{ts ? ts.breakMins : <span className="text-subtle">--</span>}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold tabular">{ts ? ts.hours.toFixed(2) : <span className="font-normal text-subtle">--</span>}</td>
+                          {hasTips && <td className="px-3 py-2.5 text-right tabular">{ts?.tips ? money(ts.tips) : <span className="text-subtle">--</span>}</td>}
+                        </>
+                      )}
                       <td className="px-3 py-2.5">
                         {slot.status === "no_show" ? (
                           <StatusBadge tone="critical">No show</StatusBadge>
@@ -360,11 +356,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                               </StatusBadge>
                             </span>
                           </Tip>
-                        ) : otherSupplier ? (
-                          <StatusBadge tone="neutral">Filled</StatusBadge>
-                        ) : (
-                          <StatusBadge>{group.cancelledAt ? "Cancelled" : "Open"}</StatusBadge>
-                        )}
+                        ) : null}
                       </td>
                       <td className="px-2 py-2.5">
                         {pro && (
@@ -423,6 +415,47 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                       </td>
                     </motion.tr>
                   ))}
+                  {elsewhere.map(([id, n]) => (
+                    <motion.tr key={`elsewhere-${id}`} layout="position" transition={{ layout: { duration: 0.2 } }} className="border-t border-border/70">
+                      <td className="px-3 py-2.5" colSpan={lead}>
+                        <span className="flex items-center gap-2.5">
+                          <SupplierLogo supplierId={id} size="md" />
+                          <span className="font-medium text-faded">
+                            {plural(n, "spot")} filled by {supplier(id).shortName}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge tone="neutral">Filled</StatusBadge>
+                      </td>
+                      <td />
+                    </motion.tr>
+                  ))}
+                  {openSpots > 0 && (
+                    <motion.tr key="open" layout="position" transition={{ layout: { duration: 0.2 } }} className="border-t border-border/70">
+                      <td className="px-3 py-2.5" colSpan={lead}>
+                        <span className="flex items-center gap-2.5">
+                          <span className={cn("size-8 rounded-full border border-dashed border-border-strong", group.liveFill && !group.cancelledAt && "skeleton-shimmer border-transparent")} />
+                          <span className="flex flex-col whitespace-nowrap">
+                            <span className="font-medium text-faded">
+                              {group.cancelledAt
+                                ? `${plural(openSpots, "spot")} cancelled`
+                                : group.liveFill && group.supplierIds.length
+                                  ? `Finding ${openSpots === 1 ? "a Pro" : `${openSpots} Pros`}…`
+                                  : plural(openSpots, "open spot")}
+                            </span>
+                            {!group.cancelledAt && (
+                              <span className="text-caption-1 text-subtle">{group.approval?.status === "pending" ? "Waiting for approval" : sent ? `Open to ${sent}` : "Held for release"}</span>
+                            )}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge>{group.cancelledAt ? "Cancelled" : "Open"}</StatusBadge>
+                      </td>
+                      <td />
+                    </motion.tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -431,25 +464,20 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <Surface elevated>
             <Accordion type="multiple" defaultValue={["details"]} className="px-5">
               <AccordionItem value="details" className="border-b-0">
-                <AccordionTrigger className="text-body-2 font-bold hover:no-underline">Position, location, payment</AccordionTrigger>
+                <AccordionTrigger className="text-body-2 font-bold hover:no-underline">Details</AccordionTrigger>
                 <AccordionContent>
                   <dl className="grid gap-x-8 gap-y-4 pb-2 sm:grid-cols-2">
                     <Detail label="Job duties">{group.instructions}</Detail>
                     <Detail label="Attire">{group.attire}</Detail>
-                    <Detail label="Location">
-                      {loc.name}
-                      <br />
-                      <span className="text-faded">{loc.address} {loc.zip}</span>
+                    <Detail label="Address">
+                      {loc.address} {loc.zip}
                     </Detail>
                     <Detail label="Cost center">
                       <code className="font-mono">{loc.costCenter}</code>
                     </Detail>
-                    <Detail label="Payment">
-                      {money(group.billRate)}/hr bill rate · {groupHours(group)} paid hrs per Pro
-                      <br />
-                      <span className="text-faded">Estimated {money(groupEstimate(group))} for {total} Pros</span>
+                    <Detail label="Paid hours">
+                      {groupHours(group)} per Pro, {group.breakMins ? `after a ${group.breakMins} min unpaid break` : "with no unpaid break"}
                     </Detail>
-                    <Detail label="Break">{group.breakMins ? `${group.breakMins} min unpaid break` : "No unpaid break"}</Detail>
                   </dl>
                 </AccordionContent>
               </AccordionItem>

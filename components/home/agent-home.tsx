@@ -53,20 +53,21 @@ const SCOPE_LINE: Record<PersonaKind, string> = {
   compass: "Iris checked spend, invoices and Pro safety across the program.",
 }
 
-const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIcon }[]> = {
+/** Shortcuts for the composer. One that a to-do already offers stays hidden while that to-do is open. */
+const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIcon; todo?: string }[]> = {
   buyer: [
     { label: "Create a shift", prompt: "Create a shift", icon: CalendarPlus },
     { label: "Upload shifts", prompt: "Upload shifts", icon: Upload },
-    { label: "Approve hours", prompt: "Approve hours", icon: CheckCheck },
+    { label: "Approve hours", prompt: "Approve hours", icon: CheckCheck, todo: "approve" },
   ],
   supplier: [
     { label: "Assign Pros", prompt: "Assign Pros", icon: UsersRound },
     { label: "Upload a rate card", prompt: "Upload rate card", icon: BadgeDollarSign },
-    { label: "Submit hours", prompt: "Submit hours", icon: Clock },
+    { label: "Submit hours", prompt: "Submit hours", icon: Clock, todo: "timesheets" },
   ],
   compass: [
-    { label: "Review flagged invoices", prompt: "Review flagged invoices", icon: FileWarning },
-    { label: "Show safety exceptions", prompt: "Show safety exceptions", icon: ShieldAlert },
+    { label: "Review flagged invoices", prompt: "Review flagged invoices", icon: FileWarning, todo: "anomalies" },
+    { label: "Show safety exceptions", prompt: "Show safety exceptions", icon: ShieldAlert, todo: "safety" },
     { label: "Build a report", prompt: "Show me spend by agency for last month", icon: ChartColumn },
   ],
 }
@@ -241,7 +242,7 @@ function Briefing({ onDraft }: { onDraft: (p: Prediction) => void }) {
       </motion.header>
 
       <motion.section {...rise(0.08)} className="flex flex-col gap-2.5" aria-label="To-dos">
-        <SectionLabel aside={todos.length ? `${todos.length} open` : undefined}>To-dos</SectionLabel>
+        <SectionLabel>To-dos</SectionLabel>
         {todos.length ? (
           <ul className="stagger-in divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card/80 backdrop-blur-sm">
             {todos.map((todo) => (
@@ -274,11 +275,16 @@ function Briefing({ onDraft }: { onDraft: (p: Prediction) => void }) {
 
 /** Home is the agent: what needs you and what Iris expects next, with the ask bar docked below. A conversation takes over the same page. */
 export function AgentHome() {
+  const data = useData()
   const { ws } = useWorkspace()
   const agent = useAgent()
   const reduce = useReducedMotion()
   const scrollRef = useRef<HTMLDivElement>(null)
   const examples = useMemo(() => examplesFor(ws.kind), [ws.kind])
+  const tasks = useMemo(() => {
+    const open = new Set(todosFor(data, ws).map((t) => t.id))
+    return TASKS[ws.kind].filter((t) => !t.todo || !open.has(t.todo))
+  }, [data, ws])
   const empty = agent.messages.length === 0
 
   useEffect(() => {
@@ -341,7 +347,7 @@ export function AgentHome() {
                 transition={{ duration: 0.3, ease: EASE, delay: 0.1 }}
                 className="hidden flex-wrap justify-center gap-2 sm:flex"
               >
-                {TASKS[ws.kind].map((task) => (
+                {tasks.map((task) => (
                   <button
                     key={task.label}
                     type="button"

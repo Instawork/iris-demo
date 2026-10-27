@@ -13,7 +13,7 @@ import { MultiSelectFilter, ResetFilters, SearchInput, SelectFilter } from "@/co
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { ProAvatar } from "@/components/common/pro-avatar"
-import { CLOCK_SOURCE, ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
+import { ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { TimesheetSheet } from "@/components/timesheets/timesheet-sheet"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -30,33 +30,37 @@ import { STATUS_LABEL, timesheetAmount, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Quick = "needs_approval" | "flagged" | "to_submit" | "drafts" | "pending" | "rejected" | "approved" | "invoiced" | "all"
+type Quick = "needs_approval" | "flagged" | "to_submit" | "with_agency" | "pending" | "done" | "all"
 
 const QUICK: Record<PersonaKind, Quick[]> = {
-  buyer: ["needs_approval", "flagged", "drafts", "rejected", "approved", "invoiced", "all"],
-  supplier: ["to_submit", "rejected", "pending", "approved", "invoiced", "all"],
-  compass: ["all", "flagged", "pending", "rejected", "invoiced"],
+  buyer: ["needs_approval", "with_agency", "done", "all"],
+  supplier: ["to_submit", "pending", "done", "all"],
+  compass: ["all", "flagged", "pending", "with_agency", "done"],
 }
 
-const QUICK_LABEL: Record<Quick, string> = {
-  needs_approval: "Needs approval",
-  flagged: "Flagged",
-  to_submit: "To submit",
-  drafts: "Drafts",
-  pending: "Pending approval",
-  rejected: "Rejected",
-  approved: "Approved",
-  invoiced: "Invoiced",
-  all: "All",
+/** Links and bookmarks from before the tabs were merged still land on the right one. */
+const LEGACY: Record<PersonaKind, Record<string, Quick>> = {
+  buyer: { flagged: "needs_approval", drafts: "with_agency", rejected: "with_agency", approved: "done", invoiced: "done" },
+  supplier: { rejected: "to_submit", approved: "done", invoiced: "done" },
+  compass: { drafts: "with_agency", rejected: "with_agency", approved: "done", invoiced: "done" },
+}
+
+const QUICK_LABEL: Record<PersonaKind, Record<Quick, string>> = {
+  buyer: { needs_approval: "Needs approval", flagged: "Flagged", to_submit: "To submit", with_agency: "With the agency", pending: "Pending", done: "Done", all: "All" },
+  supplier: { needs_approval: "Needs approval", flagged: "Flagged", to_submit: "To submit", with_agency: "With you", pending: "With the buyer", done: "Done", all: "All" },
+  compass: { needs_approval: "Needs approval", flagged: "Flagged", to_submit: "To submit", with_agency: "With the agency", pending: "Awaiting approval", done: "Done", all: "All" },
 }
 
 const QUICK_TIP: Partial<Record<Quick, string>> = {
-  needs_approval: "Submitted timesheets waiting for your approval",
-  flagged: "Pending timesheets Iris flagged against the clock or the schedule, each with a proposed fix",
-  drafts: "Timesheets the agency hasn't submitted yet",
+  needs_approval: "Submitted and waiting for your approval. Anything Iris flagged comes first.",
+  flagged: "Waiting for approval, and Iris flagged it against the clock or the schedule",
+  with_agency: "Drafts the agency hasn't submitted, and timesheets sent back with a reason",
   to_submit: "Drafts from finished shifts, and timesheets the buyer sent back",
-  approved: "Approved hours waiting for the week to close and be invoiced",
+  done: "Approved, or already on an invoice",
 }
+
+/** Tabs that hold one status don't need a status on every row. */
+const MIXED: Quick[] = ["to_submit", "with_agency", "done", "all"]
 
 const DESCRIPTION: Record<PersonaKind, string> = {
   buyer:
@@ -80,6 +84,11 @@ function setParams(patch: Record<string, string | undefined>) {
 
 const when = <T,>(show: boolean, column: Column<T>) => (show ? [column] : [])
 
+const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart)
+
+const differsFromClock = (t: Timesheet) =>
+  !!t.clock && !!(t.clockIn || t.clockOut) && (t.clock.in !== t.clockIn || t.clock.out !== t.clockOut || t.clock.breakMins !== t.breakMins)
+
 export function TimesheetsPage() {
   const data = useData()
   const { ws, scope } = useWorkspace()
@@ -87,7 +96,8 @@ export function TimesheetsPage() {
   const { approveTimesheets, rejectTimesheets, submitTimesheets } = useStore.getState()
   const kind = ws.kind
   const options = QUICK[kind]
-  const quick = options.find((q) => q === params.get("filter")) ?? options[0]
+  const asked = params.get("filter") ?? ""
+  const quick = options.find((q) => q === asked) ?? LEGACY[kind][asked] ?? options[0]
   const shiftId = params.get("shift") ?? undefined
   const openId = params.get("ts") ?? undefined
   const week = params.get("week") ?? "all"
@@ -130,14 +140,13 @@ export function TimesheetsPage() {
     needs_approval: (t) => t.status === "pending_approval",
     flagged: (t) => t.status === "pending_approval" && isFlagged(t),
     to_submit: withAgency,
-    drafts: (t) => t.status === "draft",
+    with_agency: withAgency,
     pending: (t) => t.status === "pending_approval",
-    rejected: (t) => t.status === "rejected",
-    approved: (t) => t.status === "approved",
-    invoiced: (t) => t.status === "invoiced",
+    done: (t) => t.status === "approved" || t.status === "invoiced",
     all: () => true,
   }
-  const rows = filtered.filter(matches[quick])
+  const listed = filtered.filter(matches[quick])
+  const rows = quick === "needs_approval" ? [...listed].sort(newestFirst).sort((a, b) => Number(isFlagged(b)) - Number(isFlagged(a))) : listed
   const clean = rows.filter((t) => t.status === "pending_approval" && !isFlagged(t))
   const selectable = (t: Timesheet) =>
     kind === "buyer" ? t.status === "pending_approval" && !isFlagged(t) : kind === "supplier" ? withAgency(t) && !!t.clockIn && !!t.clockOut : false
@@ -221,42 +230,48 @@ export function TimesheetsPage() {
       ),
     },
     {
-      id: "clock",
-      header: "Clock",
-      info: "Times Iris recorded itself: from the Instawork app, or the worker's check-in at the venue.",
-      cell: (t) =>
-        t.clock ? (
-          <span className="flex flex-col">
-            <span className="tabular">{shortRange(t.clock.in, t.clock.out)}</span>
-            <span className="text-caption-1 text-faded">{CLOCK_SOURCE[t.clock.source]}</span>
-          </span>
-        ) : (
-          <span className="text-caption-1 text-subtle">No clock record</span>
-        ),
-    },
-    {
       id: "billed",
       header: "Billed",
-      info: "What the agency submitted. Approval and the invoice use these times.",
+      info: "What the agency billed, which approval and the invoice use. Iris's own clock, from the Instawork app or the worker's check-in, shows underneath when it doesn't match.",
       cell: (t) => {
+        const off = differsFromClock(t)
         const flagged = checks.get(t.id)?.some((c) => c.id === "above_clock" || c.id === "early" || c.id === "over_schedule")
+        if (!t.clockIn && !t.clockOut)
+          return (
+            <span className="flex flex-col">
+              <span className="text-faded">Not billed yet</span>
+              {t.clock && <span className="text-caption-1 text-faded tabular">Clock {shortRange(t.clock.in, t.clock.out)}</span>}
+            </span>
+          )
         return (
           <span className="flex flex-col">
-            <span className={cn("tabular", flagged && "font-semibold text-warning-fg")}>{shortRange(t.clockIn, t.clockOut)}</span>
-            <span className="text-caption-1 text-faded">{t.clockIn || t.clockOut ? (t.breakMins ? `${t.breakMins} min break` : "No break") : "Not billed yet"}</span>
+            <span className={cn("tabular", (flagged || off) && "font-semibold text-warning-fg")}>{shortRange(t.clockIn, t.clockOut)}</span>
+            {off && t.clock ? (
+              <span className="text-caption-1 font-medium text-critical-fg tabular">
+                Clock {shortRange(t.clock.in, t.clock.out)}
+                {t.clock.breakMins !== t.breakMins ? `, ${t.clock.breakMins ? `${t.clock.breakMins} min break` : "no break"}` : ""}
+              </span>
+            ) : (
+              <span className="text-caption-1 text-faded">{!t.clock ? "No clock record" : t.breakMins ? `${t.breakMins} min break` : "No break"}</span>
+            )}
           </span>
         )
       },
     },
     { id: "hours", header: "Hours", align: "right", sortValue: (t) => t.hours, cell: (t) => <HoursCell t={t} /> },
     { id: "amount", header: "Amount", align: "right", sortValue: (t) => timesheetAmount(t), cell: (t) => <span className="font-medium tabular">{money(timesheetAmount(t))}</span> },
-    ...when<Timesheet>(quick !== "invoiced", {
+    {
       id: "checks",
       header: "Iris check",
       sortValue: (t) => checks.get(t.id)?.length ?? 0,
-      cell: (t) => (t.status === "invoiced" || t.status === "removed" ? <span className="text-subtle">--</span> : <ChecksCell checks={checks.get(t.id) ?? []} />),
+      cell: (t) => (t.status === "invoiced" || t.status === "removed" ? null : <ChecksCell checks={checks.get(t.id) ?? []} />),
+    },
+    ...when<Timesheet>(MIXED.includes(quick), {
+      id: "status",
+      header: "Status",
+      sortValue: (t) => STATUS_LABEL[t.status],
+      cell: (t) => <TimesheetStatusBadge t={t} kind={kind} size="sm" />,
     }),
-    { id: "status", header: "Status", sortValue: (t) => STATUS_LABEL[t.status], cell: (t) => <TimesheetStatusBadge t={t} kind={kind} size="sm" /> },
   ]
 
   const exportCsv = () =>
@@ -298,11 +313,9 @@ export function TimesheetsPage() {
     needs_approval: "Nothing waiting for your approval.",
     flagged: "Nothing flagged. Every pending timesheet matches the clock and the schedule.",
     to_submit: "Nothing to submit. Drafts appear here when your workers' shifts end.",
-    drafts: "Every agency has submitted its hours.",
+    with_agency: "Every agency has submitted its hours.",
     pending: "Nothing waiting for approval.",
-    rejected: "No rejected timesheets.",
-    approved: "No approved hours waiting for the week to close.",
-    invoiced: "No invoiced timesheets in this view.",
+    done: "Nothing approved in this view yet.",
     all: "No timesheets in this view.",
   }
 
@@ -337,13 +350,13 @@ export function TimesheetsPage() {
             }}
             items={options.map((q) => ({
               value: q,
-              label: QUICK_LABEL[q],
-              count: q === "all" || q === "invoiced" ? undefined : filtered.filter(matches[q]).length,
+              label: QUICK_LABEL[kind][q],
+              count: q === "all" || q === "done" ? undefined : filtered.filter(matches[q]).length,
               tooltip: QUICK_TIP[q],
             }))}
           />
           <span className="text-body-3 text-faded">
-            <span className="font-bold text-foreground tabular">{plural(rows.length, "timesheet")}</span> · <span className="font-bold text-foreground tabular">{sum.hours.toLocaleString()}</span> hrs
+            <span className="font-bold text-foreground tabular">{sum.hours.toLocaleString()}</span> hrs
             {sum.ot > 0 && <span className="text-warning-fg"> ({sum.ot.toLocaleString()} OT)</span>} · <span className="font-bold text-foreground tabular">{money(sum.amount)}</span>
           </span>
         </div>
@@ -387,6 +400,7 @@ export function TimesheetsPage() {
         </div>
 
         <DataTable
+          key={quick}
           rows={rows}
           columns={columns}
           getRowId={(t) => t.id}
@@ -396,7 +410,7 @@ export function TimesheetsPage() {
           onSelectedChange={setSelected}
           onRowClick={(t) => setParams({ ts: t.id })}
           rowClassName={(t) => (checks.get(t.id)?.some((c) => c.id === "above_clock") && t.status === "pending_approval" ? "tour-flagged" : undefined)}
-          initialSort={{ id: "shift", dir: "desc" }}
+          initialSort={quick === "needs_approval" ? undefined : { id: "shift", dir: "desc" }}
           pageSize={25}
           empty={
             <EmptyState

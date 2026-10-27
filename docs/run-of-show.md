@@ -114,13 +114,13 @@ App: https://cruber-demo.replit.app (no passcode)
 
 **The point:** every hour an agency bills is checked against Iris's own clock and the schedule before anyone approves it, and fixing one is a click with a reason on the record.
 
-1. As Jordan, the Dashboard to-do "71 timesheets to approve" (the count varies) opens **Timesheets**, Needs approval. Each row shows Iris's clock (Iris check-in or the Instawork app), what the agency billed, and Iris's check.
+1. As Jordan, the Dashboard to-do "71 timesheets to approve" (the count varies) opens **Timesheets**, Needs approval, with the flagged ones first. Each row shows what the agency billed. Where Iris's clock (Iris check-in or the Instawork app) disagrees, it shows in red underneath.
 2. The top row is **Nico Price** (Harbor) from last night's concert at West Loop Arena: billed 3:30pm to 1:30am, 9.5 hours. Iris's clock says 4pm to 12:30am, 8 hours. Flags: "Billed above the clock" and "Billed before the start". Iris proposes 8.00 hours, $53.54 less. **Approve at 8.00 hrs**: the correction goes on the timesheet's history, where Harbor sees it.
 3. **Approve [N] clean timesheets** (64 on fresh data): everything that matches the clock and the schedule, in one click.
 4. Editing: open a flagged one and use **Correct the times** with a reason, or **Reject** it back to the agency with one.
-5. Other cases worth a look on fresh data: an Instawork porter at Riverside Convention Center past 40 hours, with overtime split at time and a half; a worker sent home early, billed the four-hour minimum; a Harbor draft missing its clock-out.
+5. Other cases worth a look on fresh data: an Instawork porter at Riverside Convention Center past 40 hours, with overtime split at time and a half; a worker sent home early, billed the four-hour minimum; a Harbor draft missing its clock-out, under **With the agency**.
 6. The chat: "Approve yesterday's hours". Iris approves what matches and holds back what it flagged, naming each one.
-7. As Renee (Harbor): Timesheets shows Jordan's correction and why.
+7. As Renee (Harbor): Timesheets, under **Done**, shows Jordan's correction and why.
 8. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453.
 
 **Say:** Fieldglass shows what the agency submitted. Iris shows it next to what actually happened, says what's wrong, and proposes the fix.
