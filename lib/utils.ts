@@ -12,3 +12,11 @@ export const cn = createCn({
     },
   },
 })
+
+/** The guided tour's cards sit outside every dialog and sheet. Pressing one, like Do it for me, mustn't close the dialog it's explaining. */
+export function keepOpenForTour<E extends Event>(handler?: (event: E) => void) {
+  return (event: E) => {
+    handler?.(event)
+    if (event.target instanceof Element && event.target.closest("[data-tour-layer]")) event.preventDefault()
+  }
+}

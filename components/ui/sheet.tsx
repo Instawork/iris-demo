@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "@/lib/utils"
+import { cn, keepOpenForTour } from "@/lib/utils"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
@@ -66,6 +66,7 @@ function SheetContent({
           className
         )}
         {...props}
+        onInteractOutside={keepOpenForTour(props.onInteractOutside)}
       >
         {children}
         {showCloseButton && (
