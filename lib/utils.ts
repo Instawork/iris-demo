@@ -17,6 +17,7 @@ export const cn = createCn({
 export function keepOpenForTour<E extends Event>(handler?: (event: E) => void) {
   return (event: E) => {
     handler?.(event)
-    if (event.target instanceof Element && event.target.closest("[data-tour-layer]")) event.preventDefault()
+    // A card's button can be gone by the time the press counts as outside; nothing else outside a modal takes presses.
+    if (event.target instanceof Element && (event.target.closest("[data-tour-layer]") || !event.target.isConnected)) event.preventDefault()
   }
 }

@@ -17,8 +17,8 @@ import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
 
 /**
- * The guided demo: the core of a VMS in five parts, each played as the person who does it. Every step waits for the
- * player to do it, and "Do it for me" plays it through on screen, field by field, so it reads like a person did it.
+ * The guided demo: the core of a VMS in five parts, each played as the person who does it. Nothing moves on until the
+ * player clicks: "Fill it in for me" types a screen's fields on screen, then leaves the button that moves on to them.
  */
 
 export type ChapterId = "onboarding" | "shifts" | "compliance" | "timesheets" | "reporting"
@@ -32,6 +32,8 @@ export interface TourContext extends TourPicks {
   data: DemoData
   thread: AgentMessage[]
   base: TourBase
+  /** When the player reached the step they're on. */
+  enteredAt: string
 }
 
 export interface TourApi {
@@ -66,7 +68,12 @@ export interface TourStep {
   success?: (ctx: TourContext) => string
   /** Where to return when the target disappears, like a dialog the player closed. */
   back?: string
-  /** Does the step for the player, on screen. */
+  /** Fills in the screen the player is on, and returns the button they click to move on. */
+  fill?: {
+    when: (ctx: TourContext) => boolean
+    run: (ctx: TourContext, api: TourApi) => Promise<Element | null | undefined>
+  }
+  /** Plays the whole step through, for when the player has lost its target. */
   skip: (ctx: TourContext, api: TourApi) => void | Promise<void>
   onDone?: (ctx: TourContext, api: TourApi) => void
 }
@@ -105,17 +112,32 @@ const last = (selector: string) => {
   const all = document.querySelectorAll(selector)
   return all[all.length - 1] ?? null
 }
-const later = (fn: () => void, ms = 120) => window.setTimeout(fn, ms)
 const inside = (root: string | Element | null | undefined, selector: string) => (typeof root === "string" ? one(root) : root)?.querySelector(selector) ?? null
 const buttonIn = (root: string | Element | null | undefined, text: string) =>
   [...((typeof root === "string" ? one(root) : root)?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === text) ?? null
 /* -------------------------------- Autopilot -------------------------------- */
 
-/** Bumped when the step changes or the tour ends, so a "Do it for me" in progress stops where it is. */
+/** The button left lit for the player after Iris fills a screen, until they click it. */
+let handoff: HTMLElement | undefined
+export const handedOff = () => (handoff?.isConnected ? handoff : undefined)
+const clearHandoff = () => {
+  handoff?.removeAttribute("data-tour-next")
+  handoff = undefined
+}
+export const handOff = (el: Element | null | undefined) => {
+  clearHandoff()
+  if (!(el instanceof HTMLElement)) return
+  handoff = el
+  el.setAttribute("data-tour-next", "")
+  el.addEventListener("click", () => handoff === el && clearHandoff(), { once: true })
+}
+
+/** Bumped when the step changes or the tour ends, so Iris stops where she is. */
 let pilot = 0
 const STOPPED = new Error("Tour autopilot stopped")
 export const stopPilot = () => {
   pilot++
+  clearHandoff()
 }
 export const pilotStopped = (error: unknown) => error === STOPPED
 
@@ -240,6 +262,35 @@ const toggleOn = async (root: string, text: string) => {
   if (button && button.getAttribute("aria-pressed") !== "true") await press(button)
 }
 
+async function unitStage(stage: string) {
+  if (stage === "Unit") {
+    await type(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
+    await type(inside(UNIT, 'input[placeholder="LEV-4450"]'), "LEV-4450")
+  }
+  if (stage === "Location") {
+    await type(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
+    await type(inside(UNIT, 'input[placeholder="60605"]'), "60605")
+  }
+  if (stage === "Roles") await toggleOn(UNIT, "Food handler card for every role")
+  if (stage === "Departments") await sleep(700)
+}
+
+async function agencyStage(stage: string) {
+  if (stage === "Agency") {
+    await type(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
+    await type(inside(AGENCY, 'input[placeholder="Alex Rivera"]'), "Alex Rivera")
+    await type(inside(AGENCY, 'input[placeholder="alex@northwindstaff.com"]'), "alex@northwindstaff.com")
+    await toggleOn(AGENCY, "API connection")
+  }
+  if (stage === "Coverage") await toggleOn(AGENCY, "Suite Attendant")
+  if (stage === "Paperwork") {
+    const box = inside(AGENCY, 'button[role="checkbox"]')
+    if (box?.getAttribute("aria-checked") !== "true") await press(box)
+  }
+  if (stage === "Rates") await sleep(700)
+  if (stage === "Workers") await press(buttonIn(AGENCY, "Use a sample roster"))
+}
+
 const AGENCY_COPY: Record<string, StageCopy> = {
   Agency: { title: "Who they are", body: "It can send workers and hours by CSV, API or both.", action: "Type the name, contact and email in grey, then Next" },
   Coverage: { title: "Where they work and what they staff", action: "Add Suite Attendant, then Next" },
@@ -294,6 +345,19 @@ const PRO_PICKER = `${DISPATCH} [data-tour="request-pros"]`
 const oneAgency = () => !!one(`${AGENCY_TAB}[aria-selected="true"]`)
 const prosPicked = () => document.querySelectorAll(`${PRO_PICKER} li button[aria-pressed="true"]`).length
 
+/** Sends the order to one agency and asks for two of its workers by name. */
+async function pickTwo() {
+  await until(() => one(AGENCY_TAB))
+  if (!oneAgency()) await press(one(AGENCY_TAB))
+  if (!one(PRO_PICKER)) await press(await until(() => one(`${DISPATCH} [data-tour="request-workers"]`)))
+  await until(() => one(PRO_PICKER))
+  while (prosPicked() < 2) {
+    const row = [...document.querySelectorAll<HTMLButtonElement>(`${PRO_PICKER} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
+    if (!row) break
+    await press(row)
+  }
+}
+
 const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
 
 /* ------------------------------- Compliance -------------------------------- */
@@ -330,9 +394,14 @@ const crewlineCheck = (ctx: TourContext) => {
   return { pool: pool.length, ready, blocked }
 }
 
+/** When the player opened Assign workers on this visit. The order also fills itself, and those workers don't count. */
+let assignOpened: { visit: string; at: string } | undefined
+
 const assignedSince = (ctx: TourContext) => {
+  if (one(ASSIGN_DIALOG) && assignOpened?.visit !== ctx.enteredAt) assignOpened = { visit: ctx.enteredAt, at: new Date().toISOString() }
+  const from = assignOpened?.visit === ctx.enteredAt ? assignOpened.at : undefined
   const g = shownGroup(ctx)
-  return !!g && g.slots.some((s) => !!s.proId && !!s.confirmedAt && s.confirmedAt >= ctx.base.at && ctx.data.pros.find((p) => p.id === s.proId)?.supplierId === "crewline")
+  return !!from && !!g && g.slots.some((s) => !!s.proId && !!s.confirmedAt && s.confirmedAt >= from && ctx.data.pros.find((p) => p.id === s.proId)?.supplierId === "crewline")
 }
 
 const DOC: Record<RequirementId, string> = {
@@ -370,6 +439,16 @@ const verifiedSince = (ctx: TourContext) => {
     for (const item of Object.values(pro.compliance)) if (item?.verification?.result === "verified" && item.verification.at >= ctx.base.at) return { pro, v: item.verification }
   }
   return undefined
+}
+
+/** Attaches the renewed document and ticks the attestation, leaving Verify. */
+async function attest() {
+  const doc = one(VERIFY)?.getAttribute("data-doc-id") ?? "document"
+  await attach(VERIFY, `${doc}.pdf`)
+  await sleep(1100)
+  const box = inside(VERIFY, 'button[role="checkbox"]')
+  if (box?.getAttribute("aria-checked") !== "true") await press(box)
+  return one('[data-tour="verify-submit"]')
 }
 
 /** Agencies with workers on the program, best roster first. */
@@ -427,6 +506,14 @@ const movable = (data: DemoData) => {
   return options.find((o) => o.t.positionId === "concessions" && o.card.positionId === "barback") ?? options[0]
 }
 
+/** Picks the role the step names, or else any other role the worker can move to. */
+const pickRole = async (ctx: TourContext) => {
+  const m = movable(ctx.data)
+  const want = m ? position(m.card.positionId).name : "Barback"
+  const rows = [...document.querySelectorAll<HTMLButtonElement>(`${MOVE} li button:not(:disabled)`)].filter((b) => !b.textContent?.includes("current role"))
+  await press(rows.find((b) => b.textContent?.includes(want)) ?? rows[0])
+}
+
 const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.movedFrom && t.history.some((h) => h.action === "moved" && h.at >= ctx.base.at))
 
 /* ------------------------------ Invoices, reports ------------------------------ */
@@ -441,6 +528,9 @@ const shownInvoice = (ctx: TourContext) => {
   const id = ctx.path.match(/^\/invoices\/(inv-[\w-]+)$/)?.[1]
   return id ? ctx.data.invoices.find((i) => i.id === id) : undefined
 }
+
+const BILLING_CONFIRM = '[data-tour="billing-confirm"]'
+const CONFIRM_SUBMIT = '[data-tour="billing-confirm-submit"]'
 
 const reviewedSince = (ctx: TourContext) => ctx.data.invoices.find((i) => !!i.billingReview && i.billingReview.at >= ctx.base.at)
 
@@ -478,20 +568,16 @@ export const SCRIPT: TourItem[] = [
     targets: () => (one(UNIT) ? [one(UNIT)] : [one('[data-tour="add-unit"]')]),
     placement: "right",
     done: (ctx) => !!newUnit(ctx) && !one(UNIT),
-    onDone: (_, api) => later(() => api.push("/agencies"), 250),
-    skip: () =>
-      playWizard(UNIT, '[data-tour="add-unit"]', async (stage) => {
-        if (stage === "Unit") {
-          await type(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
-          await type(inside(UNIT, 'input[placeholder="LEV-4450"]'), "LEV-4450")
-        }
-        if (stage === "Location") {
-          await type(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
-          await type(inside(UNIT, 'input[placeholder="60605"]'), "60605")
-        }
-        if (stage === "Roles") await toggleOn(UNIT, "Food handler card for every role")
-        if (stage === "Departments") await sleep(700)
-      }),
+    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} added`,
+    onDone: (_, api) => api.push("/agencies"),
+    fill: {
+      when: () => ["Unit", "Location", "Roles"].includes(stageOf(UNIT) ?? ""),
+      run: async () => {
+        await unitStage(stageOf(UNIT) ?? "")
+        return inside(UNIT, NEXT)
+      },
+    },
+    skip: () => playWizard(UNIT, '[data-tour="add-unit"]', unitStage),
   },
   {
     kind: "step",
@@ -506,23 +592,16 @@ export const SCRIPT: TourItem[] = [
     targets: () => (one(AGENCY) ? [one(AGENCY)] : [one('[data-tour="add-agency"]')]),
     placement: "right",
     done: (ctx) => !!newAgency(ctx) && !one(AGENCY),
-    onDone: (_, api) => later(() => api.push(`/procurement/${EVENT}`), 250),
-    skip: () =>
-      playWizard(AGENCY, '[data-tour="add-agency"]', async (stage) => {
-        if (stage === "Agency") {
-          await type(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
-          await type(inside(AGENCY, 'input[placeholder="Alex Rivera"]'), "Alex Rivera")
-          await type(inside(AGENCY, 'input[placeholder="alex@northwindstaff.com"]'), "alex@northwindstaff.com")
-          await toggleOn(AGENCY, "API connection")
-        }
-        if (stage === "Coverage") await toggleOn(AGENCY, "Suite Attendant")
-        if (stage === "Paperwork") {
-          const box = inside(AGENCY, 'button[role="checkbox"]')
-          if (box?.getAttribute("aria-checked") !== "true") await press(box)
-        }
-        if (stage === "Rates") await sleep(700)
-        if (stage === "Workers") await press(buttonIn(AGENCY, "Use a sample roster"))
-      }),
+    success: (ctx) => `${newAgency(ctx)?.name ?? "The agency"} added`,
+    onDone: (_, api) => api.push(`/procurement/${EVENT}`),
+    fill: {
+      when: () => ["Agency", "Coverage", "Paperwork", "Workers"].includes(stageOf(AGENCY) ?? ""),
+      run: async () => {
+        await agencyStage(stageOf(AGENCY) ?? "")
+        return inside(AGENCY, SUBMIT) ?? inside(AGENCY, NEXT)
+      },
+    },
+    skip: () => playWizard(AGENCY, '[data-tour="add-agency"]', agencyStage),
   },
   {
     kind: "step",
@@ -539,7 +618,15 @@ export const SCRIPT: TourItem[] = [
     anchor: () => (bidRows().length ? one('[data-slot="sheet-content"]') : undefined),
     done: (ctx) => !!counteredSince(ctx),
     success: (ctx) => `Counter sent to ${supplier(counteredSince(ctx)!.supplierId).shortName}`,
-    onDone: () => later(closeSheet, 1000),
+    onDone: () => closeSheet(),
+    fill: {
+      when: () => !!counterable() && !one('[data-tour="send-counter"]'),
+      run: async () => {
+        const row = counterable()
+        await press(inside(row, '[data-tour="counter"]'))
+        return until(() => inside(row, '[data-tour="send-counter"]'))
+      },
+    },
     skip: async () => {
       if (!bidRows().length) {
         await press(one(BARTENDER_ROW))
@@ -566,7 +653,7 @@ export const SCRIPT: TourItem[] = [
     anchor: () => approveDialog(),
     done: (ctx) => approvedSince(ctx) > 0,
     success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
-    onDone: (_, api) => later(() => api.push("/procurement?tab=rates"), 1100),
+    onDone: (_, api) => api.push("/procurement?tab=rates"),
     skip: async () => {
       if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
       await sleep(500)
@@ -630,7 +717,7 @@ export const SCRIPT: TourItem[] = [
     placement: "right",
     done: (ctx) => !!booked(ctx),
     success: () => "Shifts posted",
-    onDone: (_, api) => later(() => api.push("/shifts/new"), 1100),
+    onDone: (_, api) => api.push("/shifts/new"),
     back: "ask",
     skip: async (_, api) => {
       await press(last('[data-tour="agent-create-shift"]'))
@@ -663,17 +750,16 @@ export const SCRIPT: TourItem[] = [
       const placed = g ? g.slots.filter((s) => !!s.proId && asked.has(s.proId)).length : 0
       return placed ? `Booked ${plural(placed, "requested worker")}` : "Posted"
     },
+    fill: {
+      when: () => !!one(DISPATCH) && (!oneAgency() || prosPicked() < 2),
+      run: async () => {
+        await pickTwo()
+        return one('[data-tour="booking-post"]')
+      },
+    },
     skip: async () => {
       if (!one(DISPATCH)) await press(one('[data-tour="booking-review"]'))
-      await until(() => one(AGENCY_TAB))
-      if (!oneAgency()) await press(one(AGENCY_TAB))
-      if (!one(PRO_PICKER)) await press(await until(() => one(`${DISPATCH} [data-tour="request-workers"]`)))
-      await until(() => one(PRO_PICKER))
-      while (prosPicked() < 2) {
-        const row = [...document.querySelectorAll<HTMLButtonElement>(`${PRO_PICKER} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
-        if (!row) break
-        await press(row)
-      }
+      await pickTwo()
       await press(one('[data-tour="booking-post"]'))
     },
   },
@@ -715,6 +801,13 @@ export const SCRIPT: TourItem[] = [
     placement: "right",
     done: assignedSince,
     success: () => "Assigned",
+    fill: {
+      when: () => !!one(ASSIGN_DIALOG),
+      run: async () => {
+        await press(await until(() => one(`${ASSIGN_DIALOG} [data-tour="assign-row"][data-ready]`)))
+        return one('[data-tour="assign-submit"]')
+      },
+    },
     skip: async (_, api) => {
       if (!shownGroup(api.now())) {
         const g = assignable(api.now().data)
@@ -752,6 +845,7 @@ export const SCRIPT: TourItem[] = [
       return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : undefined
     },
     action: (ctx) => (one(VERIFY) ? "Attach any file, tick the attestation, then Verify" : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
+    fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: attest },
     targets: (ctx) => {
       if (one(VERIFY)) return [one(VERIFY)]
       const pro = openPro(ctx)
@@ -783,11 +877,7 @@ export const SCRIPT: TourItem[] = [
       if (!one(VERIFY)) await press(await until(() => (doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]'))))
       await until(() => one(VERIFY))
       await sleep(400)
-      await attach(VERIFY, `${doc?.id ?? "document"}.pdf`)
-      await sleep(1100)
-      const box = inside(VERIFY, 'button[role="checkbox"]')
-      if (box?.getAttribute("aria-checked") !== "true") await press(box)
-      await press(one('[data-tour="verify-submit"]'))
+      await press(await attest())
       await until(() => !one(VERIFY), 8000)
     },
   },
@@ -870,7 +960,7 @@ export const SCRIPT: TourItem[] = [
     anchor: () => one(SHEET),
     done: correctedSince,
     success: () => "Corrected to the clock and approved",
-    onDone: (_, api) => later(() => api.push("/timesheets"), 1000),
+    onDone: (_, api) => api.push("/timesheets"),
     skip: async () => {
       if (!one(SHEET)) await press(one(".tour-flagged"))
       await press(await until(() => one('[data-tour="accept-proposal"]')))
@@ -904,7 +994,14 @@ export const SCRIPT: TourItem[] = [
       const t = movedSince(ctx)
       return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
     },
-    onDone: (_, api) => later(() => api.push("/timesheets"), 1000),
+    onDone: (_, api) => api.push("/timesheets"),
+    fill: {
+      when: () => !!one(MOVE),
+      run: async (ctx) => {
+        await pickRole(ctx)
+        return one('[data-tour="move-submit"]')
+      },
+    },
     skip: async (ctx, api) => {
       if (!one(SHEET)) {
         const m = movable(ctx.data)
@@ -916,8 +1013,7 @@ export const SCRIPT: TourItem[] = [
       if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
       await until(() => one(MOVE))
       await sleep(400)
-      const rows = [...document.querySelectorAll<HTMLButtonElement>(`${MOVE} li button:not(:disabled)`)]
-      await press(rows.find((b) => b.textContent?.includes("Barback")) ?? rows[0])
+      await pickRole(api.now())
       await press(one('[data-tour="move-submit"]'))
     },
   },
@@ -949,21 +1045,22 @@ export const SCRIPT: TourItem[] = [
       const top = flagged(ctx.data)[0]
       return top ? `${top.number} from ${supplier(top.supplierId).shortName} bills hours above the clock.` : undefined
     },
-    action: (ctx) => (shownInvoice(ctx) ? "Click Send back for a credit" : "Open the highlighted invoice"),
+    action: (ctx) => (one(BILLING_CONFIRM) ? "Click Send back" : shownInvoice(ctx) ? "Click Send back for a credit" : "Open the highlighted invoice"),
     targets: (ctx) => {
+      if (one(BILLING_CONFIRM)) return [one(CONFIRM_SUBMIT)]
       if (shownInvoice(ctx)) return [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')]
       if (ctx.params.get("filter") !== "flagged") return [one('[role="tab"][data-value="flagged"]')]
       const top = flagged(ctx.data)[0]
       return [(top && one(`tbody tr[data-row-id="${top.id}"]`)) || one("tbody tr[data-row-id]")]
     },
     placement: "bottom",
-    anchor: () => one('[data-tour="billing-review"]'),
+    anchor: () => one(BILLING_CONFIRM) ?? one('[data-tour="billing-review"]'),
     done: (ctx) => !!reviewedSince(ctx),
     success: (ctx) => {
       const inv = reviewedSince(ctx)
       return inv?.billingReview?.status === "accepted" ? "Accepted as billed" : `Sent back to ${inv ? supplier(inv.supplierId).shortName : "the agency"} for a credit`
     },
-    onDone: (_, api) => later(() => api.push("/agencies"), 800),
+    onDone: (_, api) => api.push("/agencies"),
     skip: async (ctx, api) => {
       if (!shownInvoice(ctx)) {
         const top = flagged(ctx.data)[0]
@@ -972,7 +1069,8 @@ export const SCRIPT: TourItem[] = [
         if (row) await press(row)
         else api.push(`/invoices/${top.id}`)
       }
-      await press(await until(() => one('[data-tour="send-back"]')))
+      if (!one(BILLING_CONFIRM)) await press(await until(() => one('[data-tour="send-back"]')))
+      await press(await until(() => one(CONFIRM_SUBMIT)))
     },
   },
   {
@@ -1027,6 +1125,7 @@ export const SCRIPT: TourItem[] = [
     targets: () => [last('[data-tour="agent-link"]')],
     placement: "bottom",
     done: (ctx) => ctx.path === "/reports",
+    success: () => "Your report",
     back: "ask-report",
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
   },

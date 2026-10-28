@@ -449,6 +449,22 @@
   }
 }
 
+[data-tour-next] {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+  animation: tour-next 1.6s ease-in-out infinite;
+}
+
+@keyframes tour-next {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--brand) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in oklch, var(--brand) 20%, transparent);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

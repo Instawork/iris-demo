@@ -134,7 +134,7 @@ export function BillingReview({ invoice }: { invoice: Invoice }) {
       {review?.note && <p className="mx-5 mb-5 rounded-lg bg-tint-faded px-3 py-2 text-body-3 text-faded">Note from {review.by}: “{review.note}”</p>}
 
       <AlertDialog open={!!decision} onOpenChange={(o) => !o && setDecision(undefined)}>
-        <AlertDialogContent>
+        <AlertDialogContent data-tour="billing-confirm">
           <AlertDialogHeader>
             <AlertDialogTitle>{decision === "send_back" ? `Send ${invoice.number} back to ${sup}?` : `Accept these hours on ${invoice.number} as billed?`}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -146,7 +146,7 @@ export function BillingReview({ invoice }: { invoice: Invoice }) {
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note for the agency (optional)" className="min-h-20 rounded-lg text-body-3" />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={confirm}>
+            <AlertDialogAction disabled={busy} onClick={confirm} data-tour="billing-confirm-submit">
               {decision === "send_back" ? "Send back" : "Accept as billed"}
             </AlertDialogAction>
           </AlertDialogFooter>

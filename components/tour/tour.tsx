@@ -15,6 +15,8 @@ import {
   CHAPTER_ORDER,
   SCRIPT,
   STEPS,
+  handOff,
+  handedOff,
   indexOf,
   pilotStopped,
   stopPilot,
@@ -66,6 +68,7 @@ function contextNow(): TourContext {
     data,
     thread: useAgentThreads.getState().threads[workspaceId] ?? [],
     base: tour.base,
+    enteredAt: tour.enteredAt,
     proId: tour.proId,
     invoiceId: tour.invoiceId,
     groupId: tour.groupId,
@@ -218,19 +221,18 @@ function StepScreen({ step }: { step: TourStep }) {
   /** The visit of the step "Do it for me" is playing, and the one that's already done and closing. */
   const [piloting, setPiloting] = useState<string>()
   const closing = useRef<string>(undefined)
+  const leaving = useRef<string>(undefined)
   const vp = useViewport()
   const [cardRef, cardSize] = useSize<HTMLDivElement>()
 
   useEffect(() => {
     let raf = 0
-    let timer: number | undefined
     let finished = false
     let missingSince: number | undefined
     let awaySince: number | undefined
     let checkedAt = 0
     let ranAt = 0
     const scrolled = new WeakMap<Element, { times: number; at: number }>()
-    const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch), now: contextNow }
     const update = (next: View) => setView((prev) => (prev.step === step.id && sameView(prev.view, next) ? prev : { step: step.id, view: next }))
 
     const tick = () => {
@@ -243,13 +245,7 @@ function StepScreen({ step }: { step: TourStep }) {
         if (step.done?.(ctx)) {
           finished = true
           closing.current = useTour.getState().enteredAt
-          step.onDone?.(ctx, api)
-          if (!step.success) {
-            useTour.getState().finish(step.id, "done")
-            return
-          }
-          setCelebrate({ step: step.id, at: useTour.getState().enteredAt, message: step.success(ctx), kept: !!step.targets(ctx)[0]?.isConnected })
-          timer = window.setTimeout(() => useTour.getState().finish(step.id, "done"), 1150)
+          setCelebrate({ step: step.id, at: useTour.getState().enteredAt, message: step.success?.(ctx) ?? "Done", kept: !!step.targets(ctx)[0]?.isConnected })
           return
         }
       }
@@ -272,6 +268,10 @@ function StepScreen({ step }: { step: TourStep }) {
         return
       }
       missingSince = undefined
+      if (!primary.hasAttribute("data-tour-target")) {
+        document.querySelectorAll("[data-tour-target]").forEach((el) => el.removeAttribute("data-tour-target"))
+        primary.setAttribute("data-tour-target", "")
+      }
       // A second try once the page settles, for targets that moved while content above them was still opening.
       const tried = scrolled.get(primary) ?? { times: 0, at: 0 }
       if (tried.times === 0 || (tried.times === 1 && t - tried.at > 900)) {
@@ -281,7 +281,7 @@ function StepScreen({ step }: { step: TourStep }) {
       const modal = topModal()
       if (modal && !modal.contains(primary)) return update({ mode: "paused" })
       const anchor = step.anchor?.()
-      const copy = [titleOf(step, ctx), text(step.body, ctx), text(step.action, ctx)].join("|")
+      const copy = [titleOf(step, ctx), text(step.body, ctx), text(step.action, ctx), handedOff()?.textContent, step.fill?.when(ctx)].join("|")
       update({ mode: "ready", boxes: els.map(boxOf), anchor: anchor ? boxOf(anchor) : undefined, modal: !!modal, copy })
     }
 
@@ -297,7 +297,7 @@ function StepScreen({ step }: { step: TourStep }) {
     return () => {
       cancelAnimationFrame(raf)
       window.clearInterval(fallback)
-      window.clearTimeout(timer)
+      document.querySelectorAll("[data-tour-target]").forEach((el) => el.removeAttribute("data-tour-target"))
       stopPilot()
     }
   }, [step, router])
@@ -308,18 +308,42 @@ function StepScreen({ step }: { step: TourStep }) {
   const ready = view.view.mode === "ready" ? view.view : undefined
   const party = celebrate?.step === step.id && celebrate.at === enteredAt ? celebrate : undefined
   const done = party?.message
-  const showCard = mode === "ready" || mode === "lost"
+  const showCard = mode === "ready" || mode === "lost" || !!party
   const anchor = mode === "ready" ? ready?.boxes[0] : undefined
   const pos = place(mode === "ready" ? (ready?.anchor ?? anchor) : undefined, cardSize, step.placement, vp.w, vp.h, anchor)
 
   const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch), now: contextNow }
-  const finish = (how: "done" | "skipped") => useTour.getState().finish(step.id, how)
-  const next = () => {
-    step.onDone?.(contextNow(), api)
-    finish("done")
+  /** Moves on to the next step once the page the step sends the player to has loaded, so that step starts there. */
+  const finish = async (how: "done" | "skipped") => {
+    const at = useTour.getState().enteredAt
+    if (leaving.current === at) return
+    leaving.current = at
+    let to: string | undefined
+    step.onDone?.(contextNow(), {
+      ...api,
+      push: (href) => {
+        to = href
+        router.push(href)
+      },
+    })
+    if (to) await arrivedAt(to)
+    if (useTour.getState().enteredAt === at) useTour.getState().finish(step.id, how)
   }
   const visit = enteredAt
   const flying = piloting === visit
+  const handoff = mine && mode === "ready" ? handedOff() : undefined
+  const canFill = !!step.fill?.when(ctx) && !handoff
+  const fill = async () => {
+    if (!step.fill) return
+    setPiloting(visit)
+    try {
+      handOff(await step.fill.run(contextNow(), api))
+    } catch (error) {
+      if (!pilotStopped(error)) throw error
+    } finally {
+      setPiloting((p) => (p === visit ? undefined : p))
+    }
+  }
   const skip = async () => {
     setPiloting(visit)
     try {
@@ -334,8 +358,7 @@ function StepScreen({ step }: { step: TourStep }) {
       setPiloting((p) => (p === visit ? undefined : p))
     }
     if (useTour.getState().enteredAt !== visit || closing.current === visit) return
-    step.onDone?.(contextNow(), api)
-    finish("skipped")
+    await finish("skipped")
   }
   const goThere = () => {
     const now = contextNow()
@@ -358,7 +381,18 @@ function StepScreen({ step }: { step: TourStep }) {
         style={{ pointerEvents: showCard && mine ? "auto" : "none" }}
       >
         {pointer && <Pointer edge={pos.edge!} at={pos.at!} />}
-        <StepCard step={step} ctx={ctx} mode={mode} done={done} flying={flying} onNext={next} onSkip={() => void skip()} />
+        <StepCard
+          step={step}
+          ctx={ctx}
+          mode={mode}
+          done={done}
+          flying={flying}
+          handoff={handoff?.textContent?.trim()}
+          canFill={canFill}
+          onNext={() => void finish("done")}
+          onFill={() => void fill()}
+          onSkip={() => void skip()}
+        />
       </motion.div>
       <AnimatePresence>{mine && mode === "away" && <PausedPill step={step} ctx={ctx} onResume={goThere} />}</AnimatePresence>
     </>
@@ -421,7 +455,10 @@ function StepCard({
   mode,
   done,
   flying,
+  handoff,
+  canFill,
   onNext,
+  onFill,
   onSkip,
 }: {
   step: TourStep
@@ -429,13 +466,17 @@ function StepCard({
   mode: View["mode"]
   done?: string
   flying: boolean
+  /** The label of the button Iris left for the player after filling the screen in. */
+  handoff?: string
+  canFill: boolean
   onNext: () => void
+  onFill: () => void
   onSkip: () => void
 }) {
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
   const n = STEPS.indexOf(step) + 1
-  const action = text(step.action, ctx)
+  const action = handoff ? `Click ${handoff}` : text(step.action, ctx)
   const following = SCRIPT[indexOf(step.id) + 1]
   const wrapsChapter = !following || following.kind === "finale" || (following.kind === "chapter" && following.chapter !== step.chapter)
   const title = titleOf(step, ctx)
@@ -501,7 +542,7 @@ function StepCard({
             {flying ? (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
                 <WandSparkles className="size-3.5 shrink-0 animate-pulse" />
-                Iris is doing it
+                Iris is filling it in
               </p>
             ) : (
               !lost &&
@@ -519,7 +560,7 @@ function StepCard({
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
         <Progress current={n - 1} chapter={step.chapter} />
         <span className="ml-auto flex items-center gap-1">
-          {done || flying ? null : !action && !step.example ? (
+          {flying ? null : done || (!action && !step.example) ? (
             <CardButton onClick={onNext}>
               Next <ArrowRight className="size-3.5" />
             </CardButton>
@@ -528,13 +569,15 @@ function StepCard({
               Do it for me <ArrowRight className="size-3.5" />
             </CardButton>
           ) : (
-            <button
-              type="button"
-              onClick={onSkip}
-              className="h-7 rounded-md whitespace-nowrap px-2 text-[12.5px] font-medium text-background/55 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
-            >
-              Do it for me
-            </button>
+            canFill && (
+              <button
+                type="button"
+                onClick={onFill}
+                className="h-7 rounded-md whitespace-nowrap px-2 text-[12.5px] font-medium text-background/55 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                Fill it in for me
+              </button>
+            )
           )}
         </span>
       </div>
