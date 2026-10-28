@@ -55,19 +55,19 @@ App: https://cruber-demo.replit.app (no passcode)
    - Agency: "Northwind Event Staffing", contact "Alex Rivera", alex@northwindstaff.com, sends hours by CSV.
    - Coverage: Chicago. Add Suite Attendant to the preselected roles.
    - Paperwork: the insurance expiry is prefilled eight months out. Attach any PDF as the certificate. Next stays off until **Master services agreement signed** is ticked.
-   - Rate card: each rate starts at what the agencies already in Chicago pay, with a 32% markup, and the last column compares the bill rate with the market. Type 46 into the Suite Attendant markup: "Over the 45% cap", and Next turns off. Set it to 44 and the row reads "+4% on $31.17".
+   - Rate card: each rate starts at what the agencies already in Chicago pay, with a 32% markup, and the last column compares the bill rate with the market. Raise a markup and the last column flags a rate more than 10% above the market.
    - Pros and buyers: 18 Pros from Northwind's roster. Levy · Chicago is checked, and Northwind joins the end of its release order.
    - Review, then **Add agency**. The summary shows 4 rates, 18 Pros with 2 held until their background check clears, and approval for Levy.
 5. Click **Open Iris as Northwind**. Alex's dashboard already has a to-do: "2 professionals with missing or expired documents". Iris is holding them from day one.
-6. Rate card audit. As Priya, open **Supplier Rates** and scroll to **Rate changes**, the log for every agency. The top entries include Harbor, Bartender, Chicago, about two months back: $27.81 to $35.69 (+28.3%), a 72% markup, CSV upload by Renee Park, flagged "Over the 45% cap". That is the rate Harbor's invoices bill at. Filter Agency to Northwind to see its four rates, set at onboarding by Priya, or open Northwind under **Agencies** for the same log scoped to it. **Download** exports the log.
+6. Rate card audit. As Priya, open **Supplier Rates** and scroll to **Rate changes**, the log for every agency. The top entries include Harbor, Bartender, Chicago, about two months back: $27.81 to $35.69 (+28.3%), a 72% markup, CSV upload by Renee Park, flagged "Up 28% at once". That is the rate Harbor's invoices bill at. Filter Agency to Northwind to see its four rates, set at onboarding by Priya, or open Northwind under **Agencies** for the same log scoped to it. **Download** exports the log.
 
-**Say:** one form instead of a spreadsheet and an email thread. Iris checks the address, market, cost center and rate cap as you type. A unit's requirements are enforced when a Pro is placed, not written in a policy. Every rate change is kept with who, when, how and the before and after, even if the card is later deleted.
+**Say:** one form instead of a spreadsheet and an email thread. Iris checks the address, market, cost center and rates against the market as you type. A unit's requirements are enforced when a Pro is placed, not written in a policy. Every rate change is kept with who, when, how and the before and after, even if the card is later deleted.
 
 **Ask the room:**
 - How does a unit get set up in Fieldglass today, who does it, and how long until it can order?
 - Which requirements vary by unit: sector training, TIPS or BASSET, drug screens, a minimum rating?
 - Who approves a new agency, and what's in the packet?
-- Who reviews rate changes, how often, and is the 45% cap the same for every sector?
+- Who reviews rate changes, and how often?
 
 ## Block 2. Shift creation (30 min)
 

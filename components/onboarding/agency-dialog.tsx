@@ -126,7 +126,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       ),
     [data, form.cityIds, form.positionIds, form.rates],
   )
-  const badRates = rows.filter((r) => !(r.pay >= 7.25) || !(r.markup >= 0) || r.markup > PROGRAM.maxMarkupPct)
+  const badRates = rows.filter((r) => !(r.pay >= 7.25) || !(r.markup >= 0))
   const buyers = BUYERS.filter((b) => LOCATIONS.some((l) => l.buyerId === b.id && form.cityIds.includes(l.cityId)))
 
   const ready = [
@@ -302,9 +302,8 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
                   </span>
                 </label>
-                <div className="grid gap-3 rounded-xl border border-border bg-page-faded p-4 sm:grid-cols-3">
+                <div className="grid gap-3 rounded-xl border border-border bg-page-faded p-4 sm:grid-cols-2">
                   <Term label="Payment terms" value={`Net ${PROGRAM.paymentTermsDays}, by ACH through Iris`} />
-                  <Term label="Markup cap" value={`${PROGRAM.maxMarkupPct}% over the worker's pay`} />
                   <Term label="Compliance" value="Background check, I-9 and Compass orientation for every worker" />
                 </div>
               </div>
@@ -350,18 +349,14 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                                 value={r.entry.markup}
                                 onChange={(e) => set({ rates: { ...form.rates, [r.key]: { ...r.entry, markup: e.target.value.replace(/[^\d.]/g, "") } } })}
                                 aria-label={`${position(r.positionId).name} markup in ${city(r.cityId).name}`}
-                                className={cn(inputClass, "h-8 w-16 tabular", r.markup > PROGRAM.maxMarkupPct && "border-critical")}
+                                className={cn(inputClass, "h-8 w-16 tabular")}
                               />
                               <span className="text-faded">%</span>
                             </span>
                           </td>
                           <td className="px-3 py-2 text-right font-semibold tabular">{r.bill ? money(r.bill) : "—"}</td>
                           <td className="px-3 py-2 text-right">
-                            {r.markup > PROGRAM.maxMarkupPct ? (
-                              <StatusBadge tone="critical" size="sm">
-                                Over the {PROGRAM.maxMarkupPct}% cap
-                              </StatusBadge>
-                            ) : r.over === undefined ? (
+                            {r.over === undefined ? (
                               <span className="text-caption-1 text-subtle">First agency here</span>
                             ) : r.over > 0.1 ? (
                               <StatusBadge tone="warning" size="sm">

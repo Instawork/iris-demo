@@ -10,7 +10,6 @@ import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupP
 import {
   BUYERS,
   LOCATIONS,
-  PROGRAM,
   SUPPLIERS,
   approversFor,
   buyer,
@@ -1104,7 +1103,7 @@ function upsertRateCard(data: DemoData, ctx: CommandContext, input: RateCardInpu
   const supplierId = str(input?.supplierId, "Agency")
   if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, supplierId)) forbid("Only the agency or Compass can change these rates.")
   const proRate = num(input.proRate, "Pay rate", 1, 500)
-  const markupPct = round2(num(input.markupPct, "Markup", 0, PROGRAM.maxMarkupPct))
+  const markupPct = round2(num(input.markupPct, "Markup", 0, 200))
   const billRate = round2(input.billRate ? num(input.billRate, "Bill rate", 1, 1000) : billFrom(proRate, markupPct))
   const existing =
     (input.id && data.rateCards.find((c) => c.id === input.id)) ||
@@ -1196,7 +1195,7 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
     const v = sent[line.id]
     if (!v) continue
     const role = position(line.positionId).name
-    lines[line.id] = bidLine(num(v.proRate, `${role} pay rate`, 1, 500), num(v.markupPct, `${role} markup`, 0, PROGRAM.maxMarkupPct))
+    lines[line.id] = bidLine(num(v.proRate, `${role} pay rate`, 1, 500), num(v.markupPct, `${role} markup`, 0, 200))
   }
   if (!Object.keys(lines).length) fail("Price at least one role.")
   const prior = latestBid(ev, supplierId!)
@@ -1654,7 +1653,7 @@ function onboardAgency(data: DemoData, ctx: CommandContext, input: AgencyInput):
     if (!cityIds.includes(r?.cityId) || !positionIds.includes(r?.positionId)) continue
     const role = position(r.positionId).name
     const proRate = round2(num(r.proRate, `The ${role} pay rate`, 7.25, 200))
-    const markupPct = round2(num(r.markupPct, `The ${role} markup`, 0, PROGRAM.maxMarkupPct))
+    const markupPct = round2(num(r.markupPct, `The ${role} markup`, 0, 200))
     cards.push({
       id: `rate-${rate++}`,
       supplierId: id,

@@ -295,7 +295,7 @@ const AGENCY_COPY: Record<string, StageCopy> = {
   Agency: { title: "Who they are", body: "It can send workers and hours by CSV, API or both.", action: "Type the name, contact and email in grey, then Next" },
   Coverage: { title: "Where they work and what they staff", action: "Add Suite Attendant, then Next" },
   Paperwork: { title: "Insurance and the master agreement", action: "Tick Master services agreement signed, then Next" },
-  Rates: { title: "Its rate card", body: "Rates start at the market. Markups over the 45% cap are blocked.", action: "Click Next" },
+  Rates: { title: "Its rate card", body: "Rates start at what agencies here already charge.", action: "Click Next" },
   Workers: { title: "Bring over its workers", body: "Iris checks each worker's documents as they arrive.", action: "Click Use a sample roster, then Next" },
   Review: { title: "Add it", action: "Click Add agency" },
 }

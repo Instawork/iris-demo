@@ -3,7 +3,6 @@ import type { Buyer, City, Department, Directory, Location, Position, Requiremen
 /** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
   name: "Compass Group USA",
-  maxMarkupPct: 45,
   paymentTermsDays: 15,
   dueSoonDays: 7,
   cascadeHoursBefore: 4,

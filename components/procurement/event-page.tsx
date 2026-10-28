@@ -21,7 +21,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, pct, round2 } from "@/lib/format"
-import { PROGRAM, city, position, supplier } from "@/lib/reference"
+import { city, position, supplier } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
 import { activeCard, bestOn, bidsOf, latestBid, lineOf, marketName, openCounters, responded, spendOf } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
@@ -723,7 +723,6 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
     const markup = Number(f?.markup)
     return pay > 0 && f?.markup !== "" && markup >= 0 ? [{ line: l, pay, markup, bill: billFrom(pay, markup) }] : []
   })
-  const over = priced.some((p) => p.markup > PROGRAM.maxMarkupPct)
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
   const today = spendOf(ev, supplierId).baseline
   const round = (bid?.round ?? 0) + 1
@@ -812,7 +811,6 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
                           suffix="%"
                           value={f?.markup ?? ""}
                           disabled={locked}
-                          invalid={markup > PROGRAM.maxMarkupPct}
                           label={`${position(l.positionId).name} markup`}
                           onChange={(v) => set(l.id, { markup: v })}
                         />
@@ -832,12 +830,11 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
           {!locked && (
             <div className="flex flex-wrap items-center gap-3 border-t border-border bg-page-faded/60 px-5 py-3">
               <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to Compass (optional)" className="h-9 min-w-56 flex-1 rounded-lg bg-card" />
-              <Button className="h-9" disabled={busy || !priced.length || over} onClick={send} data-tour="submit-bid">
+              <Button className="h-9" disabled={busy || !priced.length} onClick={send} data-tour="submit-bid">
                 {bid ? `Send round ${round}` : "Submit bid"}
               </Button>
             </div>
           )}
-          {over && !locked && <p className="px-5 pb-3 text-caption-1 text-critical-fg">Markup is capped at {PROGRAM.maxMarkupPct}% on this program.</p>}
         </Surface>
       </div>
       <div className="flex min-w-0 flex-col gap-4">

@@ -15,7 +15,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatTimestamp } from "@/lib/dates"
 import { money } from "@/lib/format"
-import { CITIES, PROGRAM, SUPPLIERS, city, citiesForBuyer, findSupplier, position } from "@/lib/reference"
+import { CITIES, SUPPLIERS, city, citiesForBuyer, findSupplier, position } from "@/lib/reference"
 import type { RateChange } from "@/lib/types"
 
 /**
@@ -151,12 +151,6 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
       header: "Iris check",
       cell: (c) => {
         const d = delta(c)
-        if (c.to && c.to.markupPct > PROGRAM.maxMarkupPct)
-          return (
-            <StatusBadge tone="critical" size="sm">
-              Over the {PROGRAM.maxMarkupPct}% cap
-            </StatusBadge>
-          )
         if (d !== undefined && d > 0.1)
           return (
             <StatusBadge tone="warning" size="sm">

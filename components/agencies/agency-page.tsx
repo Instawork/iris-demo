@@ -7,7 +7,7 @@ import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
-import { InfoTip, Tip } from "@/components/common/info-tip"
+import { InfoTip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
@@ -19,9 +19,8 @@ import { readiness, summaryOf } from "@/lib/compliance"
 import { addDaysISO, daysFromToday, formatDateShort, todayISO } from "@/lib/dates"
 import { money, pct, plural } from "@/lib/format"
 import { complianceScore, formatTimeToFill, metricsFor, supplierScore } from "@/lib/metrics"
-import { BUYERS, POSITIONS, PROGRAM, SUPPLIERS, city, locationsFor, supplier } from "@/lib/reference"
+import { BUYERS, POSITIONS, SUPPLIERS, city, locationsFor, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { cn } from "@/lib/utils"
 
 /**
  * One agency in one place: how it performs, what it charges and every change to that, its Pros, its paperwork and how
@@ -159,19 +158,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
                       <td className="px-5 py-2.5">{POSITIONS.find((p) => p.id === c.positionId)?.name}</td>
                       {!buyerId && <td className="px-5 py-2.5 text-right tabular text-faded">{money(c.proRate)}</td>}
                       {!buyerId && (
-                        <td className={cn("px-5 py-2.5 text-right tabular", c.markupPct > PROGRAM.maxMarkupPct ? "font-semibold text-critical-fg" : "text-faded")}>
-                          {c.markupPct > PROGRAM.maxMarkupPct ? (
-                            <Tip content={`Over the program's ${PROGRAM.maxMarkupPct}% cap`}>
-                              <span>
-                                {c.markupPct}%
-                              </span>
-                            </Tip>
-                          ) : (
-                            <>
-                              {c.markupPct}%
-                            </>
-                          )}
-                        </td>
+                        <td className="px-5 py-2.5 text-right tabular text-faded">{c.markupPct}%</td>
                       )}
                       <td className="px-5 py-2.5 text-right font-semibold tabular">{money(c.billRate)}</td>
                     </tr>
