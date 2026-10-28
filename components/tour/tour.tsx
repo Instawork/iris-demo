@@ -388,8 +388,6 @@ function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; c
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
   const n = STEPS.indexOf(step) + 1
-  const inPart = STEPS.filter((s) => s.chapter === step.chapter)
-  const k = inPart.indexOf(step) + 1
   const action = typeof step.action === "function" ? step.action(ctx) : step.action
   const following = SCRIPT[indexOf(step.id) + 1]
   const wrapsChapter = !following || following.kind === "finale" || (following.kind === "chapter" && following.chapter !== step.chapter)
@@ -408,9 +406,6 @@ function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; c
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] font-medium whitespace-nowrap text-background/60">
           <Icon className="size-3.5 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={2.2} />
           <span className="truncate">{meta.short}</span>
-          <span className="shrink-0 text-background/35 tabular">
-            {k}/{inPart.length}
-          </span>
         </span>
         <SideBadge kind={workspace(step.wsId).kind} onDark size="sm" />
         <button
@@ -442,7 +437,7 @@ function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; c
             </motion.span>
             <span className="flex min-w-0 flex-col">
               <span className="text-[16px] leading-snug font-semibold">{done}</span>
-              <span className="text-[12.5px] text-background/55">{wrapsChapter ? `${meta.label} complete` : `Step ${k} of ${inPart.length} done`}</span>
+              {wrapsChapter && <span className="text-[12.5px] text-background/55">{meta.label} complete</span>}
             </span>
           </motion.div>
         ) : (
