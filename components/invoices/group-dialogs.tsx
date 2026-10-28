@@ -145,7 +145,7 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
     )
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86svh] gap-0 overflow-hidden p-0 sm:max-w-2xl">
+      <DialogContent className="max-h-[86svh] gap-0 overflow-hidden p-0 sm:max-w-2xl" data-tour="group-detail">
         <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle className="text-featured-3 font-bold">{monthly ? formatMonth(live.month!) : live.name}</DialogTitle>

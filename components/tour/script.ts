@@ -5,13 +5,11 @@ import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
-import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
-import { fullName, money, plural } from "@/lib/format"
+import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
+import { fullName, plural } from "@/lib/format"
 import { benchmark } from "@/lib/market"
-import { billingFindings, complianceScore, filledCount, groupPhase, isOpenTo, needsReview, billingToReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
-import { SUPPLIERS, location, position, supplier } from "@/lib/reference"
-import { eligiblePros } from "@/lib/store"
+import { location, position, supplier } from "@/lib/reference"
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
@@ -103,7 +101,6 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
 
 const LEVY = "ws-levy"
 const COMPASS = "ws-compass"
-const CREWLINE = "ws-crewline"
 const METRO = "ws-metro"
 const HARBOR = "ws-harbor"
 
@@ -206,7 +203,6 @@ const reportAsk = () => "What did we spend by agency last week?"
 /* -------------------------------- Onboarding ------------------------------- */
 
 const UNIT = '[data-tour="unit-dialog"]'
-const AGENCY = '[data-tour="agency-dialog"]'
 const NEXT = '[data-tour="wizard-next"]'
 const SUBMIT = '[data-tour="wizard-submit"]'
 const DONE = '[data-tour="wizard-done"]'
@@ -214,7 +210,6 @@ const DONE = '[data-tour="wizard-done"]'
 const stageOf = (dialog: string) => one(dialog)?.getAttribute("data-stage") ?? undefined
 
 const newUnit = (ctx: TourContext) => ctx.data.directory.locations[0]
-const newAgency = (ctx: TourContext) => ctx.data.directory.suppliers[0]
 
 interface StageCopy {
   title: string
@@ -275,46 +270,6 @@ async function unitStage(stage: string) {
   if (stage === "Departments") await sleep(700)
 }
 
-async function agencyStage(stage: string) {
-  if (stage === "Agency") {
-    await type(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
-    await type(inside(AGENCY, 'input[placeholder="Alex Rivera"]'), "Alex Rivera")
-    await type(inside(AGENCY, 'input[placeholder="alex@northwindstaff.com"]'), "alex@northwindstaff.com")
-    await toggleOn(AGENCY, "API connection")
-  }
-  if (stage === "Coverage") await toggleOn(AGENCY, "Suite Attendant")
-  if (stage === "Paperwork") {
-    const box = inside(AGENCY, 'button[role="checkbox"]')
-    if (box?.getAttribute("aria-checked") !== "true") await press(box)
-  }
-  if (stage === "Rates") await sleep(700)
-  if (stage === "Workers") await press(buttonIn(AGENCY, "Use a sample roster"))
-}
-
-const AGENCY_COPY: Record<string, StageCopy> = {
-  Agency: { title: "Who they are", body: "It can send workers and hours by CSV, API or both.", action: "Type the name, contact and email in grey, then Next" },
-  Coverage: { title: "Where they work and what they staff", action: "Add Suite Attendant, then Next" },
-  Paperwork: { title: "Insurance and the master agreement", action: "Tick Master services agreement signed, then Next" },
-  Rates: { title: "Its rate card", body: "Rates start at what agencies here already charge.", action: "Click Next" },
-  Workers: { title: "Bring over its workers", body: "Iris checks each worker's documents as they arrive.", action: "Click Use a sample roster, then Next" },
-  Review: { title: "Add it", action: "Click Add agency" },
-}
-
-const agencyCopy = (ctx: TourContext): StageCopy => {
-  const stage = stageOf(AGENCY)
-  if (stage === "done") {
-    const sup = newAgency(ctx)
-    const pros = sup ? ctx.data.pros.filter((p) => p.supplierId === sup.id) : []
-    const waiting = pros.filter((p) => p.compliance.background?.status === "pending").length
-    return {
-      title: `${sup?.name ?? "The agency"} is on Iris`,
-      body: `${plural(pros.length, "worker")} came over${waiting ? `; ${waiting} wait on a background check` : ""}.`,
-      action: "Click Done",
-    }
-  }
-  return AGENCY_COPY[stage ?? ""] ?? { title: "Add an agency", action: "Click Add an agency" }
-}
-
 /* ------------------------------- Procurement ------------------------------- */
 
 const EVENT = "rfp-chi-27"
@@ -362,56 +317,6 @@ const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a
 
 /* ------------------------------- Compliance -------------------------------- */
 
-/** An upcoming Levy shift released to Crewline that still has open spots, a West Loop bartender shift if there is one. */
-const assignable = (data: DemoData) =>
-  data.groups
-    .filter(
-      (g) =>
-        g.buyerId === "levy-chi" &&
-        isOpenTo(g, "crewline") &&
-        groupPhase(g) === "upcoming" &&
-        !g.cancelledAt &&
-        filledCount(g) < g.slots.length &&
-        eligiblePros(data, g, "crewline").length > 0,
-    )
-    .sort(
-      (a, b) =>
-        Number(b.positionId === "bartender") - Number(a.positionId === "bartender") ||
-        Number(location(b.locationId).name.includes("West Loop")) - Number(location(a.locationId).name.includes("West Loop")) ||
-        a.date.localeCompare(b.date) ||
-        a.start.localeCompare(b.start),
-    )[0]
-
-const shownGroup = (ctx: TourContext) => {
-  const id = ctx.path.match(/^\/shifts\/(sg-\d+)$/)?.[1]
-  return id ? ctx.data.groups.find((g) => g.id === id) : undefined
-}
-
-const ASSIGN_DIALOG = '[data-tour="assign-dialog"]'
-
-const crewlineCheck = (ctx: TourContext) => {
-  const g = shownGroup(ctx) ?? assignable(ctx.data)
-  if (!g) return undefined
-  const loc = location(g.locationId)
-  const pool = ctx.data.pros.filter((p) => p.supplierId === "crewline" && p.cityId === loc.cityId && p.positionIds.includes(g.positionId))
-  const ready = eligiblePros(ctx.data, g, "crewline").length
-  const blocked = pool
-    .map((p) => ({ p, check: canWork(p, g.positionId, g.date, g.locationId) }))
-    .filter((x) => !x.check.ok)
-    .sort((a, b) => b.p.rating - a.p.rating)[0]
-  return { pool: pool.length, ready, blocked }
-}
-
-/** When the player opened Assign workers on this visit. The order also fills itself, and those workers don't count. */
-let assignOpened: { visit: string; at: string } | undefined
-
-const assignedSince = (ctx: TourContext) => {
-  if (one(ASSIGN_DIALOG) && assignOpened?.visit !== ctx.enteredAt) assignOpened = { visit: ctx.enteredAt, at: new Date().toISOString() }
-  const from = assignOpened?.visit === ctx.enteredAt ? assignOpened.at : undefined
-  const g = shownGroup(ctx)
-  return !!from && !!g && g.slots.some((s) => !!s.proId && !!s.confirmedAt && s.confirmedAt >= from && ctx.data.pros.find((p) => p.id === s.proId)?.supplierId === "crewline")
-}
-
 const DOC: Record<RequirementId, string> = {
   background: "background check",
   i9: "I-9",
@@ -458,12 +363,6 @@ async function attest() {
   if (box?.getAttribute("aria-checked") !== "true") await press(box)
   return one('[data-tour="verify-submit"]')
 }
-
-/** Agencies with workers on the program, best roster first. */
-const scored = (data: DemoData) =>
-  SUPPLIERS.map((s) => ({ s, c: complianceScore(data, s.id) }))
-    .filter((x) => x.c.active > 0)
-    .sort((a, b) => b.c.score - a.c.score)
 
 /* -------------------------------- Timesheets ------------------------------- */
 
@@ -526,21 +425,11 @@ const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.mov
 
 /* ------------------------------ Invoices, reports ------------------------------ */
 
-/** Waiting on Compass, the ones with hours billed above the clock first. */
-const flagged = (data: DemoData) =>
-  data.invoices
-    .filter((i) => needsReview(data, i))
-    .sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || b.issuedOn.localeCompare(a.issuedOn) || b.number.localeCompare(a.number))
+/** The latest month's consolidated invoice for all of Compass. */
+const thisMonth = (data: DemoData) =>
+  data.invoiceGroups.filter((g) => !!g.month && g.invoiceIds.length > 0).sort((a, b) => b.month!.localeCompare(a.month!))[0]
 
-const shownInvoice = (ctx: TourContext) => {
-  const id = ctx.path.match(/^\/invoices\/(inv-[\w-]+)$/)?.[1]
-  return id ? ctx.data.invoices.find((i) => i.id === id) : undefined
-}
-
-const BILLING_CONFIRM = '[data-tour="billing-confirm"]'
-const CONFIRM_SUBMIT = '[data-tour="billing-confirm-submit"]'
-
-const reviewedSince = (ctx: TourContext) => ctx.data.invoices.find((i) => !!i.billingReview && i.billingReview.at >= ctx.base.at)
+const GROUP = '[data-tour="group-detail"]'
 
 /** Where Iris's latest answer links to its report. */
 const reportLink = (ctx: TourContext) => {
@@ -561,7 +450,7 @@ export const SCRIPT: TourItem[] = [
     title: "Onboarding and rates",
     wsId: COMPASS,
     href: "/units",
-    shows: "Add a unit and an agency, then set next year's rates.",
+    shows: "Add a unit, then negotiate next year's rates.",
   },
   {
     kind: "step",
@@ -589,27 +478,17 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "agency",
+    id: "agencies",
     chapter: "onboarding",
     wsId: COMPASS,
     path: /^\/agencies$/,
     href: () => "/agencies",
-    title: (ctx) => agencyCopy(ctx).title,
-    body: (ctx) => agencyCopy(ctx).body,
-    action: (ctx) => agencyCopy(ctx).action,
-    targets: () => (one(AGENCY) ? [one(AGENCY)] : [one('[data-tour="add-agency"]')]),
-    placement: "right",
-    done: (ctx) => !!newAgency(ctx) && !one(AGENCY),
-    success: (ctx) => `${newAgency(ctx)?.name ?? "The agency"} added`,
+    title: "Agencies join in one form",
+    body: "Insurance, agreement, rates and workers. Each one gets a compliance score.",
+    targets: () => [one('[data-tour="agencies-table"]')],
+    placement: "bottom",
     onDone: (_, api) => api.push(`/procurement/${EVENT}`),
-    fill: {
-      when: () => ["Agency", "Coverage", "Paperwork", "Workers"].includes(stageOf(AGENCY) ?? ""),
-      run: async () => {
-        await agencyStage(stageOf(AGENCY) ?? "")
-        return inside(AGENCY, SUBMIT) ?? inside(AGENCY, NEXT)
-      },
-    },
-    skip: () => playWizard(AGENCY, '[data-tour="add-agency"]', agencyStage),
+    skip: () => undefined,
   },
   {
     kind: "step",
@@ -661,7 +540,7 @@ export const SCRIPT: TourItem[] = [
     anchor: () => approveDialog(),
     done: (ctx) => approvedSince(ctx) > 0,
     success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
-    onDone: (_, api) => api.push("/procurement?tab=rates"),
+    onDone: (_, api) => api.push("/procurement?tab=contracts"),
     skip: async () => {
       if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
       await sleep(500)
@@ -670,15 +549,15 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "market",
+    id: "contracts",
     chapter: "onboarding",
     wsId: COMPASS,
     path: /^\/procurement$/,
-    href: () => "/procurement?tab=rates",
-    title: "Every rate, against the market",
-    body: "Open a role to rank your agencies on it.",
-    targets: () => [one('[data-tour="market-rates"]')],
-    placement: "top",
+    href: () => "/procurement?tab=contracts",
+    title: "Every contract, with the new terms",
+    body: "Each agency's VA, payment terms and length.",
+    targets: () => [one('[data-tour="contracts"]')],
+    placement: "bottom",
     skip: () => undefined,
   },
 
@@ -776,61 +655,6 @@ export const SCRIPT: TourItem[] = [
   {
     kind: "chapter",
     id: "chapter-compliance",
-    chapter: "compliance",
-    title: "Compliance",
-    wsId: CREWLINE,
-    href: "/shifts",
-    shows: "Only workers who are cleared can be assigned.",
-  },
-  {
-    kind: "step",
-    id: "assign",
-    chapter: "compliance",
-    wsId: CREWLINE,
-    path: /^\/shifts/,
-    href: () => "/shifts",
-    title: (ctx) => (one(ASSIGN_DIALOG) ? "Who can work it, and why not" : shownGroup(ctx) ? "Assign from Crewline's roster" : "Shifts released to Crewline"),
-    body: (ctx) => {
-      if (one(ASSIGN_DIALOG)) {
-        const c = crewlineCheck(ctx)
-        return c ? `${c.ready} of ${c.pool} can work it.${c.blocked ? ` ${fullName(c.blocked.p)}: "${c.blocked.check.reason}".` : ""}` : undefined
-      }
-      if (shownGroup(ctx)) return undefined
-      const g = assignable(ctx.data)
-      return g ? `${location(g.locationId).name} needs ${plural(g.slots.length - filledCount(g), position(g.positionId).name.toLowerCase())} on ${formatDay(g.date, "EEEE")}.` : undefined
-    },
-    action: (ctx) => (one(ASSIGN_DIALOG) ? "Pick a worker marked Ready, then Assign" : shownGroup(ctx) ? "Click Assign workers" : "Open the highlighted shift"),
-    targets: (ctx) => {
-      if (one(ASSIGN_DIALOG)) return [one(ASSIGN_DIALOG)]
-      if (shownGroup(ctx)) return [one('[data-tour="assign"]')]
-      const g = assignable(ctx.data)
-      return [g && one(`tr[data-row-id="${g.id}"]`)]
-    },
-    placement: "right",
-    done: assignedSince,
-    success: () => "Assigned",
-    fill: {
-      when: () => !!one(ASSIGN_DIALOG),
-      run: async () => {
-        await press(await until(() => one(`${ASSIGN_DIALOG} [data-tour="assign-row"][data-ready]`)))
-        return one('[data-tour="assign-submit"]')
-      },
-    },
-    skip: async (_, api) => {
-      if (!shownGroup(api.now())) {
-        const g = assignable(api.now().data)
-        await press(g && one(`tr[data-row-id="${g.id}"]`))
-        await until(() => one('[data-tour="assign"]'))
-        await sleep(400)
-      }
-      if (!one(ASSIGN_DIALOG)) await press(one('[data-tour="assign"]'))
-      await press(await until(() => one(`${ASSIGN_DIALOG} [data-tour="assign-row"][data-ready]`)))
-      await press(one('[data-tour="assign-submit"]'))
-    },
-  },
-  {
-    kind: "chapter",
-    id: "chapter-documents",
     chapter: "compliance",
     title: "Compliance",
     wsId: METRO,
@@ -1033,73 +857,36 @@ export const SCRIPT: TourItem[] = [
     chapter: "reporting",
     title: "Invoices and reporting",
     wsId: COMPASS,
-    href: "/invoices?filter=flagged",
-    shows: "Catch hours billed past the clock, then ask for a number.",
+    href: "/invoices?tab=groups",
+    shows: "One invoice a month, and any number you ask for.",
   },
   {
     kind: "step",
-    id: "invoice",
+    id: "monthly",
     chapter: "reporting",
     wsId: COMPASS,
-    path: /^\/invoices/,
-    href: () => "/invoices?filter=flagged",
-    title: (ctx) => (shownInvoice(ctx) ? "Send back what the clock doesn't support" : "Every invoice, checked against the clock"),
+    path: /^\/invoices$/,
+    href: () => "/invoices?tab=groups",
+    title: () => (one(GROUP) ? "Down to each cost center" : "One invoice a month for all of Compass"),
     body: (ctx) => {
-      const inv = shownInvoice(ctx)
-      if (inv) {
-        const f = billingFindings(ctx.data, inv.id)[0]
-        return f ? `${f.hours} hours past the clock. Ask ${supplier(inv.supplierId).shortName} to credit ${money(f.amount)}.` : undefined
-      }
-      const top = flagged(ctx.data)[0]
-      return top ? `${top.number} from ${supplier(top.supplierId).shortName} bills hours above the clock.` : undefined
+      const g = thisMonth(ctx.data)
+      return !one(GROUP) && g ? `${plural(g.invoiceIds.length, "agency invoice")} in one.` : undefined
     },
-    action: (ctx) => (one(BILLING_CONFIRM) ? "Click Send back" : shownInvoice(ctx) ? "Click Send back for a credit" : "Open the highlighted invoice"),
+    action: (ctx) => {
+      const g = thisMonth(ctx.data)
+      return one(GROUP) ? undefined : `Open ${g?.month ? formatMonth(g.month) : "this month"}`
+    },
     targets: (ctx) => {
-      if (one(BILLING_CONFIRM)) return [one(CONFIRM_SUBMIT)]
-      if (shownInvoice(ctx)) return [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')]
-      if (ctx.params.get("filter") !== "flagged") return [one('[role="tab"][data-value="flagged"]')]
-      const top = flagged(ctx.data)[0]
-      return [(top && one(`tbody tr[data-row-id="${top.id}"]`)) || one("tbody tr[data-row-id]")]
+      if (one(GROUP)) return [one(GROUP)]
+      const g = thisMonth(ctx.data)
+      return [g && one(`tr[data-row-id="${g.id}"]`)]
     },
-    placement: "bottom",
-    anchor: () => one(BILLING_CONFIRM) ?? one('[data-tour="billing-review"]'),
-    done: (ctx) => !!reviewedSince(ctx),
-    success: (ctx) => {
-      const inv = reviewedSince(ctx)
-      return inv?.billingReview?.status === "accepted" ? "Accepted as billed" : `Sent back to ${inv ? supplier(inv.supplierId).shortName : "the agency"} for a credit`
-    },
-    onDone: (_, api) => api.push("/agencies"),
-    skip: async (ctx, api) => {
-      if (!shownInvoice(ctx)) {
-        const top = flagged(ctx.data)[0]
-        if (!top) return
-        const row = one(`tbody tr[data-row-id="${top.id}"]`)
-        if (row) await press(row)
-        else api.push(`/invoices/${top.id}`)
-      }
-      if (!one(BILLING_CONFIRM)) await press(await until(() => one('[data-tour="send-back"]')))
-      await press(await until(() => one(CONFIRM_SUBMIT)))
-    },
-  },
-  {
-    kind: "step",
-    id: "scores",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/agencies$/,
-    href: () => "/agencies",
-    title: "Every agency, scored on compliance",
-    body: (ctx) => {
-      const list = scored(ctx.data)
-      if (list.length < 2) return undefined
-      const top = list[0]
-      const low = list[list.length - 1]
-      return `${top.s.shortName} leads at ${top.c.score}. ${low.s.shortName} trails at ${low.c.score}.`
-    },
-    targets: () => [one('[data-tour="agencies-table"]')],
-    placement: "top",
+    placement: "right",
     onDone: (_, api) => api.push("/"),
-    skip: () => undefined,
+    skip: async (ctx, api) => {
+      const g = thisMonth(ctx.data)
+      if (g) api.push(`/invoices?tab=groups&group=${g.id}`)
+    },
   },
   {
     kind: "step",

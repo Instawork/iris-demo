@@ -186,7 +186,9 @@ export function AgenciesPage() {
                 </StatusBadge>
               )}
             </span>
-            <span className="text-caption-1 text-faded">{s.integrationDetail}</span>
+            <Tip content={s.integrationDetail}>
+              <span className="w-fit text-caption-1 text-faded">{s.integrationDetail.split(":")[0]}</span>
+            </Tip>
           </span>
         </span>
       ),
