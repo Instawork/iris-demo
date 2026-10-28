@@ -9,10 +9,10 @@ import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/l
 import { parseReportRequest, reportReply } from "@/lib/agent-report"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
-import { formatClockShort, formatDateShort, formatDay, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
+import { formatClockShort, formatDay, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
 import { previewOrder } from "@/lib/domain/order"
-import { money, moneyWhole, round2 } from "@/lib/format"
-import { PROGRAM, approversFor, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
+import { money, round2 } from "@/lib/format"
+import { PROGRAM, approversFor, departmentOf, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
 import { detectUploadType, isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
 import { joinNames, notifiedSuppliers, pickedOffer, useStore, type BookingInput } from "@/lib/store"
 import type { DemoData, UploadType } from "@/lib/types"
@@ -129,12 +129,12 @@ export function useAgent() {
       }
 
       if (lower.includes("invoice")) {
-        add({ from: "agent", text: "Flagged invoices are priced above comparable supplier rates for the same hours. Open the review queue to inspect line items, peer rates and the amount at risk.", actions: [{ label: "Review flagged invoices", kind: "link", href: "/invoices?filter=flagged" }] })
+        add({ from: "agent", text: "Flagged invoices are priced above comparable agency rates for the same hours. Open the review queue to inspect line items, peer rates and the amount at risk.", actions: [{ label: "Review flagged invoices", kind: "link", href: "/invoices?filter=flagged" }] })
         return
       }
 
       if (lower.includes("safety") || lower.includes("document") || lower.includes("background")) {
-        add({ from: "agent", text: "Safety exceptions include pending background checks, I-9s, orientation, and missing or expired role documents. Pros stay off shifts until their requirements are current.", actions: [{ label: "Review Pro compliance", kind: "link", href: "/professionals?filter=not_compliant" }] })
+        add({ from: "agent", text: "Safety exceptions include pending background checks, I-9s, orientation, and missing or expired role documents. Workers stay off shifts until their requirements are current.", actions: [{ label: "Review worker compliance", kind: "link", href: "/professionals?filter=not_compliant" }] })
         return
       }
 
@@ -150,7 +150,7 @@ export function useAgent() {
       }
 
       if (lower.includes("assign") || lower.includes("staff")) {
-        add({ from: "agent", text: "Open Shifts to see every spot still waiting on a Pro. Each shift shows which of your Pros are cleared for the role.", actions: [{ label: "Open Shifts", kind: "link", href: "/shifts" }] })
+        add({ from: "agent", text: "Open Shifts to see every spot still waiting on a worker. Each shift shows which of your workers are cleared for the role.", actions: [{ label: "Open Shifts", kind: "link", href: "/shifts" }] })
         return
       }
 
@@ -286,24 +286,16 @@ export function useAgent() {
   return { messages, respond, attach, runAction, draftShift, pickFirst, clear }
 }
 
-/** The draft card for an order: priced at each agency's rate, checked against the budget, in release order. */
+/** The draft card for an order: priced at each agency's rate, charged to its department, in release order. */
 function shiftDraft(data: DemoData, buyerId: string, input: BookingInput): Omit<AgentMessage, "id"> {
   const loc = location(input.locationId)
   const pos = position(input.positionId)
   const hours = paidHours(input.start, input.end, input.breakMins)
   const quotes = notifiedSuppliers(data, buyerId, loc.cityId, input.positionId, input.firstAgencyId)
-  if (!quotes.length) return { from: "agent", text: `None of your approved suppliers currently staff ${pos.name} in ${loc.name}. Approve a matching supplier before posting this shift.` }
+  if (!quotes.length) return { from: "agent", text: `None of your approved agencies currently staff ${pos.name} in ${loc.name}. Approve a matching agency before posting this shift.` }
   const totals = quotes.map(({ card }) => round2(card.billRate * hours * input.headcount))
   const preview = previewOrder(data, input)
-  const week = preview?.check.worst
-  const budget = !week?.budget
-    ? undefined
-    : preview?.needsApproval
-      ? {
-          over: true,
-          text: `${(week.overPct * 100).toFixed(1)}% over ${loc.name}'s ${moneyWhole(week.budget)} for the week of ${formatDateShort(week.weekStart)}, so ${joinNames(preview.approvers.map((a) => a.user.name))} approves it first`,
-        }
-      : { over: false, text: `Fits the week's ${moneyWhole(week.budget)} (${moneyWhole(week.committed + week.adding)} with this order)` }
+  const department = departmentOf(loc.id, input.departmentId, input.positionId)
   const held = preview?.held && preview.firstRelease
   const gap = preview?.policy.tierGapHours ?? PROGRAM.cascadeHoursBefore
   const low = Math.min(...totals)
@@ -331,7 +323,7 @@ function shiftDraft(data: DemoData, buyerId: string, input: BookingInput): Omit<
         ...(index === 0 && why ? { why } : {}),
       })),
       total: `${money(low)}${low === high ? "" : `–${money(high)}`}`,
-      ...(budget ? { budget } : {}),
+      chargedTo: department ? { name: department.name, costCenter: department.costCenter } : { name: loc.name, costCenter: loc.costCenter },
       ...(held ? { note: `${preview.policy.sector} holds orders until ${preview.policy.releaseLeadHours} hours before the shift, so ${lead.supplier.shortName} sees it ${formatTimestamp(preview.firstRelease!.toISOString())}.` } : {}),
     },
     actions: [{ label: preview?.needsApproval ? "Send for approval" : "Create and send", kind: "create-shift", input, key: crypto.randomUUID() }],

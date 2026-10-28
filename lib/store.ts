@@ -184,32 +184,46 @@ export const useStore = create<StoreState>()((set, get) => {
     source.onerror = () => set({ connection: "offline" })
   }
 
+  /** Brings this device up to `version` after a saved command. It's already saved, so a slow reload retries quietly. */
+  const settle = async (body: { version?: number; changes?: Changes; replaced?: boolean }) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        if (body.replaced) await resync()
+        else if (body.changes && body.version) {
+          receive({ version: body.version, changes: body.changes }, "change")
+          await caughtUp(body.version)
+        }
+        return
+      } catch (error) {
+        console.warn("Iris is catching up after a saved change", error)
+        await new Promise((r) => window.setTimeout(r, 400 * (attempt + 1)))
+      }
+    }
+  }
+
   async function send<N extends CommandName>(type: N, input: CommandInput<N>, key?: string): Promise<CommandResult<N> | undefined> {
+    let res: Response
     try {
-      const res = await fetch("/api/commands", {
+      res = await fetch("/api/commands", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, input, key }),
       })
-      const body = (await res.json().catch(() => ({}))) as { error?: string; result?: CommandResult<N>; version?: number; changes?: Changes; replaced?: boolean }
-      if (res.status === 401) {
-        signInAgain()
-        return undefined
-      }
-      if (!res.ok) {
-        toast.error(body.error ?? "Iris couldn't save that. Try again.")
-        return undefined
-      }
-      if (body.replaced) await resync()
-      else if (body.changes && body.version) {
-        receive({ version: body.version, changes: body.changes }, "change")
-        await caughtUp(body.version)
-      }
-      return body.result
     } catch {
       toast.error("Iris is offline. Check the connection and try again.")
       return undefined
     }
+    const body = (await res.json().catch(() => ({}))) as { error?: string; result?: CommandResult<N>; version?: number; changes?: Changes; replaced?: boolean }
+    if (res.status === 401) {
+      signInAgain()
+      return undefined
+    }
+    if (!res.ok) {
+      toast.error(body.error ?? "Iris couldn't save that. Try again.")
+      return undefined
+    }
+    await settle(body)
+    return body.result
   }
 
   return {

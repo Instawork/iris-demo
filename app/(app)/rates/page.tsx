@@ -1,7 +1,13 @@
 "use client"
 
+import { Suspense } from "react"
+
 import { RatesPage } from "@/components/rates/rates-page"
 
 export default function Page() {
-  return <RatesPage />
+  return (
+    <Suspense>
+      <RatesPage />
+    </Suspense>
+  )
 }

@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils"
  * it connects. Buyers also decide here whether it gets their new shifts. Agencies only see their own.
  */
 
-const FLOWS = ["Shift requests", "Pro assignments", "Clock-ins", "Timesheets", "Invoices"]
+const FLOWS = ["Shift requests", "Worker assignments", "Clock-ins", "Timesheets", "Invoices"]
 
 export function AgencyPage({ id }: { id: string }) {
   const { ws } = useWorkspace()
@@ -78,12 +78,12 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
 
   const stats = [
     { label: "Fill rate", value: pct(m.fillRate), info: "Share of spots filled on shifts that already happened." },
-    { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a Pro confirming." },
-    { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed Pros who didn't show up." },
+    { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a worker confirming." },
+    { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed workers who didn't show up." },
     {
       label: "Compliance score",
       value: roster.active ? String(roster.score) : "--",
-      info: `Out of 100. Most of it is the share of active Pros cleared to work today (${roster.cleared} of ${roster.active}); the rest is the share with no document expiring in the next 30 days (${roster.expiring} expiring)${roster.held ? `. ${plural(roster.held, "document")} held for Compass` : ""}.`,
+      info: `Out of 100. Most of it is the share of active workers cleared to work today (${roster.cleared} of ${roster.active}); the rest is the share with no document expiring in the next 30 days (${roster.expiring} expiring)${roster.held ? `. ${plural(roster.held, "document")} held for Compass` : ""}.`,
     },
   ]
 
@@ -140,7 +140,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
           <Surface elevated className="overflow-hidden" data-tour="agency-rates">
             <SurfaceHeader
               title="Rates"
-              info={buyerId ? "What you pay per hour for each role." : "Pay rate is what the Pro earns. Markup is what the agency keeps. Bill rate is what Compass pays."}
+              info={buyerId ? "What you pay per hour for each role." : "Pay rate is what the worker earns. Markup is what the agency adds. Bill rate is what Compass pays."}
               actions={cities.length > 1 ? <PillTabs size="sm" value={cityId} onChange={setCityId} items={cities.map((id) => ({ value: id, label: city(id).name }))} /> : undefined}
             />
             {cards.length ? (
@@ -163,12 +163,12 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
                           {c.markupPct > PROGRAM.maxMarkupPct ? (
                             <Tip content={`Over the program's ${PROGRAM.maxMarkupPct}% cap`}>
                               <span>
-                                {money(c.billRate - c.proRate)} · {c.markupPct}%
+                                {c.markupPct}%
                               </span>
                             </Tip>
                           ) : (
                             <>
-                              {money(c.billRate - c.proRate)} · {c.markupPct}%
+                              {c.markupPct}%
                             </>
                           )}
                         </td>
@@ -188,7 +188,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
           {!buyerId && (
             <Surface elevated>
               <SurfaceHeader
-                title="Pros"
+                title="Workers"
                 description={`${active.length} active · ${active.length ? pct(cleared / active.length) : "0%"} cleared to work`}
                 actions={
                   <Button asChild variant="ghost" size="sm" className="text-faded">

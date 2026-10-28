@@ -50,7 +50,7 @@ const ACTIONS: Record<PersonaKind, Action[]> = {
   buyer: [
     { id: "book", label: "New shift", icon: CalendarPlus, href: "/shifts/new" },
     { id: "approve", label: "Approve hours", icon: Clock, href: "/timesheets" },
-    { id: "compare", label: "Compare supplier rates", icon: Scale, href: "/rates" },
+    { id: "compare", label: "Compare agency rates", icon: Scale, href: "/rates" },
     { id: "upload", label: "Upload a CSV", icon: Upload, upload: true },
   ],
   supplier: [
@@ -61,8 +61,8 @@ const ACTIONS: Record<PersonaKind, Action[]> = {
   ],
   compass: [
     { id: "flagged", label: "Review anomalous invoices", icon: FileText, href: "/invoices?filter=flagged" },
-    { id: "rates", label: "Compare supplier rates", icon: BadgeDollarSign, href: "/rates" },
-    { id: "compliance", label: "Check Pro compliance", icon: ShieldCheck, href: "/professionals" },
+    { id: "rates", label: "Compare agency rates", icon: BadgeDollarSign, href: "/rates" },
+    { id: "compliance", label: "Check worker compliance", icon: ShieldCheck, href: "/professionals" },
     { id: "upload", label: "Upload business activity", icon: Upload, upload: true },
   ],
 }
@@ -151,7 +151,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           autoFocus
           value={query}
           onValueChange={setQuery}
-          placeholder="Search shifts, Pros and invoices, or jump to a page"
+          placeholder="Search shifts, workers and invoices, or jump to a page"
           className="h-full min-w-0 flex-1 bg-transparent text-body-2 text-foreground outline-none placeholder:text-subtle"
         />
         <Kbd>Esc</Kbd>
@@ -195,7 +195,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         )}
 
         {records.pros.length > 0 && (
-          <Group heading="Professionals">
+          <Group heading="Workers">
             {records.pros.map((p) => (
               <Item
                 key={p.id}

@@ -69,6 +69,18 @@ export function UnitsPage() {
     { id: "market", header: "Market", sortValue: (l) => city(l.cityId).name, cell: (l) => `${city(l.cityId).name}, ${city(l.cityId).state}` },
     { id: "cc", header: "Cost center", cell: (l) => <code className="font-mono text-caption-1">{l.costCenter}</code> },
     {
+      id: "departments",
+      header: "Departments",
+      cell: (l) =>
+        l.departments?.length ? (
+          <Tip content={l.departments.map((d) => `${d.name} · ${d.costCenter}`).join(", ")}>
+            <span>{plural(l.departments.length, "department")}</span>
+          </Tip>
+        ) : (
+          <span className="text-faded">None</span>
+        ),
+    },
+    {
       id: "roles",
       header: "Orders",
       cell: (l) =>
@@ -210,7 +222,7 @@ export function AgenciesPage() {
     },
     {
       id: "pros",
-      header: "Pros",
+      header: "Workers",
       align: "right",
       sortValue: (s) => complianceScore(data, s.id).active,
       cell: (s) => {
@@ -226,14 +238,14 @@ export function AgenciesPage() {
     {
       id: "compliance",
       header: "Compliance",
-      info: "Out of 100. Most of it is the share of active Pros cleared to work today; the rest is the share with no document expiring in the next 30 days.",
+      info: "Out of 100. Most of it is the share of active workers cleared to work today; the rest is the share with no document expiring in the next 30 days.",
       align: "right",
       sortValue: (s) => complianceScore(data, s.id).score,
       cell: (s) => {
         const c = complianceScore(data, s.id)
-        if (!c.active) return <span className="text-faded">No Pros yet</span>
+        if (!c.active) return <span className="text-faded">No workers yet</span>
         return (
-          <Tip content={`${c.cleared} of ${c.active} cleared today · ${plural(c.expiring, "Pro")} with a document expiring within 30 days${c.held ? ` · ${plural(c.held, "document")} held for Compass` : ""}`}>
+          <Tip content={`${c.cleared} of ${c.active} cleared today · ${plural(c.expiring, "worker")} with a document expiring within 30 days${c.held ? ` · ${plural(c.held, "document")} held for Compass` : ""}`}>
             <span className="flex flex-col items-end">
               <StatusBadge tone={scoreTone(c.score)} size="sm">
                 {c.score}
@@ -270,7 +282,7 @@ export function AgenciesPage() {
       <PageHeader
         className="pt-4"
         title="Agencies"
-        description="Every agency on the program. Open one for its rates, Pros, paperwork, connection and performance in one place."
+        description="Every agency on the program. Open one for its rates, workers, paperwork, connection and performance in one place."
         actions={
           ws.kind === "compass" && (
             <Button onClick={() => setAdding(true)} data-tour="add-agency">

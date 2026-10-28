@@ -83,12 +83,13 @@ function DraftCard({ draft, onPick }: { draft: ShiftDraft; onPick?: (supplierId:
         </div>
         <div className="flex flex-col">
           <dt className="text-caption-1 text-faded">Paid hours</dt>
-          <dd className="font-medium">{draft.hours} per Pro</dd>
+          <dd className="font-medium">{draft.hours} per worker</dd>
           <dd className="text-caption-1 text-faded">{draft.breakMins ? `${draft.breakMins}-minute unpaid break` : "No break"}</dd>
         </div>
         <div className="flex flex-col">
-          <dt className="text-caption-1 text-faded">Budget</dt>
-          <dd className={cn("text-caption-1", draft.budget?.over ? "font-medium text-critical-fg" : "text-faded")}>{draft.budget?.text ?? "No weekly budget set"}</dd>
+          <dt className="text-caption-1 text-faded">Charged to</dt>
+          <dd className="font-medium">{draft.chargedTo?.name ?? draft.location}</dd>
+          {draft.chargedTo && <dd className="font-mono text-caption-1 text-faded">{draft.chargedTo.costCenter}</dd>}
         </div>
       </dl>
       <div className="border-t border-border px-4 py-3">

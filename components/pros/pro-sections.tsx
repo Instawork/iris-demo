@@ -53,7 +53,7 @@ export function ResumeSection({ pro, resume }: { pro: Pro; resume: ProResume }) 
           {cityLabel(pro.cityId)} · With {supplier(pro.supplierId).shortName} since {monthYear(pro.joinedOn)}
         </p>
       </div>
-      <Block title="Positions" info="Positions this Pro is approved to work on Iris.">
+      <Block title="Positions" info="Positions this worker is approved to work on Iris.">
         <div className="flex flex-wrap gap-1.5">
           {pro.positionIds.map((id) => (
             <StatusBadge key={id} tone="primary">
@@ -84,7 +84,7 @@ export function ResumeSection({ pro, resume }: { pro: Pro; resume: ProResume }) 
           ))}
         </div>
       </Block>
-      <Block title="Certifications" info="Taken from the documents the supplier has verified.">
+      <Block title="Certifications" info="Taken from the documents the agency has verified.">
         {resume.certifications.length ? (
           <div className="flex flex-wrap gap-1.5">
             {resume.certifications.map((c) => (
@@ -222,7 +222,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
     <div className="flex flex-col gap-2">
       <p className="flex items-center gap-1.5 text-caption-1 text-faded">
         {done} of {rows.length} complete
-        <InfoTip>Only the documents this Pro&apos;s positions need. Compass requires every one before a shift.</InfoTip>
+        <InfoTip>Only the documents this worker&apos;s positions need. Compass requires every one before a shift.</InfoTip>
       </p>
       <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
         {rows.map((row) => {
@@ -410,7 +410,7 @@ export function ReviewsSection({
             {buyerId && reviews.length > 0 && " from your team"}
           </span>
         </span>
-        <InfoTip>Average of every buyer&apos;s ratings after a shift. Suppliers and Compass see each rating.</InfoTip>
+        <InfoTip>Average of every buyer&apos;s ratings after a shift. Agencies and Compass see each rating.</InfoTip>
       </div>
       {composing && buyerId && canReview && <ReviewForm pro={pro} buyerId={buyerId} onDone={() => onComposingChange(false)} />}
       {reviews.length > 0 ? (

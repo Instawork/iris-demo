@@ -148,7 +148,7 @@ export function CompassHome() {
     { id: "rank", header: "#", className: "w-10", cell: (r) => <span className="text-faded tabular">{suppliers.indexOf(r) + 1}</span> },
     {
       id: "supplier",
-      header: "Supplier",
+      header: "Agency",
       cell: (r) => (
         <span className="flex items-center gap-2.5">
           <SupplierLogo supplierId={r.id} size="sm" />
@@ -212,7 +212,7 @@ export function CompassHome() {
         <span className="text-caption-1 font-medium text-faded">COMPASS MANAGEMENT</span>
         <h1 className="text-featured-1 font-semibold">Program scorecard</h1>
         <p className="text-body-3 text-faded">
-          Cost visibility and workforce safety across {BUYERS.length} buyers, {LOCATIONS.length} locations and {SUPPLIERS.length} suppliers.
+          Cost visibility and workforce safety across {BUYERS.length} buyers, {LOCATIONS.length} locations and {SUPPLIERS.length} agencies.
         </p>
       </header>
 
@@ -258,7 +258,7 @@ export function CompassHome() {
         <Surface className="overflow-hidden">
           <div className="border-b border-border px-5 py-4">
             <h2 className="text-featured-3 font-semibold">Spend by week</h2>
-            <p className="text-caption-1 text-faded">Supplier mix for the selected operator</p>
+            <p className="text-caption-1 text-faded">Agency mix for the selected operator</p>
           </div>
           <div className="px-3 pt-2 pb-4"><SpendChart data={spendTrend} height={230} /></div>
         </Surface>
@@ -289,7 +289,7 @@ export function CompassHome() {
             <SectionTitle
               title="Buyer and operator spend"
               description="Last 28 days"
-              info="Every operator location ranked by labor spend. Signals flag abnormal spend and invoices priced above comparable suppliers."
+              info="Every operator location ranked by labor spend. Signals flag abnormal spend and invoices priced above comparable agencies."
               actions={
                 <Button variant="ghost" size="sm" className="text-faded" onClick={downloadLocations}>
                   <Download /> Download
@@ -302,9 +302,9 @@ export function CompassHome() {
           </section>
           <section className="flex min-w-0 flex-col gap-3">
             <SectionTitle
-              title="Supplier performance"
+              title="Agency performance"
               description="Across all buyers · last 28 days"
-              info="Suppliers ranked by fill, no-shows, compliance and time to fill."
+              info="Agencies ranked by fill, no-shows, compliance and time to fill."
               actions={
                 <Button variant="ghost" size="sm" className="text-faded" onClick={downloadSuppliers}>
                   <Download /> Download
@@ -361,7 +361,7 @@ function LocationDialog({ rank, onOpenChange }: { rank?: LocationRank; onOpenCha
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              <h3 className="text-body-3 font-semibold">Spend by supplier</h3>
+              <h3 className="text-body-3 font-semibold">Spend by agency</h3>
               <ul className="flex flex-col gap-2">
                 {view.bySupplier.map(([id, amount]) => (
                   <li key={id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">

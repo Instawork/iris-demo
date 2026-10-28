@@ -30,7 +30,7 @@ export interface MeasureInfo {
 export const MEASURES: MeasureInfo[] = [
   { id: "spend", label: "Spend", kind: "money", additive: true, goodWhen: "down", info: "Billed hours at each agency's bill rate, with overtime and tips, by the day worked." },
   { id: "hours", label: "Hours worked", kind: "hours", additive: true, info: "Hours billed on timesheets." },
-  { id: "workers", label: "Workers", kind: "count", additive: false, info: "Different Pros who worked." },
+  { id: "workers", label: "Workers", kind: "count", additive: false, info: "Different workers who worked." },
   { id: "costPerHour", label: "Cost per hour", kind: "rate", additive: false, goodWhen: "down", info: "Spend divided by hours worked, with overtime and tips." },
   {
     id: "aboveClock",

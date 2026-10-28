@@ -220,13 +220,24 @@ function makeCompliance(r: Random, supplierId: string, positionIds: string[], jo
  * The Pros a newly onboarded agency brings over from its own system: experienced and mostly cleared, with a few
  * background checks still in progress, so Iris holds those Pros back from day one.
  */
-export function importedRoster(input: { supplierId: string; domain: string; cityIds: string[]; positionIds: string[]; count: number; firstCode: number; today: string }): Pro[] {
+export function importedRoster(input: {
+  supplierId: string
+  domain: string
+  cityIds: string[]
+  positionIds: string[]
+  count: number
+  /** Names from the agency's roster file. Without them Iris makes some up. */
+  names?: { firstName: string; lastName: string }[]
+  firstCode: number
+  today: string
+}): Pro[] {
   const r = createRandom(hashString(input.supplierId))
   const used = new Set<string>()
-  return Array.from({ length: input.count }, (_, i) => {
-    let firstName = r.pick(FIRST_NAMES)
-    let lastName = r.pick(LAST_NAMES)
-    for (let guard = 0; used.has(`${firstName} ${lastName}`) && guard < 40; guard++) {
+  return Array.from({ length: input.names?.length ?? input.count }, (_, i) => {
+    const named = input.names?.[i]
+    let firstName = named?.firstName ?? r.pick(FIRST_NAMES)
+    let lastName = named?.lastName ?? r.pick(LAST_NAMES)
+    for (let guard = 0; !named && used.has(`${firstName} ${lastName}`) && guard < 40; guard++) {
       firstName = r.pick(FIRST_NAMES)
       lastName = r.pick(LAST_NAMES)
     }
@@ -245,7 +256,7 @@ export function importedRoster(input: { supplierId: string; domain: string; city
       supplierId: input.supplierId,
       firstName,
       lastName,
-      email: `${firstName}.${lastName}`.toLowerCase() + `@${input.domain}`,
+      email: `${firstName}.${lastName}`.toLowerCase().replace(/[^a-z.]/g, "") + `@${input.domain}`,
       phone: `(${cityId === "chi" ? "312" : cityId === "atl" ? "404" : "214"}) 555-${String(r.int(100, 9999)).padStart(4, "0")}`,
       cityId,
       positionIds,
@@ -807,7 +818,7 @@ function plantRejections(r: Random, timesheets: Timesheet[], today: string) {
     const by = t.buyerId === "levy-chi" ? "Jordan Ellis" : "Alicia Moreno"
     const at = new Date(`${addDaysISO(t.date, 2)}T09:30:00`).toISOString()
     const reason = "Hours above schedule"
-    const note = "Clock-out is more than an hour after the scheduled end. Please confirm with your Pro."
+    const note = "Clock-out is more than an hour after the scheduled end. Please confirm with your worker."
     t.status = "rejected"
     t.approvedAt = undefined
     t.approvedBy = undefined
@@ -1049,7 +1060,7 @@ function generateUploads(counters: Counters, today: string): Upload[] {
       issues: [
         { row: 8, column: "clock_in", message: "Use 24-hour time", level: "warning", suggestion: fix("16:55") },
         { row: 12, column: "clock_out", message: "Not a time. Left out", level: "error" },
-        { row: 27, column: "pro_id", message: "No Pro with this ID. Left out", level: "error" },
+        { row: 27, column: "pro_id", message: "No worker with this ID. Left out", level: "error" },
       ],
       summary: "32 timesheets submitted for approval, 2 rows left out",
     }),
@@ -1060,13 +1071,13 @@ function generateUploads(counters: Counters, today: string): Upload[] {
         { row: 3, column: "phone", message: "Missing area code", level: "warning", suggestion: fix("(214) 555-0187") },
         { row: 6, column: "food_handler_expires", message: "Not a date. Left out", level: "error" },
       ],
-      summary: "7 Pros saved, 5 ready to work, 1 row left out",
+      summary: "7 workers saved, 5 ready to work, 1 row left out",
     }),
     make({
       type: "professionals", fileName: "pros_batch1.csv", ...harbor,
       uploadedAt: at(9, "13:15"), status: "completed", totalRows: 12, successRows: 12, errorRows: 0,
       issues: [{ row: 7, column: "email", message: "Has capital letters", level: "warning", suggestion: fix("andre.castillo@example.com") }],
-      summary: "12 Pros saved, 10 ready to work",
+      summary: "12 workers saved, 10 ready to work",
     }),
     make({
       type: "tips", fileName: `chartwells_tips_${mmdd(addDaysISO(today, -9))}.csv`, ...chartwells,
@@ -1076,7 +1087,7 @@ function generateUploads(counters: Counters, today: string): Upload[] {
     make({
       type: "professionals", fileName: `crewline_new_hires_${mmdd(addDaysISO(today, -8))}.csv`, ...crewline,
       uploadedAt: at(8, "14:05"), status: "completed", totalRows: 6, successRows: 6, errorRows: 0, issues: [],
-      summary: "6 Pros saved, 4 ready to work",
+      summary: "6 workers saved, 4 ready to work",
     }),
     make({
       type: "tips", fileName: `levy_bar_tips_wk${isoWeek(7)}.csv`, ...levy,
@@ -1159,7 +1170,7 @@ const REVIEW_TEXT: Record<number, string[]> = {
   5: [
     "Showed up early, knew the menu cold and kept the line moving all night.",
     "Guests asked for them by name. Book again.",
-    "Calm under pressure during the rush. Helped train two new Pros.",
+    "Calm under pressure during the rush. Helped train two new workers.",
     "Spotless station and great with guests. Exactly what we want.",
   ],
   4: [
@@ -1240,7 +1251,7 @@ function generateActivity(
     const s = supplier(g.supplierId)
     push({
       at: last,
-      text: `${s.shortName} confirmed ${filled} of ${g.slots.length} ${position(g.positionId).name} Pros at ${location(g.locationId).name}`,
+      text: `${s.shortName} confirmed ${filled} of ${g.slots.length} ${position(g.positionId).name} workers at ${location(g.locationId).name}`,
       actor: s.name,
       tone: filled === g.slots.length ? "positive" : "neutral",
       buyerId: g.buyerId,

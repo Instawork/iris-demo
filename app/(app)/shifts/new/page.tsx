@@ -17,7 +17,7 @@ export default function Page() {
         <EmptyState
           icon={Lock}
           title="Booking is for buyers"
-          description="Switch to a buyer workspace like Levy · Chicago to book Pros."
+          description="Switch to a buyer workspace like Levy · Chicago to book workers."
           actions={
             <Button asChild variant="outline">
               <Link href="/shifts">Back to Shifts</Link>

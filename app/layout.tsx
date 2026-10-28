@@ -21,24 +21,24 @@ const mono = Geist_Mono({
 export const metadata: Metadata = {
   applicationName: "Iris",
   title: {
-    default: "Iris · Staffing, from every supplier, in one place",
+    default: "Iris · Staffing, from every agency, in one place",
     template: "%s · Iris",
   },
-  description: "Book, approve and pay every staffing supplier from one place.",
+  description: "Book, approve and pay every staffing agency from one place.",
   robots: {
     index: false,
     follow: false,
   },
   openGraph: {
-    title: "Iris · Staffing, from every supplier, in one place",
-    description: "Book, approve and pay every staffing supplier from one place.",
+    title: "Iris · Staffing, from every agency, in one place",
+    description: "Book, approve and pay every staffing agency from one place.",
     siteName: "Iris",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Iris · Staffing, from every supplier, in one place",
-    description: "Book, approve and pay every staffing supplier from one place.",
+    title: "Iris · Staffing, from every agency, in one place",
+    description: "Book, approve and pay every staffing agency from one place.",
   },
 };
 

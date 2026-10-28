@@ -170,7 +170,7 @@ export function InvoicesPage() {
     }),
     ...when<Invoice>(ws.kind !== "supplier", {
       id: "supplier",
-      header: "Supplier",
+      header: "Agency",
       sortValue: (i) => supplier(i.supplierId).shortName,
       cell: (i) => (
         <span className="inline-flex items-center gap-2">
@@ -198,7 +198,7 @@ export function InvoicesPage() {
     ...when<Invoice>(isCompass, {
       id: "vs",
       header: "vs. others",
-      info: "This invoice's labor compared with what the other suppliers would have charged for the same hours, weighted by their rating.",
+      info: "This invoice's labor compared with what the other agencies would have charged for the same hours, weighted by their rating.",
       align: "right",
       sortValue: (i) => invoiceBenchmark(data, i.id).deltaPct,
       cell: (i) => <DeltaText delta={invoiceBenchmark(data, i.id).deltaPct} />,
@@ -397,7 +397,7 @@ export function InvoicesPage() {
               <SearchInput value={query} onChange={setQuery} placeholder="Search invoices" className="w-52" />
               {ws.kind !== "supplier" && (
                 <MultiSelectFilter
-                  label="Suppliers"
+                  label="Agencies"
                   options={SUPPLIERS.map((s) => ({ value: s.id, label: s.name, icon: <SupplierLogo supplierId={s.id} size="xs" /> }))}
                   value={suppliers}
                   onChange={setSuppliers}

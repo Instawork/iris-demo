@@ -628,7 +628,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
       todos.push({
         id: "documents",
         title: `${plural(blocked.length, "professional")} with missing or expired documents`,
-        description: "Active Pros Iris keeps off shifts until their documents are current again.",
+        description: "Active workers Iris keeps off shifts until their documents are current again.",
         count: blocked.length,
         href: "/professionals?filter=not_compliant",
         tone: "critical",
@@ -665,7 +665,7 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
       todos.push({
         id: "verify",
         title: `${plural(held.length, "document")} Iris couldn't verify`,
-        description: "The agency attested them, but the issuer had no matching record. The Pros stay off shifts until you accept or send them back.",
+        description: "The agency attested them, but the issuer had no matching record. The workers stay off shifts until you accept or send them back.",
         count: held.length,
         href: held.length === 1 ? `/professionals?filter=not_compliant&pro=${held[0].id}` : "/professionals?filter=not_compliant",
         tone: "critical",

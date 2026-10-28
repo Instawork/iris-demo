@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { Logo } from "@/components/brand/logo"
 import { WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { Tip } from "@/components/common/info-tip"
+import { SIDES, SideBadge } from "@/components/common/side-badge"
 import { ProAvatar } from "@/components/common/pro-avatar"
 import { DemoControlsDialog } from "@/components/shell/demo-controls"
 import { navFor, type NavItem } from "@/components/shell/nav-config"
@@ -175,11 +176,7 @@ function NavRow({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boo
   )
 }
 
-const GROUPS: { label: string; kind: Workspace["kind"]; hint: string }[] = [
-  { label: "Buyers", kind: "buyer", hint: "Post shifts, approve hours, review invoices" },
-  { label: "Program", kind: "compass", hint: "Govern rates, suppliers and spend" },
-  { label: "Suppliers", kind: "supplier", hint: "Fill shifts, onboard Pros, get paid" },
-]
+const GROUPS: Workspace["kind"][] = ["buyer", "compass", "supplier"]
 
 function WorkspaceSwitcher({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { ws } = useWorkspace()
@@ -213,18 +210,20 @@ function WorkspaceSwitcher({ collapsed, onNavigate }: { collapsed: boolean; onNa
             )}
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent side="right">Switch between buyer, Compass and supplier views</TooltipContent>
+        <TooltipContent side="right">Switch sides: buyer, corporate or agency</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" side={collapsed ? "right" : "bottom"} className="w-80 p-1.5">
-        {GROUPS.map((g, gi) => (
-          <DropdownMenuGroup key={g.kind}>
+        {GROUPS.map((kind, gi) => (
+          <DropdownMenuGroup key={kind}>
             {gi > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="px-2 pt-1.5 pb-1 text-caption-1 font-medium text-subtle">
-              <Tip content={g.hint} side="right">
-                <span>{g.label}</span>
+            <DropdownMenuLabel className="px-2 pt-1.5 pb-1">
+              <Tip content={SIDES[kind].does} side="right">
+                <span>
+                  <SideBadge kind={kind} size="sm" />
+                </span>
               </Tip>
             </DropdownMenuLabel>
-            {WORKSPACES.filter((w) => w.kind === g.kind).map((w) => (
+            {WORKSPACES.filter((w) => w.kind === kind && !w.approves?.length).map((w) => (
               <DropdownMenuItem key={w.id} onSelect={() => switchTo(w)} className="gap-3 rounded-md px-2 py-2">
                 <WorkspaceAvatar ws={w} size="md" />
                 <span className="flex min-w-0 flex-1 flex-col">

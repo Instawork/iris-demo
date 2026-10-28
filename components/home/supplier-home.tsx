@@ -55,7 +55,7 @@ export function SupplierHome() {
       <TodoSection todos={view.todos} />
 
       <section className="flex flex-col gap-3">
-        <SectionTitle title="My metrics" description="Last 28 days" info="What buyers and Compass see when they rank suppliers." />
+        <SectionTitle title="My metrics" description="Last 28 days" info="What buyers and Compass see when they rank agencies." />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Fill rate"
@@ -68,7 +68,7 @@ export function SupplierHome() {
           />
           <StatCard
             label="Time to fill"
-            info="Median time from a buyer posting a shift to your Pro confirming."
+            info="Median time from a buyer posting a shift to your worker confirming."
             value={view.m.hoursToFill < 1 ? Math.round(view.m.hoursToFill * 60) : Math.round(view.m.hoursToFill * 10) / 10}
             decimals={view.m.hoursToFill < 1 ? 0 : 1}
             suffix={view.m.hoursToFill < 1 ? "min" : "hrs"}
@@ -77,20 +77,20 @@ export function SupplierHome() {
           />
           <StatCard
             label="No-show rate"
-            info="Share of confirmed Pros who didn't show up. Lower is better."
+            info="Share of confirmed workers who didn't show up. Lower is better."
             value={view.m.noShowRate * 100}
             decimals={1}
             suffix="%"
-            sub="Of confirmed Pros"
+            sub="Of confirmed workers"
             href="/shifts"
           />
           <StatCard
             label="Compliance"
-            info="Share of your active Pros with every document their positions need: background check, I-9, Compass orientation and certifications."
+            info="Share of your active workers with every document their positions need: background check, I-9, Compass orientation and certifications."
             value={view.m.compliance * 100}
             decimals={1}
             suffix="%"
-            sub={`${view.ready} of ${view.activeCount} active Pros ready`}
+            sub={`${view.ready} of ${view.activeCount} active workers ready`}
             href="/professionals"
           />
         </div>
@@ -120,7 +120,7 @@ export function SupplierHome() {
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-body-3 font-semibold">{b.buyer.name}</span>
                     <span className="truncate text-caption-1 text-faded">
-                      {plural(b.locations, "location")} · {b.open ? `${plural(b.open, "shift")} need Pros` : "All shifts filled"}
+                      {plural(b.locations, "location")} · {b.open ? `${plural(b.open, "shift")} need workers` : "All shifts filled"}
                     </span>
                   </span>
                   <span className="text-body-3 font-medium tabular">{moneyWhole(b.revenue)}</span>

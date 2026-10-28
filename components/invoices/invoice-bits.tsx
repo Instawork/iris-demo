@@ -40,7 +40,7 @@ export const formatDelta = (delta: number) => {
   return pct === 0 ? "0%" : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`
 }
 
-export const anomalyNote = (delta: number) => `${Math.trunc(delta * 100)}% above what other suppliers would have charged, weighted by rating`
+export const anomalyNote = (delta: number) => `${Math.trunc(delta * 100)}% above what other agencies would have charged, weighted by rating`
 
 export function DeltaText({ delta }: { delta: number }) {
   return <span className={cn("tabular", delta >= ANOMALY_THRESHOLD ? "font-semibold text-critical-fg" : "text-faded")}>{formatDelta(delta)}</span>

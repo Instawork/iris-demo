@@ -66,9 +66,9 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
           {[
             { label: "Fill rate", value: pct(m.fillRate), info: "Share of spots filled on shifts that already happened." },
-            { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a Pro confirming." },
-            { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed Pros who didn't show up." },
-            { label: "Compliance", value: pct(m.compliance), info: "Share of active Pros with every required document." },
+            { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a worker confirming." },
+            { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed workers who didn't show up." },
+            { label: "Compliance", value: pct(m.compliance), info: "Share of active workers with every required document." },
           ].map((x) => (
             <div key={x.label} className="flex flex-col gap-0.5 bg-card px-3 py-2.5">
               <span className="flex items-center gap-1 text-caption-1 text-faded">
@@ -83,7 +83,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <h3 className="flex items-center gap-1.5 text-body-3 font-semibold">
-              Rates <InfoTip>{showCost ? "Pay rate is what the Pro earns. Markup is what the supplier keeps. Bill rate is what Compass pays." : "What you pay per hour for each role."}</InfoTip>
+              Rates <InfoTip>{showCost ? "Pay rate is what the worker earns. Markup is what the agency adds. Bill rate is what Compass pays." : "What you pay per hour for each role."}</InfoTip>
             </h3>
             {cities.length > 1 && (
               <PillTabs size="sm" value={cityId} onChange={setCityId} items={cities.map((id) => ({ value: id, label: city(id).name }))} />
@@ -105,7 +105,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
                     <tr key={c.id} className="border-t border-border/80">
                       <td className="px-3 py-2">{POSITIONS.find((p) => p.id === c.positionId)?.name}</td>
                       {showCost && <td className="px-3 py-2 text-right tabular text-faded">{money(c.proRate)}</td>}
-                      {showCost && <td className="px-3 py-2 text-right tabular text-faded">{money(c.billRate - c.proRate)}</td>}
+                      {showCost && <td className="px-3 py-2 text-right tabular text-faded">{c.markupPct}%</td>}
                       <td className="px-3 py-2 text-right font-medium tabular">{money(c.billRate)}</td>
                     </tr>
                   ))}
@@ -121,7 +121,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
           <label className="flex items-center justify-between gap-4 rounded-lg border border-border px-3.5 py-3">
             <span className="flex flex-col">
               <span className="text-body-3 font-medium">Send my new shifts to {sup.shortName}</span>
-              <span className="text-caption-1 text-faded">Approved suppliers are notified when you post a shift.</span>
+              <span className="text-caption-1 text-faded">Approved agencies are notified when you post a shift.</span>
             </span>
             <Switch
               checked={approved}

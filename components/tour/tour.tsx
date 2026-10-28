@@ -1,6 +1,6 @@
 "use client"
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import { useRouter } from "next/navigation"
 import { ArrowRight, Check, CornerDownLeft, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react"
 import { useAgentThreads } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
 import { WorkspaceAvatar } from "@/components/brand/org-avatar"
+import { SIDES, SideBadge } from "@/components/common/side-badge"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import {
   CHAPTERS,
@@ -106,40 +107,36 @@ const inView = (el: Element) => {
   return r.top >= 56 && r.bottom <= window.innerHeight - 24
 }
 
-/** The tour's click shields sit over the page, so wheel events are handed to whatever scrolls underneath. */
-function scrollUnder(e: React.WheelEvent) {
-  const below = document.elementsFromPoint(e.clientX, e.clientY).find((el) => !el.closest("[data-tour-layer]"))
-  for (let node = below instanceof HTMLElement ? below : null; node && node !== document.body; node = node.parentElement) {
-    const { overflowY } = getComputedStyle(node)
-    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
-      node.scrollBy({ top: e.deltaY, left: e.deltaX })
-      return
-    }
-  }
-}
-
 const PAGE: Record<string, string> = {
   "": "the Dashboard",
   units: "Units",
   agencies: "Agencies",
-  approvals: "Approvals",
   shifts: "Shifts",
   timesheets: "Timesheets",
-  professionals: "Professionals",
+  rates: "Rate Cards",
+  professionals: "Workers",
   invoices: "Invoices",
   reports: "Reports",
 }
-const pageOf = (href: string) => PAGE[href.split("?")[0].split("/")[1] ?? ""] ?? "the right page"
+const pageOf = (href: string) => PAGE[href.split("?")[0].split("/")[1] ?? ""] ?? "its page"
 
 const stop = (e: React.PointerEvent) => e.stopPropagation()
 
+interface Spot {
+  x: number
+  y: number
+  /** The card's edge that faces the target, and how far along it the pointer sits. */
+  edge?: Placement
+  at?: number
+}
+
 /**
- * Where the coach card sits: beside the anchor on the preferred side if it fits, else wherever it does.
- * It lines up with the focus, the target itself, when the anchor is something bigger around it.
+ * Where the coach card sits: beside the anchor on the preferred side if it fits, else wherever it does. Its pointer
+ * aims at the focus, the target itself, when the anchor is something bigger around it.
  */
-function place(anchor: Box | undefined, size: { w: number; h: number }, prefer: Placement | undefined, vw: number, vh: number, focus = anchor) {
+function place(anchor: Box | undefined, size: { w: number; h: number }, prefer: Placement | undefined, vw: number, vh: number, focus = anchor): Spot {
   const m = 16
-  const gap = 14
+  const gap = 16
   if (vw < 640) {
     const low = !!focus && focus.y + focus.h / 2 > vh / 2
     return { x: 12, y: low ? 12 : vh - size.h - 12 }
@@ -155,7 +152,15 @@ function place(anchor: Box | undefined, size: { w: number; h: number }, prefer: 
     right: { x: anchor.x + anchor.w + gap, y: clampY(cy - size.h / 2), fits: anchor.x + anchor.w + gap + size.w <= vw - m },
     left: { x: anchor.x - gap - size.w, y: clampY(cy - size.h / 2), fits: anchor.x - gap - size.w >= m },
   }
-  for (const p of [prefer ?? "bottom", "bottom", "top", "right", "left"] as Placement[]) if (options[p].fits) return { x: options[p].x, y: options[p].y }
+  const facing: Record<Placement, Placement> = { bottom: "top", top: "bottom", right: "left", left: "right" }
+  for (const p of [prefer ?? "bottom", "bottom", "top", "right", "left"] as Placement[]) {
+    if (!options[p].fits) continue
+    const x = clampX(options[p].x)
+    const y = clampY(options[p].y)
+    const along = p === "bottom" || p === "top" ? cx - x : cy - y
+    const span = p === "bottom" || p === "top" ? size.w : size.h
+    return { x, y, edge: facing[p], at: Math.min(Math.max(22, along), span - 22) }
+  }
   return { x: clampX(cx - size.w / 2), y: vh - size.h - m }
 }
 
@@ -215,7 +220,7 @@ function StepScreen({ step }: { step: TourStep }) {
     let awaySince: number | undefined
     let checkedAt = 0
     let ranAt = 0
-    const scrolled = new WeakSet<Element>()
+    const scrolled = new WeakMap<Element, { times: number; at: number }>()
     const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch) }
     const update = (next: View) => setView((prev) => (prev.step === step.id && sameView(prev.view, next) ? prev : { step: step.id, view: next }))
 
@@ -257,8 +262,10 @@ function StepScreen({ step }: { step: TourStep }) {
         return
       }
       missingSince = undefined
-      if (!scrolled.has(primary)) {
-        scrolled.add(primary)
+      // A second try once the page settles, for targets that moved while content above them was still opening.
+      const tried = scrolled.get(primary) ?? { times: 0, at: 0 }
+      if (tried.times === 0 || (tried.times === 1 && t - tried.at > 900)) {
+        scrolled.set(primary, { times: tried.times + 1, at: t })
         if (!inView(primary)) primary.scrollIntoView({ block: "center", behavior: "smooth" })
       }
       const modal = topModal()
@@ -289,10 +296,7 @@ function StepScreen({ step }: { step: TourStep }) {
   const ready = view.view.mode === "ready" ? view.view : undefined
   const party = celebrate?.step === step.id && celebrate.at === enteredAt ? celebrate : undefined
   const done = party?.message
-  const look = !step.action
-  const showCard = mode === "ready" || mode === "lost" || mode === "away"
-  const dimmed = mode !== "paused" && !(mode === "ready" && ready?.modal)
-  const cutouts = (mode === "ready" || mode === "pending") && !(party && !party.kept) ? (ready?.boxes ?? []) : []
+  const showCard = mode === "ready" || mode === "lost"
   const anchor = mode === "ready" ? ready?.boxes[0] : undefined
   const pos = place(mode === "ready" ? (ready?.anchor ?? anchor) : undefined, cardSize, step.placement, vp.w, vp.h, anchor)
 
@@ -308,46 +312,79 @@ function StepScreen({ step }: { step: TourStep }) {
     router.push(step.href(now))
   }
 
+  const pointer = mode === "ready" && pos.edge && pos.at !== undefined && !(party && !party.kept)
+
   return (
     <>
-      <Dim boxes={cutouts} visible={dimmed} />
-      {mode !== "paused" && !(ready?.modal && mode === "ready") && (
-        <Shield hole={done || look || mode !== "ready" ? undefined : anchor} />
-      )}
-      {mode === "ready" && ready && !(party && !party.kept) && <Rings boxes={ready.boxes} flash={!!done} />}
       <motion.div
         ref={cardRef}
         data-tour-layer
         onPointerDown={stop}
-        className="fixed top-0 left-0 z-[60] w-[360px] max-w-[calc(100vw-24px)]"
+        className="fixed top-0 left-0 z-[60] w-[340px] max-w-[calc(100vw-24px)]"
         initial={{ opacity: 0, x: pos.x, y: pos.y + 10 }}
         animate={{ opacity: showCard && mine ? 1 : 0, x: pos.x, y: pos.y }}
         transition={SPRING}
         style={{ pointerEvents: showCard && mine ? "auto" : "none" }}
       >
-        <StepCard step={step} ctx={ctx} mode={mode} done={done} onNext={() => finish("done")} onSkip={skip} onGo={goThere} />
+        {pointer && <Pointer edge={pos.edge!} at={pos.at!} />}
+        <StepCard step={step} ctx={ctx} mode={mode} done={done} onNext={() => finish("done")} onSkip={skip} />
       </motion.div>
+      <AnimatePresence>{mine && mode === "away" && <PausedPill step={step} ctx={ctx} onResume={goThere} />}</AnimatePresence>
     </>
   )
 }
 
-function StepCard({
-  step,
-  ctx,
-  mode,
-  done,
-  onNext,
-  onSkip,
-  onGo,
-}: {
-  step: TourStep
-  ctx: TourContext
-  mode: View["mode"]
-  done?: string
-  onNext: () => void
-  onSkip: () => void
-  onGo: () => void
-}) {
+/** A small notch on the card's edge, aimed at what the step is about. */
+function Pointer({ edge, at }: { edge: Placement; at: number }) {
+  const style: React.CSSProperties =
+    edge === "top"
+      ? { top: -5, left: at - 6 }
+      : edge === "bottom"
+        ? { bottom: -5, left: at - 6 }
+        : edge === "left"
+          ? { left: -5, top: at - 6 }
+          : { right: -5, top: at - 6 }
+  return <span aria-hidden className="absolute size-3 rotate-45 rounded-[2px] bg-foreground transition-[top,left] duration-200" style={style} />
+}
+
+/** Shown instead of the card when the player wanders off the step's page or side, so the page stays theirs. */
+function PausedPill({ step, ctx, onResume }: { step: TourStep; ctx: TourContext; onResume: () => void }) {
+  const meta = CHAPTERS[step.chapter]
+  const ws = workspace(step.wsId)
+  return (
+    <motion.div
+      data-tour-layer
+      onPointerDown={stop}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12, transition: { duration: 0.12 } }}
+      transition={{ duration: 0.22, ease: EASE }}
+      className="fixed inset-x-0 bottom-5 z-[60] mx-auto flex w-fit max-w-[calc(100vw-24px)] items-center gap-3 rounded-full bg-foreground py-1.5 pr-1.5 pl-4 text-background shadow-overlay"
+      role="status"
+    >
+      <span className="flex items-center gap-2 text-[13px] whitespace-nowrap">
+        <span className="font-semibold">Tour paused</span>
+        <span className="text-background/55">
+          {meta.short} continues on {pageOf(step.href(ctx))} as
+        </span>
+        <SideBadge kind={ws.kind} onDark size="sm" />
+      </span>
+      <CardButton onClick={onResume}>
+        Resume <ArrowRight className="size-3.5" />
+      </CardButton>
+      <button
+        type="button"
+        onClick={() => useTour.getState().exit()}
+        aria-label="Exit tour"
+        className="flex size-7 items-center justify-center rounded-full text-background/50 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        <X className="size-4" />
+      </button>
+    </motion.div>
+  )
+}
+
+function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; ctx: TourContext; mode: View["mode"]; done?: string; onNext: () => void; onSkip: () => void }) {
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
   const n = STEPS.indexOf(step) + 1
@@ -359,7 +396,6 @@ function StepCard({
   const title = typeof step.title === "function" ? step.title(ctx) : step.title
   const body = typeof step.body === "function" ? step.body(ctx) : step.body
   const status = step.status?.(ctx)
-  const away = mode === "away"
   const lost = mode === "lost"
 
   return (
@@ -368,20 +404,20 @@ function StepCard({
       aria-label={`Guided tour: ${title}`}
       className="overflow-hidden rounded-2xl bg-foreground text-background shadow-overlay ring-1 ring-black/10 dark:ring-white/10"
     >
-      <div className="flex items-center justify-between gap-3 pt-3.5 pr-2.5 pl-4">
-        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-background/55 uppercase">
+      <div className="flex items-center gap-2 pt-3 pr-2 pl-4">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] font-medium whitespace-nowrap text-background/60">
           <Icon className="size-3.5 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={2.2} />
-          {meta.label}
-          <span className="text-background/30">·</span>
-          <span className="tracking-normal normal-case tabular">
-            Step {k} of {inPart.length}
+          <span className="truncate">{meta.short}</span>
+          <span className="shrink-0 text-background/35 tabular">
+            {k}/{inPart.length}
           </span>
         </span>
+        <SideBadge kind={workspace(step.wsId).kind} onDark size="sm" />
         <button
           type="button"
           onClick={() => useTour.getState().exit()}
           aria-label="Exit tour"
-          className="flex size-7 items-center justify-center rounded-md text-background/50 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-background/50 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
         >
           <X className="size-4" />
         </button>
@@ -410,19 +446,17 @@ function StepCard({
             </span>
           </motion.div>
         ) : (
-          <motion.div key={`${step.id}-${away ? "away" : "here"}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: EASE }}>
+          <motion.div key={step.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: EASE }}>
             <h2 className="px-4 pt-2 text-[17px] leading-snug font-semibold tracking-[-0.01em] text-balance">{title}</h2>
-            <p className="px-4 pt-1 text-[13.5px] leading-relaxed text-pretty text-background/70">
-              {away ? `This step happens on ${pageOf(step.href(ctx))} as ${workspace(step.wsId).user.firstName}.` : body}
-            </p>
-            {!away && step.example && <Example text={step.example(ctx)} />}
-            {!away && status && (
+            {body && <p className="px-4 pt-1 text-[13.5px] leading-relaxed text-pretty text-background/70">{body}</p>}
+            {step.example && <Example text={step.example(ctx)} />}
+            {status && (
               <p className="mx-4 mt-3 inline-flex items-center gap-2 rounded-lg bg-background/[0.08] px-2.5 py-1.5 text-[12.5px] font-medium tabular">
                 <span className="size-1.5 animate-live rounded-full bg-brand" />
                 {status}
               </p>
             )}
-            {!away && !lost && action && !step.example && (
+            {!lost && action && !step.example && (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
                 <MousePointerClick className="size-3.5 shrink-0" />
                 {action}
@@ -434,11 +468,7 @@ function StepCard({
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
         <Progress current={n - 1} chapter={step.chapter} />
         <span className="ml-auto flex items-center gap-1">
-          {away ? (
-            <CardButton onClick={onGo}>
-              Take me there <ArrowRight className="size-3.5" />
-            </CardButton>
-          ) : done ? null : !step.action ? (
+          {done ? null : !step.action ? (
             <CardButton onClick={onNext}>
               Next <ArrowRight className="size-3.5" />
             </CardButton>
@@ -527,72 +557,6 @@ function Progress({ current, chapter }: { current: number; chapter: ChapterId })
   )
 }
 
-/** Dims the page with a rounded window around each target. */
-function Dim({ boxes, visible }: { boxes: Box[]; visible: boolean }) {
-  return (
-    <motion.svg
-      aria-hidden
-      className="pointer-events-none fixed inset-0 z-[45] h-full w-full"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: visible ? 1 : 0 }}
-      transition={{ duration: 0.25 }}
-    >
-      <defs>
-        <mask id="tour-cutouts">
-          <rect width="100%" height="100%" fill="white" />
-          {boxes.map((b, i) => (
-            <motion.rect key={i} initial={false} animate={{ attrX: b.x, attrY: b.y, width: b.w, height: b.h }} transition={SPRING} rx={14} fill="black" />
-          ))}
-        </mask>
-      </defs>
-      <rect width="100%" height="100%" mask="url(#tour-cutouts)" className="fill-[rgb(18_16_13/0.56)] dark:fill-black/65" />
-    </motion.svg>
-  )
-}
-
-/** Catches clicks everywhere except the hole, so the player stays on the step. */
-function Shield({ hole }: { hole?: Box }) {
-  const base = "fixed z-[45]"
-  if (!hole) return <div data-tour-layer className={cn(base, "inset-0")} onWheel={scrollUnder} />
-  const right = hole.x + hole.w
-  const bottom = hole.y + hole.h
-  return (
-    <>
-      <div data-tour-layer className={base} style={{ left: 0, top: 0, right: 0, height: Math.max(0, hole.y) }} onWheel={scrollUnder} />
-      <div data-tour-layer className={base} style={{ left: 0, top: bottom, right: 0, bottom: 0 }} onWheel={scrollUnder} />
-      <div data-tour-layer className={base} style={{ left: 0, top: hole.y, width: Math.max(0, hole.x), height: hole.h }} onWheel={scrollUnder} />
-      <div data-tour-layer className={base} style={{ left: right, top: hole.y, right: 0, height: hole.h }} onWheel={scrollUnder} />
-    </>
-  )
-}
-
-function Rings({ boxes, flash }: { boxes: Box[]; flash: boolean }) {
-  const reduce = useReducedMotion()
-  return (
-    <>
-      {boxes.map((b, i) => (
-        <motion.div
-          key={i}
-          aria-hidden
-          className="pointer-events-none fixed top-0 left-0 z-[60] rounded-[14px] ring-2 ring-brand shadow-[0_0_0_5px_color-mix(in_oklch,var(--brand)_30%,transparent),0_0_28px_4px_color-mix(in_oklch,var(--brand)_35%,transparent)]"
-          initial={{ opacity: 0, x: b.x, y: b.y, width: b.w, height: b.h }}
-          animate={{ opacity: 1, x: b.x, y: b.y, width: b.w, height: b.h }}
-          transition={SPRING}
-        >
-          {!reduce && (
-            <motion.span
-              className="absolute -inset-px rounded-[inherit] ring-2 ring-brand"
-              animate={flash ? { opacity: [0.9, 0], scale: [1, 1.12] } : { opacity: [0.75, 0], scale: [1, 1.05] }}
-              transition={flash ? { duration: 0.7, ease: "easeOut" } : { duration: 1.7, repeat: Infinity, ease: "easeOut" }}
-            />
-          )}
-          {flash && <motion.span className="absolute inset-0 rounded-[inherit] bg-brand/25" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 0.8 }} />}
-        </motion.div>
-      ))}
-    </>
-  )
-}
-
 /* ---------------------------------- Cards ---------------------------------- */
 
 /** The demo reset Start kicks off. The first part card shows while it runs, and its Continue waits for it. */
@@ -635,7 +599,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     <motion.div
       data-tour-layer
       onPointerDown={stop}
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[rgb(18_16_13/0.5)] p-4 backdrop-blur-[3px] dark:bg-black/65"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[rgb(18_16_13/0.22)] p-4 dark:bg-black/45"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.12 } }}
@@ -698,6 +662,12 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
           )
         })}
       </ol>
+      <div className="mx-7 mt-4 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
+        You play each side of the program:
+        <SideBadge kind="buyer" size="sm" />
+        <SideBadge kind="supplier" size="sm" />
+        <SideBadge kind="compass" size="sm" />
+      </div>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
           Not now
@@ -713,6 +683,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
 function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () => void; onExit: () => void }) {
   const meta = CHAPTERS[item.chapter]
   const ws = workspace(item.wsId)
+  const side = SIDES[ws.kind]
   return (
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
@@ -725,21 +696,22 @@ function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () =
         </h2>
         <p className="relative mt-2 text-[15px] leading-snug text-pretty text-muted-foreground">{item.shows}</p>
       </div>
-      <div className="mx-7 flex items-center gap-3 rounded-xl border border-border bg-page-faded/60 px-4 py-3">
+      <div className="mx-7 flex items-center gap-3 rounded-xl border border-border px-4 py-3" style={{ backgroundColor: `color-mix(in oklch, ${side.color} 7%, transparent)` }}>
         <WorkspaceAvatar ws={ws} size="lg" />
-        <span className="flex min-w-0 flex-col">
-          <span className="text-[14px] font-semibold">{ws.user.name}</span>
-          <span className="truncate text-[13px] text-muted-foreground">
-            {ws.user.title} · {ws.name}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[14px] font-semibold">
+            You&apos;re {ws.kind === "compass" ? "Compass corporate" : `${ws.kind === "buyer" ? "the buyer" : "the agency"}: ${ws.name}`}
           </span>
+          <span className="text-[13px] text-pretty text-muted-foreground">{side.does}</span>
         </span>
+        <SideBadge kind={ws.kind} />
       </div>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onExit}>
           Exit tour
         </Button>
         <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onPlay} autoFocus>
-          Continue as {ws.user.firstName} <ArrowRight className="size-4" />
+          Continue as {ws.kind === "compass" ? "corporate" : ws.kind === "buyer" ? "the buyer" : "the agency"} <ArrowRight className="size-4" />
         </Button>
       </div>
     </>

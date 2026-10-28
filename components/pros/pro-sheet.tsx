@@ -59,7 +59,7 @@ const ROSTER: { value: RosterStatus; label: string; active: string; icon: Lucide
     tone: "text-critical-fg",
     added: "blocked",
     removed: "unblocked",
-    hint: "They can't book your shifts with any supplier.",
+    hint: "They can't book your shifts with any agency.",
   },
 ]
 

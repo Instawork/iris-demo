@@ -1,7 +1,7 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { ArrowRightLeft, Check, Clock, Download, Send, ShieldCheck, X } from "lucide-react"
+import { ArrowRightLeft, Check, Clock, Download, ScanLine, Send, ShieldCheck, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -14,6 +14,7 @@ import { MultiSelectFilter, ResetFilters, SearchInput, SelectFilter } from "@/co
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { ProAvatar } from "@/components/common/pro-avatar"
+import { ScanSheetDialog } from "@/components/timesheets/scan-sheet-dialog"
 import { ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { TimesheetSheet } from "@/components/timesheets/timesheet-sheet"
 import { Button } from "@/components/ui/button"
@@ -110,6 +111,7 @@ export function TimesheetsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [rejecting, setRejecting] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [scanning, setScanning] = useState(false)
 
   const mine = useMemo(() => data.timesheets.filter((t) => inScope(scope, t)), [data.timesheets, scope])
   const checks = useTimesheetChecks(mine)
@@ -212,7 +214,7 @@ export function TimesheetsPage() {
           <span className="flex items-center gap-2.5">
             {p && <ProAvatar pro={p} size="sm" />}
             <span className="flex min-w-0 flex-col">
-              <span className="truncate font-semibold">{p ? fullName(p) : "Unknown Pro"}</span>
+              <span className="truncate font-semibold">{p ? fullName(p) : "Unknown worker"}</span>
               {kind !== "supplier" ? (
                 <span className="inline-flex items-center gap-1 text-caption-1 text-faded">
                   <SupplierLogo supplierId={t.supplierId} size="xs" /> {supplier(t.supplierId).shortName}
@@ -347,9 +349,14 @@ export function TimesheetsPage() {
             {kind === "supplier" && (
               <label className="flex items-center gap-2 text-body-3 text-faded" data-tour="auto-submit">
                 <Switch checked={autoOn} onCheckedChange={toggleAuto} />
-                Send clock-matched hours automatically
-                <InfoTip>Drafts billed exactly as Iris&apos;s clock shows go for approval on their own. Missing punches and hours that differ from the clock still wait for you.</InfoTip>
+                Auto-submit timesheets that match the clock
+                <InfoTip>When a worker&apos;s hours match Iris&apos;s clock exactly, Iris submits the timesheet to the buyer for you. Missing punches and hours that differ wait for you.</InfoTip>
               </label>
+            )}
+            {kind === "supplier" && ws.supplierId && (
+              <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => setScanning(true)} data-tour="scan-sheet-open">
+                <ScanLine className="size-4" /> Scan a sign-in sheet
+              </Button>
             )}
             {kind === "supplier" && matching.length > 0 && (
               <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={busy} onClick={() => submitMany(matching.map((t) => t.id))}>
@@ -509,6 +516,7 @@ export function TimesheetsPage() {
         }}
       />
       <TimesheetSheet id={openId} onOpenChange={(o) => !o && setParams({ ts: undefined })} />
+      {ws.supplierId && <ScanSheetDialog supplierId={ws.supplierId} open={scanning} onOpenChange={setScanning} />}
     </>
   )
 }

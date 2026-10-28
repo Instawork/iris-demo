@@ -125,7 +125,7 @@ export function splitForMove(t: Timesheet, move: RoleMove, newId: string, now: s
     clock: t.clock && clockSplits ? { ...t.clock, out: move.at, breakMins: breakFirst ? t.clock.breakMins : 0 } : t.clock,
     sentHome: undefined,
     hours: hoursFor(firstBilled.clockIn, firstBilled.clockOut, firstBilled.breakMins),
-    movedTo: { timesheetId: newId, positionId: move.positionId, at: move.at },
+    movedTo: { timesheetId: newId, positionId: move.positionId, ...(move.departmentId ? { departmentId: move.departmentId } : {}), at: move.at },
     history: [...t.history, change(now, move.by, "moved", { note: `${names.to} from ${when}${move.note ? `. ${move.note}` : ""}` })],
   }
   const secondBilled = billed ? { clockIn: move.at, clockOut: t.clockOut, breakMins: breakFirst ? 0 : t.breakMins } : { breakMins: breakFirst ? 0 : t.breakMins }
@@ -134,6 +134,7 @@ export function splitForMove(t: Timesheet, move: RoleMove, newId: string, now: s
     ...secondBilled,
     id: newId,
     positionId: move.positionId,
+    departmentId: move.departmentId ?? t.departmentId,
     billRate: move.billRate,
     scheduledStart: scheduleSplits ? move.at : t.scheduledStart,
     scheduledBreakMins: breakFirst ? 0 : t.scheduledBreakMins,
@@ -141,7 +142,7 @@ export function splitForMove(t: Timesheet, move: RoleMove, newId: string, now: s
     hours: hoursFor(secondBilled.clockIn, secondBilled.clockOut, secondBilled.breakMins, t.sentHome),
     otHours: 0,
     tips: 0,
-    movedFrom: { timesheetId: t.id, positionId: t.positionId, at: move.at },
+    movedFrom: { timesheetId: t.id, positionId: t.positionId, ...(t.departmentId ? { departmentId: t.departmentId } : {}), at: move.at },
     history: [change(now, move.by, "moved", { note: `Moved from ${names.from} at ${when}${move.note ? `. ${move.note}` : ""}` })],
   }
   return [first, second]

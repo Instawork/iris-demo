@@ -3,6 +3,7 @@ import { BadgeCheck, BadgeDollarSign, Building2, Calendar, ChartColumn, Clock, F
 import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
 import { awaitingApproval, filledCount, groupPhase, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
+import { PROGRAM } from "@/lib/reference"
 import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
@@ -39,7 +40,7 @@ const timesheetsBadge = (data: DemoData, ws: Workspace) => {
 /** The same pages for everyone. Each page shows that persona's data and actions. */
 export function navFor(ws: Workspace): NavItem[] {
   const kind = ws.kind
-  const approvals: NavItem[] = ws.approves?.length
+  const approvals: NavItem[] = PROGRAM.budgetApprovals && ws.approves?.length
     ? [
         {
           id: "approvals",
@@ -62,8 +63,8 @@ export function navFor(ws: Workspace): NavItem[] {
     ...approvals,
     ...(kind === "compass"
       ? ([
-          { id: "units", label: "Units", href: "/units", icon: MapPinned, tooltip: "Every unit that buys labor, what it orders and requires. Add new ones." },
-          { id: "agencies", label: "Agencies", href: "/agencies", icon: Building2, tooltip: "Every agency on the program: rates, Pros, paperwork and performance. Add new ones." },
+          { id: "units", label: "Units", href: "/units", icon: MapPinned, tooltip: "Every unit that buys labor: its departments, roles and requirements" },
+          { id: "agencies", label: "Agencies", href: "/agencies", icon: Building2, tooltip: "Every agency on the program: rates, workers, paperwork and performance" },
         ] satisfies NavItem[])
       : []),
     {
@@ -71,7 +72,7 @@ export function navFor(ws: Workspace): NavItem[] {
       label: "Shifts",
       href: "/shifts",
       icon: Calendar,
-      tooltip: kind === "supplier" ? "Shifts open to you. Assign Pros." : kind === "buyer" ? "Post shifts and track who's coming" : "Every shift across every buyer and supplier",
+      tooltip: kind === "supplier" ? "Shifts open to you. Assign your workers." : kind === "buyer" ? "Post shifts and track who's coming" : "Every shift across every buyer and agency",
       badge: kind === "supplier" ? shiftsBadge : undefined,
     },
     {
@@ -97,14 +98,14 @@ export function navFor(ws: Workspace): NavItem[] {
           ? "Your pay rate, markup and bill rate by city"
           : kind === "buyer"
             ? "Every agency's rate for each role. Pick the best offer."
-            : "Every supplier's rates side by side, and every change to them",
+            : "Every agency's rates by role, and every change to them",
     },
     {
       id: "professionals",
-      label: "Professionals",
+      label: "Workers",
       href: "/professionals",
       icon: Users,
-      tooltip: kind === "supplier" ? "Your Pros, their onboarding and compliance" : kind === "buyer" ? "Pros who work your shifts. Rate and review them." : "Every Pro and their compliance",
+      tooltip: kind === "supplier" ? "Your workers, their onboarding and documents" : kind === "buyer" ? "Workers who work your shifts. Rate and review them." : "Every worker and their documents",
       badge:
         kind === "supplier"
           ? (data, w) => data.pros.filter((p) => p.supplierId === w.supplierId && ["onboarding", "action_needed"].includes(summaryOf(p))).length
@@ -148,7 +149,7 @@ export const SECTION_LABELS: Record<string, string> = {
   agencies: "Agencies",
   shifts: "Shifts",
   timesheets: "Timesheets",
-  professionals: "Professionals",
+  professionals: "Workers",
   rates: "Rate Cards",
   invoices: "Invoices",
   reports: "Reports",

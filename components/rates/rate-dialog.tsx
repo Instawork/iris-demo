@@ -116,7 +116,7 @@ function RateForm({ supplierId, card, onClose }: { supplierId: string; card?: Ra
         <div className="grid grid-cols-3 gap-3">
           <label className="flex flex-col gap-1.5">
             <span className="flex items-center gap-1 text-body-3 font-semibold">
-              Pay rate <InfoTip>What the Pro earns per hour.</InfoTip>
+              Pay rate <InfoTip>What the worker earns per hour.</InfoTip>
             </span>
             <span className="relative">
               <span className="absolute top-1/2 left-3 -translate-y-1/2 text-body-3 text-faded">$</span>

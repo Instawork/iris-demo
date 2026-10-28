@@ -184,14 +184,14 @@ export interface UploadSpec {
 }
 
 const SHIFT_GROUP_COLUMN: ColumnSpec = { key: "shift_group_id", label: "Shift group ID", required: true, description: "Like SG-48231" }
-const PRO_COLUMN: ColumnSpec = { key: "pro_id", label: "Pro ID", required: true, description: "Like P-10241" }
+const PRO_COLUMN: ColumnSpec = { key: "pro_id", label: "Worker ID", required: true, description: "Like P-10241" }
 
 /** Key order is the order each persona sees its types in. */
 export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
   shifts: {
     type: "shifts",
     label: "Shift",
-    description: "Post many shifts at once. Rows that share a shift_group_id become one shift group, sent to your approved suppliers.",
+    description: "Post many shifts at once. Rows that share a shift_group_id become one shift group, sent to your approved agencies.",
     allowed: ["buyer"],
     href: "/shifts",
     columns: [
@@ -201,7 +201,7 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
       { key: "date", label: "Date", required: true, description: "YYYY-MM-DD" },
       { key: "start_time", label: "Start", required: true, description: "24-hour time, HH:MM" },
       { key: "end_time", label: "End", required: true, description: "24-hour time, HH:MM" },
-      { key: "pros_needed", label: "Pros needed", required: true, description: "1 to 60" },
+      { key: "pros_needed", label: "Workers needed", required: true, description: "1 to 60" },
       { key: "break_minutes", label: "Break", required: false, description: "Unpaid minutes. Defaults to 30 over 6 hours" },
       { key: "event_name", label: "Event", required: false, description: "Shown on shift cards" },
       { key: "instructions", label: "Instructions", required: false, description: "Duties or check-in notes" },
@@ -216,20 +216,20 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
     columns: [
       { key: "city", label: "City", required: true, description: "City the rate applies to" },
       { key: "position", label: "Position", required: true, description: "Position name" },
-      { key: "pro_rate", label: "Pay rate", required: true, description: "What the Pro earns per hour" },
+      { key: "pro_rate", label: "Pay rate", required: true, description: "What the worker earns per hour" },
       { key: "bill_rate", label: "Bill rate", required: true, description: "What Compass pays per hour. Invoices use this rate" },
-      { key: "markup_pct", label: "Markup", required: true, description: "What you keep, as a percent of the pay rate" },
+      { key: "markup_pct", label: "Markup", required: true, description: "What you add, as a percent of the pay rate" },
       { key: "zip_codes", label: "Zip codes", required: false, description: "Separated by semicolons. Blank covers the city" },
     ],
   },
   professionals: {
     type: "professionals",
-    label: "Professional",
-    description: "Add or update your Pros with their onboarding and compliance status.",
+    label: "Worker",
+    description: "Add or update your workers with their onboarding and compliance status.",
     allowed: ["supplier"],
     href: "/professionals",
     columns: [
-      { key: "pro_id", label: "Pro ID", required: false, description: "Blank for a new Pro, or an ID to update" },
+      { key: "pro_id", label: "Worker ID", required: false, description: "Blank for a new worker, or an ID to update" },
       { key: "first_name", label: "First name", required: true, description: "First name" },
       { key: "last_name", label: "Last name", required: true, description: "Last name" },
       { key: "email", label: "Email", required: true, description: "Email address" },
@@ -262,7 +262,7 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
   tips: {
     type: "tips",
     label: "Tip",
-    description: "Tips earned by Pros. They pass through to the Pro with no markup on the next invoice.",
+    description: "Tips earned by workers. They pass through to the worker with no markup on the next invoice.",
     allowed: ["buyer", "supplier"],
     href: "/shifts",
     columns: [SHIFT_GROUP_COLUMN, PRO_COLUMN, { key: "tip_amount", label: "Tip", required: true, description: "Dollars" }],
@@ -618,7 +618,7 @@ function proCell(ctx: Ctx, raw: string, n: number, issues: UploadIssue[]) {
   if (exact) return exact
   const key = norm(raw)
   const guess = ctx.data.pros.find((p) => norm(p.code) === key || norm(p.code) === `p${key}`)
-  issues.push(problem(n, "pro_id", guess ? "Not a valid ID" : "No Pro with this ID", guess ? fixTo(guess.code) : undefined))
+  issues.push(problem(n, "pro_id", guess ? "Not a valid ID" : "No worker with this ID", guess ? fixTo(guess.code) : undefined))
   return guess
 }
 
@@ -699,7 +699,7 @@ function planShifts(rows: Row[], ctx: Ctx): Planned {
     if (row.break_minutes && (breakMins === undefined || breakMins < 0 || breakMins > 120)) issues.push(problem(n, "break_minutes", "Use 0 to 120 minutes"))
     if (breakMins === undefined && start && end) breakMins = paidHours(start, end, 0) > 6 ? 30 : 0
     if (loc && pos && !notifiedSuppliers(ctx.data, loc.buyerId, loc.cityId, pos.id).length)
-      issues.push(problem(n, "position", `None of your approved suppliers staff ${pos.name} in ${city(loc.cityId).name}`))
+      issues.push(problem(n, "position", `None of your approved agencies staff ${pos.name} in ${city(loc.cityId).name}`))
     if (!hasErrors(issues) && loc && pos && date && start && end && headcount) {
       const existing = drafts.get(code)
       if (!existing) {
@@ -708,7 +708,7 @@ function planShifts(rows: Row[], ctx: Ctx): Planned {
         issues.push(problem(n, "shift_group_id", `Same ID as row ${existing.firstRow}, but a different shift`, fixTo(freshCode(code))))
       } else {
         existing.headcount += headcount
-        issues.push(note(n, "shift_group_id", `Added to row ${existing.firstRow}: ${code} now needs ${existing.headcount} Pros`))
+        issues.push(note(n, "shift_group_id", `Added to row ${existing.firstRow}: ${code} now needs ${existing.headcount} workers`))
       }
     }
     const ok = !hasErrors(issues)
@@ -792,7 +792,7 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
     if (g && ctx.ws.kind === "buyer" && g.buyerId !== ctx.ws.buyerId) issues.push(problem(n, "shift_group_id", "Not one of your shifts"))
     const phase = g ? groupPhase(g) : undefined
     if (g && phase !== "past") issues.push(problem(n, "shift_group_id", phase === "cancelled" ? "This shift was cancelled" : "This shift hasn't finished yet"))
-    if (pro && ctx.ws.kind === "supplier" && pro.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your Pros"))
+    if (pro && ctx.ws.kind === "supplier" && pro.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your workers"))
     const slot = g && pro ? g.slots.find((s) => s.proId === pro.id) : undefined
     if (g && pro && !slot) issues.push(problem(n, "pro_id", `Wasn't booked on ${g.code}`))
     if (slot?.status === "no_show") issues.push(problem(n, "pro_id", "Marked as a no-show on this shift"))
@@ -832,6 +832,7 @@ function planTimesheets(rows: Row[], ctx: Ctx): Planned {
           buyerId: g.buyerId,
           locationId: g.locationId,
           positionId: g.positionId,
+          ...(g.departmentId ? { departmentId: g.departmentId } : {}),
           date: g.date,
           scheduledStart: g.start,
           scheduledEnd: g.end,
@@ -890,8 +891,8 @@ function planTips(rows: Row[], ctx: Ctx): Planned {
     }
     if (g && ctx.ws.kind === "buyer" && g.buyerId !== ctx.ws.buyerId) issues.push(problem(n, "shift_group_id", "Not one of your shifts"))
     const ts = g && pro ? ctx.data.timesheets.find((t) => t.groupId === g.id && t.proId === pro.id) : undefined
-    if (g && pro && !ts) issues.push(problem(n, "pro_id", `No hours for this Pro on ${g.code}`))
-    if (ts && ctx.ws.kind === "supplier" && ts.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your Pros"))
+    if (g && pro && !ts) issues.push(problem(n, "pro_id", `No hours for this worker on ${g.code}`))
+    if (ts && ctx.ws.kind === "supplier" && ts.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your workers"))
     if (ts && !tipsOpen(ctx.data, ts)) issues.push(problem(n, undefined, "Already invoiced, so tips can't change", REMOVE_ROW))
     const amount = parseNumber(row.tip_amount ?? "")
     if (row.tip_amount && (amount === undefined || amount < 0 || amount > 1000)) issues.push(problem(n, "tip_amount", "Use an amount from $0 to $1,000"))
@@ -918,7 +919,7 @@ function planRates(rows: Row[], ctx: Ctx): Planned {
   rows.forEach((row, i) => {
     const n = ctx.nums[i]
     const issues: UploadIssue[] = []
-    if (!supplierId) issues.push(problem(n, undefined, "Only suppliers upload rates"))
+    if (!supplierId) issues.push(problem(n, undefined, "Only agencies upload rates"))
     required(row, ["city", "position", "pro_rate", "bill_rate"], issues, n)
     const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not an Iris city") : undefined
     if (c && supplierId && !supplier(supplierId).cityIds.includes(c.id)) issues.push(problem(n, "city", `You're not set up in ${c.name}`))
@@ -1044,12 +1045,12 @@ function planPros(rows: Row[], ctx: Ctx): Planned {
       return
     }
     const issues: UploadIssue[] = []
-    if (!supplierId) issues.push(problem(n, undefined, "Only suppliers upload Pros"))
+    if (!supplierId) issues.push(problem(n, undefined, "Only agencies upload workers"))
     required(row, ["first_name", "last_name", "email", "city", "positions", "background_check", "i9", "orientation"], issues, n)
     if (row.email && !EMAIL.test(email)) issues.push(problem(n, "email", "Not an email address"))
     else if (row.email && email !== row.email) issues.push(problem(n, "email", /\s/.test(row.email) ? "Has spaces" : "Has capital letters", fixTo(email)))
     const existing = row.pro_id ? proCell(ctx, row.pro_id, n, issues) : undefined
-    if (existing && existing.supplierId !== supplierId) issues.push(problem(n, "pro_id", "Belongs to another supplier"))
+    if (existing && existing.supplierId !== supplierId) issues.push(problem(n, "pro_id", "Belongs to another agency"))
     const twin = !row.pro_id && email ? ctx.data.pros.find((p) => p.supplierId === supplierId && p.email.toLowerCase() === email) : undefined
     if (twin) issues.push(problem(n, "pro_id", `Same email as ${twin.firstName} ${twin.lastName}`, fixTo(twin.code, `Update ${twin.code}`)))
     const c = row.city ? lookup(resolveCity(row.city), row.city, CITIES, (x) => [x.name], n, "city", issues, "Not an Iris city") : undefined
@@ -1093,7 +1094,7 @@ function planPros(rows: Row[], ctx: Ctx): Planned {
       } else if (needs.includes(key)) {
         compliance[key] = { status: "missing" }
         const roles = positionIds.map((id) => position(id)).filter((p) => (key === "alcohol" ? p.alcohol : p.foodHandler))
-        issues.push(note(n, column, `Needed for ${roles.map((p) => p.name).join(" and ")}. The Pro stays in onboarding until it's added`))
+        issues.push(note(n, column, `Needed for ${roles.map((p) => p.name).join(" and ")}. The worker stays in onboarding until it's added`))
       }
     }
     const ok = !hasErrors(issues)
@@ -1127,7 +1128,7 @@ function planPros(rows: Row[], ctx: Ctx): Planned {
   return {
     rows: results,
     ...tally(results),
-    summary: upserts.length ? `${plural(upserts.length, "Pro")} saved, ${ready} ready to work` : "No Pros saved",
+    summary: upserts.length ? `${plural(upserts.length, "worker")} saved, ${ready} ready to work` : "No workers saved",
     apply: upserts.length
       ? (data) => {
           const byId = new Map(upserts.map((p) => [p.id, p]))

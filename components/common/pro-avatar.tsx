@@ -58,7 +58,7 @@ export function ProAvatar({
     </span>
   )
   if (!tooltip) return avatar
-  return <Tip content={level ? `${label} · ${level[0].toUpperCase()}${level.slice(1)} Pro` : label}>{avatar}</Tip>
+  return <Tip content={level ? `${label} · ${level[0].toUpperCase()}${level.slice(1)} level` : label}>{avatar}</Tip>
 }
 
 export function AvatarStack({

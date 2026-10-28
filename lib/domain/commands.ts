@@ -15,6 +15,7 @@ import {
   approversFor,
   buyer,
   city,
+  departmentOf,
   findCity,
   findLocation,
   findPosition,
@@ -37,6 +38,7 @@ import type {
   ApprovalRequest,
   ComplianceItem,
   DemoData,
+  Department,
   Integration,
   InvoiceGroup,
   Location,
@@ -144,19 +146,22 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const only = optStr(input.onlyAgencyId, 40)
   const firstPick = optStr(input.firstAgencyId, 40)
   const notified = notifiedSuppliers(data, loc.buyerId, loc.cityId, pos.id, only ?? firstPick)
-  if (!notified.length) fail(`None of your approved suppliers has an active ${pos.name} rate at ${loc.name}.`)
+  if (!notified.length) fail(`None of your approved agencies has an active ${pos.name} rate at ${loc.name}.`)
   if ((only ?? firstPick) && notified[0].card.supplierId !== (only ?? firstPick)) fail(`That agency isn't approved for ${pos.name}s at ${loc.name}.`)
   const lead = notified[0]
   const card = lead.card
   const ordered = only ? [only] : notified.map((n) => n.card.supplierId)
-  const proIds = input.requestedProIds?.length ? [...new Set(strList(input.requestedProIds, "Pros", 60))] : []
-  if (proIds.length > headcount) fail(`You asked for ${plural(proIds.length, "Pro")} on ${plural(headcount, "spot")}.`)
+  const proIds = input.requestedProIds?.length ? [...new Set(strList(input.requestedProIds, "Workers", 60))] : []
+  if (proIds.length > headcount) fail(`You asked for ${plural(proIds.length, "worker")} on ${plural(headcount, "spot")}.`)
   for (const proId of proIds) {
-    const pro = need(data.pros.find((p) => p.id === proId), "One of those Pros doesn't exist")
+    const pro = need(data.pros.find((p) => p.id === proId), "One of those workers doesn't exist")
     if (!notified.some((n) => n.card.supplierId === pro.supplierId)) fail(`${fullName(pro)}'s agency isn't approved for ${pos.name}s here.`)
+    if (only && pro.supplierId !== only) fail(`${fullName(pro)} works for another agency. This order only goes to ${supplier(only).shortName}.`)
     const check = canWork(pro, pos.id, dates[0], loc.id)
     if (!check.ok) fail(`${fullName(pro)} can't work it: ${(check.reason ?? "not cleared").toLowerCase()}.`)
   }
+  const department = departmentOf(loc.id, optStr(input.departmentId, 40), pos.id)
+  if (input.departmentId && department?.id !== input.departmentId) fail(`${loc.name} has no department like that.`)
   const dispatch = only || proIds.length ? { ...(only ? { supplierId: only } : {}), ...(proIds.length ? { proIds } : {}) } : undefined
   const estimate = round2(paidHours(start, end, breakMins) * card.billRate * headcount)
   const check = budgetCheck(data, loc.id, dates.map((date) => ({ date, estimate })), policy)
@@ -208,6 +213,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
       source: "booking",
       approval,
       ...(dispatch ? { dispatch } : {}),
+      ...(department ? { departmentId: department.id } : {}),
     }
     return approval ? g : placeRequested(data, released(g, ordered, ctx.now), ctx.now)
   })
@@ -217,7 +223,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const text = approval
     ? `${actorName(ctx)} asked for ${spots} ${pos.name} spots at ${loc.name}. It's ${(approval.overPct * 100).toFixed(1)}% over that week's budget, so it's waiting for ${joinNames(approvers.map((a) => a.user.name))}`
     : first.supplierIds.length
-      ? `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${supplier(card.supplierId).shortName} ${only ? "is the only agency that sees them" : "received them first"}${booked ? `, and Iris booked ${plural(booked, "requested Pro")}` : ""}`
+      ? `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${supplier(card.supplierId).shortName} ${only ? "is the only agency that sees them" : "received them first"}${booked ? `, and Iris booked ${plural(booked, "requested worker")}` : ""}`
       : `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${policy.sector} releases them ${policy.releaseLeadHours} hours before the shift`
   return {
     ...done(data, ids, { groups: [...groups, ...data.groups], counters: { sg } }, event(data, { text, actor: actorName(ctx), tone: approval ? "warning" : "primary", buyerId: loc.buyerId, groupId: first.id }, ctx.now)),
@@ -348,11 +354,11 @@ function setHeadcount(data: DemoData, ctx: CommandContext, input: { groupId: str
 function assignPros(data: DemoData, ctx: CommandContext, input: { groupId: string; proIds: string[] }): Outcome<number> {
   const g = groupOf(data, input?.groupId)
   const supplierId = ctx.ws.supplierId
-  if (ctx.ws.kind !== "supplier" || !supplierId) return forbid("Only an agency can assign its Pros.")
+  if (ctx.ws.kind !== "supplier" || !supplierId) return forbid("Only an agency can assign its workers.")
   if (!isOpenTo(g, supplierId)) forbid("This shift hasn't been released to your agency.")
   if (g.cancelledAt || groupPhase(g) === "past") fail("This shift is no longer open.")
   const allowed = new Set(eligiblePros(data, g, supplierId).map((p) => p.id))
-  const queue = strList(input.proIds, "Pros", 60).filter((id) => allowed.has(id))
+  const queue = strList(input.proIds, "Workers", 60).filter((id) => allowed.has(id))
   let assigned = 0
   const slots = g.slots.map((s) => {
     if (s.proId || !queue.length) return s
@@ -367,7 +373,7 @@ function assignPros(data: DemoData, ctx: CommandContext, input: { groupId: strin
     event(
       data,
       {
-        text: `${actorName(ctx)} assigned ${plural(assigned, "Pro")} to ${g.code} at ${location(g.locationId).name}`,
+        text: `${actorName(ctx)} assigned ${plural(assigned, "worker")} to ${g.code} at ${location(g.locationId).name}`,
         actor: actorName(ctx),
         tone: "positive",
         buyerId: g.buyerId,
@@ -405,17 +411,17 @@ function markNoShow(data: DemoData, ctx: CommandContext, input: { groupId: strin
 }
 
 /**
- * Moves a worker to another role partway through a shift, like a concessions attendant sent to the suites as a
- * barback. From then on the agency bills that role's rate. During the shift the move waits on the spot; once there is a
+ * Moves a worker to another role or department partway through a shift, like a concessions attendant sent to the
+ * suites as a barback. From then on the agency bills that role's rate to that department's cost center. During the shift the move waits on the spot; once there is a
  * timesheet, it splits in two so approval, the invoice and reports each show what the worker actually did.
  */
 function moveToRole(
   data: DemoData,
   ctx: CommandContext,
-  input: { groupId: string; slotId: string; positionId: string; at: string; note?: string },
+  input: { groupId: string; slotId: string; positionId: string; departmentId?: string; at: string; note?: string },
 ): Outcome<{ positionId: string; billRate: number; split: boolean }> {
   const g = groupOf(data, input?.groupId)
-  if (!ownsBuyer(ctx.ws, g.buyerId)) forbid("Only the buyer or Compass can move a Pro to another role.")
+  if (!ownsBuyer(ctx.ws, g.buyerId)) forbid("Only the buyer or Compass can move a worker to another role.")
   const slot = need(g.slots.find((s) => s.id === input.slotId), "That spot doesn't exist")
   const pro = need(slot.proId ? data.pros.find((p) => p.id === slot.proId) : undefined, "Nobody is working that spot")
   if (slot.status === "no_show") fail(`${pro.firstName} was marked as a no-show.`)
@@ -438,19 +444,33 @@ function moveToRole(
   if (!part && !duringShift(g.start, g.end, at)) fail(`Pick a time between ${formatClockShort(g.start)} and ${formatClockShort(g.end)}.`)
   if (!part && earlier.length !== (slot.moves ?? []).length) fail(`Pick a time after ${pro.firstName}'s last move.`)
   const fromPositionId = part?.positionId ?? earlier.at(-1)?.positionId ?? g.positionId
-  if (fromPositionId === pos.id) fail(`${pro.firstName} is already working as ${pos.name} then.`)
+  const fromDepartment = departmentOf(loc.id, part?.departmentId ?? earlier.at(-1)?.departmentId ?? g.departmentId, fromPositionId)
+  const department = departmentOf(loc.id, optStr(input.departmentId, 40), pos.id)
+  if (input.departmentId && department?.id !== input.departmentId) fail(`${loc.name} has no department like that.`)
+  if (fromPositionId === pos.id && fromDepartment?.id === department?.id) fail(`${pro.firstName} is already working as ${pos.name}${department ? ` in ${department.name}` : ""} then.`)
   if (part && part.status !== "draft" && part.status !== "pending_approval" && part.status !== "rejected")
-    fail("Those hours are already approved. Move a Pro before their hours are approved.")
+    fail("Those hours are already approved. Move a worker before their hours are approved.")
 
   const by = actorName(ctx)
-  const move: RoleMove = { at, fromPositionId, positionId: pos.id, billRate: card.billRate, by, recordedAt: ctx.now, ...(note ? { note } : {}) }
+  const move: RoleMove = {
+    at,
+    fromPositionId,
+    positionId: pos.id,
+    ...(fromDepartment ? { fromDepartmentId: fromDepartment.id } : {}),
+    ...(department ? { departmentId: department.id } : {}),
+    billRate: card.billRate,
+    by,
+    recordedAt: ctx.now,
+    ...(note ? { note } : {}),
+  }
   const moves = [...(slot.moves ?? []), move].sort((a, b) => sinceStart(a.at) - sinceStart(b.at))
   const groups = data.groups.map((x) => (x.id === g.id ? { ...x, slots: x.slots.map((s) => (s.id === slot.id ? { ...s, moves } : s)) } : x))
 
   let timesheets = data.timesheets
   let counter = data.counters.ts
   if (part) {
-    const split = splitForMove(part, move, `ts-${counter++}`, ctx.now, { from: position(part.positionId).name, to: pos.name }) ?? fail("Pick a time between when they started and when they finished.")
+    const named = (positionId: string, d?: Department) => (d && d.id !== fromDepartment?.id ? `${position(positionId).name} in ${d.name}` : position(positionId).name)
+    const split = splitForMove(part, move, `ts-${counter++}`, ctx.now, { from: named(part.positionId, fromDepartment), to: named(pos.id, department) }) ?? fail("Pick a time between when they started and when they finished.")
     const [first, second] = split
     timesheets = data.timesheets.flatMap((t) =>
       t.id === part.id ? [first, second] : t.id === part.movedTo?.timesheetId && t.movedFrom ? [{ ...t, movedFrom: { ...t.movedFrom, timesheetId: second.id } }] : [t],
@@ -467,7 +487,7 @@ function moveToRole(
       event(
         data,
         {
-          text: `${by} moved ${fullName(pro)} from ${from} to ${pos.name} at ${formatClockShort(at)}`,
+          text: `${by} moved ${fullName(pro)} from ${from}${fromDepartment && fromDepartment.id !== department?.id ? ` in ${fromDepartment.name}` : ""} to ${pos.name}${department && department.id !== fromDepartment?.id ? ` in ${department.name}` : ""} at ${formatClockShort(at)}`,
           actor: by,
           tone: "primary",
           buyerId: g.buyerId,
@@ -486,7 +506,7 @@ function moveToRole(
 function setSupplierApproval(data: DemoData, ctx: CommandContext, input: { buyerId: string; supplierId: string; approved: boolean }): Outcome<null> {
   const buyerId = str(input?.buyerId, "Buyer")
   if (!ownsBuyer(ctx.ws, buyerId)) forbid("Only the buyer or Compass can change approved agencies.")
-  const s = need(findSupplier(str(input.supplierId, "Supplier")), "That agency doesn't exist")
+  const s = need(findSupplier(str(input.supplierId, "Agency")), "That agency doesn't exist")
   const approved = input.approved === true
   const current = data.approvals[buyerId] ?? []
   if (approved === current.includes(s.id)) return done(data, null)
@@ -547,7 +567,7 @@ function pickOffer(data: DemoData, ctx: CommandContext, input: { buyerId: string
 function setRoster(data: DemoData, ctx: CommandContext, input: { buyerId: string; proIds: string[]; status: RosterStatus | null }): Outcome<null> {
   const buyerId = str(input?.buyerId, "Buyer")
   if (!ownsBuyer(ctx.ws, buyerId)) forbid("Only the buyer can change its roster.")
-  const ids = new Set(strList(input.proIds, "Pros", 500))
+  const ids = new Set(strList(input.proIds, "Workers", 500))
   const status = input.status === "favorite" || input.status === "ok_to_return" || input.status === "blocked" ? input.status : null
   const kept = data.roster.filter((r) => !(r.buyerId === buyerId && ids.has(r.proId)))
   if (!status) return done(data, null, { roster: kept })
@@ -1119,8 +1139,8 @@ function deleteRateCard(data: DemoData, ctx: CommandContext, input: { id: string
 const REQUIREMENT_IDS: RequirementId[] = ["background", "i9", "orientation", "foodHandler", "alcohol"]
 
 function completeRequirement(data: DemoData, ctx: CommandContext, input: { proId: string; requirement: RequirementId }): Outcome<null> {
-  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
-  if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, pro.supplierId)) forbid("Only the Pro's agency can update their documents.")
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That worker doesn't exist")
+  if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, pro.supplierId)) forbid("Only the worker's agency can update their documents.")
   const requirement = REQUIREMENT_IDS.includes(input.requirement) ? input.requirement : fail("Unknown requirement")
   const today = todayISO()
   const renews = requirement === "background" ? 365 : requirement === "foodHandler" || requirement === "alcohol" ? 365 * 3 : 0
@@ -1144,8 +1164,8 @@ function verifyRequirement(
   ctx: CommandContext,
   input: { proId: string; requirement: RequirementId; provider: string; reference: string; issuedOn: string; expiresOn?: string; file?: string; attested: boolean },
 ): Outcome<{ result: Verification["result"]; reason?: string }> {
-  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
-  if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, pro.supplierId)) forbid("Only the Pro's agency can attest their documents.")
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That worker doesn't exist")
+  if (!isCompass(ctx.ws) && !isSupplier(ctx.ws, pro.supplierId)) forbid("Only the worker's agency can attest their documents.")
   const requirement = REQUIREMENT_IDS.includes(input.requirement) ? input.requirement : fail("Unknown requirement")
   if (input.attested !== true) fail("Attest the document before Iris checks it.")
   const provider = str(input.provider, "Who issued it", 60)
@@ -1176,7 +1196,7 @@ function verifyRequirement(
 /** Compass compliance decides on a document Iris couldn't confirm: accept it and clear the Pro, or send it back. */
 function reviewDocument(data: DemoData, ctx: CommandContext, input: { proId: string; requirement: RequirementId; decision: "accept" | "reject"; note?: string }): Outcome<null> {
   if (!isCompass(ctx.ws)) forbid("Compass compliance reviews the documents Iris couldn't verify.")
-  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That worker doesn't exist")
   const requirement = REQUIREMENT_IDS.includes(input.requirement) ? input.requirement : fail("Unknown requirement")
   const current = pro.compliance[requirement]
   const v = current?.verification
@@ -1203,9 +1223,9 @@ function reviewDocument(data: DemoData, ctx: CommandContext, input: { proId: str
 }
 
 function addReview(data: DemoData, ctx: CommandContext, input: { proId: string; buyerId: string; groupId?: string; rating: number; text: string }): Outcome<null> {
-  const pro = need(data.pros.find((p) => p.id === input?.proId), "That Pro doesn't exist")
+  const pro = need(data.pros.find((p) => p.id === input?.proId), "That worker doesn't exist")
   const buyerId = str(input.buyerId, "Buyer")
-  if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== buyerId) forbid("Only the buyer can review its Pros.")
+  if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== buyerId) forbid("Only the buyer can review its workers.")
   const rating = Math.max(1, Math.min(5, Math.round(num(input.rating, "Rating", 1, 5))))
   const weight = Math.max(1, data.reviews.filter((r) => r.proId === pro.id).length)
   const average = pro.rating > 0 ? round2((pro.rating * weight + rating) / (weight + 1)) : rating
@@ -1382,9 +1402,10 @@ export interface UnitInput {
   minRating?: number
   weeklyBudget?: number
   approverIds?: string[]
+  departments?: { name: string; costCenter: string; positionIds?: string[] }[]
 }
 
-/** Adds a unit to a buyer: where it is, what its Pros need, and what it orders. It can book the moment it's added. */
+/** Adds a unit to a buyer: where it is, what its workers need, what it orders and the departments it charges to. It can book the moment it's added. */
 function onboardUnit(data: DemoData, ctx: CommandContext, input: UnitInput): Outcome<string> {
   const owner = need(
     BUYERS.find((b) => b.id === input?.buyerId),
@@ -1405,6 +1426,17 @@ function onboardUnit(data: DemoData, ctx: CommandContext, input: UnitInput): Out
   const approverIds = strList(input.approverIds ?? [], "Approvers", 10).filter((id) => findWorkspace(id)?.buyerId === owner.id)
   const weeklyBudget = input.weeklyBudget ? Math.round(num(input.weeklyBudget, "The weekly budget", 100, 5_000_000)) : undefined
   const id = freeId(`loc-${slug(name)}`, (x) => !!findLocation(x))
+  const taken = new Set(LOCATIONS.flatMap((l) => [l.costCenter, ...(l.departments ?? []).map((d) => d.costCenter)].map((c) => c.toUpperCase())))
+  const departments: Department[] = []
+  for (const d of Array.isArray(input.departments) ? input.departments.slice(0, 12) : []) {
+    const deptName = str(d?.name, "A department's name", 40).trim()
+    if (!deptName) continue
+    const code = (optStr(d.costCenter, 24) ?? "").trim().toUpperCase() || `${costCenter}-${(departments.length + 1) * 10}`
+    if (taken.has(code) || code === costCenter || departments.some((x) => x.costCenter === code)) fail(`Cost center ${code} is already in use.`)
+    if (departments.some((x) => x.name.toLowerCase() === deptName.toLowerCase())) fail(`${deptName} is listed twice.`)
+    const deptRoles = strList(d.positionIds ?? [], "Department roles", 40).filter((p) => positionIds.includes(p))
+    departments.push({ id: freeId(slug(deptName), (x) => departments.some((y) => y.id === x)), name: deptName, costCenter: code, ...(deptRoles.length ? { positionIds: deptRoles } : {}) })
+  }
   const unit: Location = {
     id,
     buyerId: owner.id,
@@ -1418,6 +1450,7 @@ function onboardUnit(data: DemoData, ctx: CommandContext, input: UnitInput): Out
     ...(requires.length ? { requires } : {}),
     ...(minRating ? { minRating } : {}),
     ...(approverIds.length ? { approverIds } : {}),
+    ...(departments.length ? { departments } : {}),
     onboarded: { at: ctx.now, by: actorName(ctx) },
   }
   const first = weekStartISO(todayISO())
@@ -1435,7 +1468,8 @@ export interface AgencyInput {
   shortName?: string
   contactName: string
   contactEmail: string
-  integration: Integration
+  /** Both means an API connection that also takes CSV uploads. */
+  integration: Integration | "both"
   cityIds: string[]
   positionIds: string[]
   coiExpiresOn: string
@@ -1443,8 +1477,10 @@ export interface AgencyInput {
   msaSigned: boolean
   rates: { cityId: string; positionId: string; proRate: number; markupPct: number }[]
   buyerIds: string[]
-  /** Pros to bring over from the agency's own system. */
+  /** Workers to bring over from the agency's own system. */
   roster: number
+  /** Their names, from the roster file the agency sent. */
+  rosterNames?: { firstName: string; lastName: string }[]
 }
 
 /**
@@ -1501,8 +1537,8 @@ function onboardAgency(data: DemoData, ctx: CommandContext, input: AgencyInput):
     shortName,
     initials: shortName.slice(0, 2).toUpperCase(),
     color: PALETTE[onboarded % PALETTE.length],
-    integration: input.integration === "api" ? "api" : "csv",
-    integrationDetail: input.integration === "api" ? "API connected" : "CSV uploads",
+    integration: input.integration === "csv" ? "csv" : "api",
+    integrationDetail: input.integration === "both" ? "API connected, CSV uploads too" : input.integration === "api" ? "API connected" : "CSV uploads",
     syncedUploads: [],
     isInstawork: false,
     tagline: `${cityIds.map((c) => city(c).name).join(", ")} · ${plural(positionIds.length, "role")}`,
@@ -1519,11 +1555,17 @@ function onboardAgency(data: DemoData, ctx: CommandContext, input: AgencyInput):
     kind: "supplier",
     supplierId: id,
     name,
-    sublabel: `Supplier · ${added.integrationDetail}`,
+    sublabel: `Agency · ${added.integrationDetail}`,
     user: { name: contactName, firstName, title: "Account Manager", email: contactEmail },
   }
-  const count = Math.round(num(input.roster ?? 0, "The roster size", 0, 60))
-  const pros = importedRoster({ supplierId: id, domain: contactEmail.split("@")[1], cityIds, positionIds, count, firstCode: data.counters.pro, today })
+  const names = Array.isArray(input.rosterNames)
+    ? input.rosterNames
+        .slice(0, 200)
+        .map((n) => ({ firstName: optStr(n?.firstName, 40)?.trim() ?? "", lastName: optStr(n?.lastName, 40)?.trim() ?? "" }))
+        .filter((n) => n.firstName && n.lastName)
+    : undefined
+  const count = Math.round(num(input.roster ?? 0, "The roster size", 0, 200))
+  const pros = importedRoster({ supplierId: id, domain: contactEmail.split("@")[1], cityIds, positionIds, count, names: names?.length ? names : undefined, firstCode: data.counters.pro, today })
   const approvals = { ...data.approvals }
   const buyers = strList(input.buyerIds ?? [], "Buyers", 20).filter((b) => LOCATIONS.some((l) => l.buyerId === b && cityIds.includes(l.cityId)))
   for (const b of buyers) approvals[b] = [...(approvals[b] ?? []).filter((x) => x !== id), id]

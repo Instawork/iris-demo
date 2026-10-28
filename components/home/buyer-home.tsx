@@ -34,7 +34,7 @@ export function BuyerHome() {
   return (
     <>
       <Greeting
-        subtitle={`${ws.name} · ${locations.length} locations · ${(data.approvals[ws.buyerId!] ?? []).length} approved suppliers`}
+        subtitle={`${ws.name} · ${locations.length} locations · ${(data.approvals[ws.buyerId!] ?? []).length} approved agencies`}
         actions={
           <Button asChild variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold">
             <Link href="/rates">
@@ -93,7 +93,7 @@ function SpendSection() {
         id: w.from,
         label: i === s.weeks.length - 1 ? "This week" : `Week of ${formatDateShort(w.from)}`,
         amount: w.amount,
-        meta: `${Math.round(w.hours).toLocaleString()} hrs · ${w.headcount} Pros`,
+        meta: `${Math.round(w.hours).toLocaleString()} hrs · ${w.headcount} workers`,
         bar: w.hours,
       }))
     const list = tab === "supplier" ? s.bySupplier : tab === "position" ? s.byPosition : s.byLocation
@@ -101,7 +101,7 @@ function SpendSection() {
       id: slice.id,
       label: label(slice),
       amount: slice.amount,
-      meta: tab === "supplier" ? `${money(slice.avgBillRate)}/hr avg` : `${Math.round(slice.hours).toLocaleString()} hrs · ${slice.headcount} Pros`,
+      meta: tab === "supplier" ? `${money(slice.avgBillRate)}/hr avg` : `${Math.round(slice.hours).toLocaleString()} hrs · ${slice.headcount} workers`,
       bar: slice.amount,
     }))
   }, [s, tab])
@@ -131,7 +131,7 @@ function SpendSection() {
           <Figure label="Last 7 days" info="The last 7 days, compared with the 7 days before." value={s.week} delta={change(s.week, s.priorWeek)} vs="vs. the week before" />
           <div className="flex flex-col gap-2 px-5 py-4">
             <span className="flex items-center gap-1.5 text-body-3 text-faded">
-              Approved vs. pending <InfoTip>This month. Pending hours are submitted or waiting on a supplier, and haven&apos;t been approved yet.</InfoTip>
+              Approved vs. pending <InfoTip>This month. Pending hours are submitted or waiting on an agency, and haven&apos;t been approved yet.</InfoTip>
             </span>
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-body-1 font-semibold tabular">{moneyWhole(s.approved)}</span>
@@ -159,7 +159,7 @@ function SpendSection() {
             value={tab}
             onChange={setTab}
             items={[
-              { value: "supplier", label: "By supplier" },
+              { value: "supplier", label: "By agency" },
               { value: "position", label: "By position" },
               { value: "location", label: "By location" },
               { value: "hours", label: "Hours & headcount" },
@@ -245,7 +245,7 @@ function MySuppliers() {
     {
       id: "approve",
       header: "Approve",
-      info: "Checked suppliers are notified when you post a shift.",
+      info: "Checked agencies are notified when you post a shift.",
       className: "w-20",
       cell: (r) => (
         <span onClick={(e) => e.stopPropagation()} className="flex">
@@ -255,7 +255,7 @@ function MySuppliers() {
     },
     {
       id: "supplier",
-      header: "Supplier",
+      header: "Agency",
       sortValue: (r) => supplier(r.id).shortName,
       cell: (r) => (
         <span className="flex items-center gap-2.5">
@@ -273,7 +273,7 @@ function MySuppliers() {
     {
       id: "rate",
       header: "Bill rate",
-      info: "Average bill rate across the roles this supplier staffs in your cities.",
+      info: "Average bill rate across the roles this agency staffs in your cities.",
       align: "right",
       sortValue: (r) => r.billRate,
       cell: (r) => <span className="tabular">{r.billRate ? `${money(r.billRate)}/hr` : "--"}</span>,
@@ -302,8 +302,8 @@ function MySuppliers() {
   return (
     <section className="flex flex-col gap-3">
       <SectionTitle
-        title="My suppliers"
-        info="Ranked by spend. Metrics come only from shifts each supplier filled at your locations, last 28 days."
+        title="My agencies"
+        info="Ranked by spend. Metrics come only from shifts each agency filled at your locations, last 28 days."
         actions={
           <Button variant="ghost" size="sm" className="text-faded" onClick={download}>
             <Download /> Download

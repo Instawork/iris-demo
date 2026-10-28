@@ -43,7 +43,7 @@ function hoursState(g: ShiftGroup, sheets: Timesheet[], ws: Workspace): HoursSta
   if (phase === "upcoming") return { label: "", tone: "neutral" }
   if (phase === "in_progress") return { label: "In progress", tone: "positive" }
   const mine = (ws.kind === "supplier" ? sheets.filter((t) => t.supplierId === ws.supplierId) : sheets).filter((t) => t.status !== "removed")
-  if (!mine.length) return { label: ws.kind === "supplier" ? "None of your Pros" : "No hours yet", tone: "neutral" }
+  if (!mine.length) return { label: ws.kind === "supplier" ? "None of your workers" : "No hours yet", tone: "neutral" }
   const by = (s: Timesheet["status"]) => mine.filter((t) => t.status === s).length
   const done: HoursState = { label: by("approved") ? "Approved" : "Invoiced", tone: "positive" }
   if (ws.kind === "buyer") {
@@ -185,7 +185,7 @@ export function ShiftsPage() {
           )}
           {ws.kind !== "supplier" && (
             <MultiSelectFilter
-              label="Suppliers"
+              label="Agencies"
               options={SUPPLIERS.map((s) => ({ value: s.id, label: s.name, icon: <SupplierLogo supplierId={s.id} size="xs" /> }))}
               value={suppliers}
               onChange={setSuppliers}
@@ -313,8 +313,8 @@ function columnsFor(ws: Workspace, actions: { onHours: (g: ShiftGroup) => void; 
   }
   const suppliersCol: Column<Row> = {
     id: "suppliers",
-    header: "Suppliers",
-    info: "The approved suppliers this shift was sent to.",
+    header: "Agencies",
+    info: "The approved agencies this shift was sent to.",
     cell: ({ group: g }) => <SupplierStack ids={g.supplierIds} />,
   }
   const hours: Column<Row> = {
@@ -334,7 +334,7 @@ function columnsFor(ws: Workspace, actions: { onHours: (g: ShiftGroup) => void; 
               actions.onAssign(g)
             }}
           >
-            <UserPlus className="size-3.5" /> Assign Pros
+            <UserPlus className="size-3.5" /> Assign workers
           </Button>
         )
       }

@@ -15,23 +15,23 @@ const COPY: Record<PersonaKind, { lead: string; points: string[] }> = {
     lead: "Compare every agency's rates, pick the best offer and post shifts once, without a ticketing maze.",
     points: [
       "Compare each agency's rate for a role on Rate Cards and pick who sees it first",
-      "Post a shift once and every approved supplier is notified",
+      "Post a shift once and every approved agency is notified",
       "Approve hours on Timesheets and Iris generates the invoice",
     ],
   },
   supplier: {
-    lead: "Fill Compass shifts, keep your Pros compliant and get paid faster.",
+    lead: "Fill Compass shifts, keep your workers compliant and get paid faster.",
     points: [
-      "See shifts from buyers that approved you and assign compliant Pros",
-      "Upload rates, Pros, timesheets and tips as CSV, or connect by API",
+      "See shifts from buyers that approved you and assign compliant workers",
+      "Upload rates, workers, timesheets and tips as CSV, or connect by API",
       "Approved hours become your invoice automatically",
     ],
   },
   compass: {
-    lead: "See every buyer, supplier and dollar in the flexible labor program.",
+    lead: "See every buyer, agency and dollar in the flexible labor program.",
     points: [
-      "Buyer spend and supplier rankings on one Dashboard",
-      "Anomalous invoices flagged against what other suppliers would have charged",
+      "Buyer spend and agency rankings on one Dashboard",
+      "Anomalous invoices flagged against what other agencies would have charged",
       "Upload business activity by location to compare with labor spend later",
     ],
   },
@@ -62,7 +62,7 @@ export function WelcomeDialog() {
               </li>
             ))}
           </ul>
-          <p className="text-caption-1 text-subtle">Switch between buyer, Compass and supplier views from the top of the sidebar.</p>
+          <p className="text-caption-1 text-subtle">Switch between buyer, Compass and agency views from the top of the sidebar.</p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="ghost" className="h-9 rounded-lg px-3.5 text-body-3" onClick={() => mark(ws.kind)}>
               Explore on my own

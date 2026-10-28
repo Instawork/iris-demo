@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRight, Building2, Check, FileCheck2, Paperclip } from "lucide-react"
+import { ArrowLeft, ArrowRight, Building2, Check, FileCheck2, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -10,23 +10,48 @@ import { Chip, Field, Stat, Steps, Summary, inputClass } from "@/components/onbo
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData } from "@/hooks/use-app"
 import { addDaysISO, formatDateFull, todayISO } from "@/lib/dates"
 import { billFrom, money, roundTo } from "@/lib/format"
 import { BUYERS, CITIES, LOCATIONS, POSITIONS, PROGRAM, WORKSPACES, city, position } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import type { DemoData, Integration } from "@/lib/types"
+import type { DemoData } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /**
  * Adding an agency the way Compass contracts one: who to call, where and what it staffs, its insurance and agreement,
- * a rate card checked against what the other agencies charge, and its Pros. Approved buyers send it shifts right away.
+ * a rate card checked against what the other agencies charge, and its workers from the roster file it sends. Approved
+ * buyers send it shifts right away.
  */
 
-const STEPS = ["Agency", "Coverage", "Paperwork", "Rate card", "Pros and buyers", "Review"]
-const ROSTERS = [0, 12, 18, 24, 36]
+const STEPS = ["Agency", "Coverage", "Paperwork", "Rates", "Workers", "Review"]
 const DEFAULT_MARKUP = 32
+
+type Name = { firstName: string; lastName: string }
+
+const SAMPLE_NAMES = [
+  "Maya Okafor", "Luis Herrera", "Grace Lindqvist", "Andre Baptiste", "Nadia Petrova", "Tomas Novak", "Keisha Grant", "Owen Gallagher", "Rosa Delgado",
+  "Samir Haddad", "Lena Fischer", "Darnell Price", "Mei Tanaka", "Victor Morales", "Hannah Brooks", "Kofi Mensah", "Isabel Cruz", "Ethan Walsh",
+]
+
+/** Reads names from a roster export: a first and last name column, one name column, or the first two columns. */
+function readRoster(text: string): Name[] {
+  const rows = text.split(/\r?\n/).map((l) => l.split(",").map((c) => c.trim().replace(/^"|"$/g, ""))).filter((r) => r.some(Boolean))
+  if (!rows.length) return []
+  const head = rows[0].map((c) => c.toLowerCase().replace(/[^a-z]/g, ""))
+  const hasHead = head.some((c) => c.includes("name"))
+  const first = head.findIndex((c) => c.startsWith("first"))
+  const last = head.findIndex((c) => c.startsWith("last"))
+  const full = head.findIndex((c) => c === "name" || c === "fullname")
+  return (hasHead ? rows.slice(1) : rows)
+    .map((r): Name => {
+      if (first >= 0 && last >= 0) return { firstName: r[first] ?? "", lastName: r[last] ?? "" }
+      const whole = full >= 0 ? r[full] : r.length > 1 ? `${r[0]} ${r[1]}` : r[0]
+      const [firstName, ...rest] = (whole ?? "").split(/\s+/)
+      return { firstName: firstName ?? "", lastName: rest.join(" ") }
+    })
+    .filter((n) => n.firstName && n.lastName)
+}
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -46,14 +71,15 @@ interface Form {
   shortName: string
   contactName: string
   contactEmail: string
-  integration: Integration
+  csv: boolean
+  api: boolean
   cityIds: string[]
   positionIds: string[]
   coiExpiresOn: string
   coiFile: string
   msaSigned: boolean
   rates: Record<string, { pay: string; markup: string }>
-  roster: number
+  roster?: { file: string; names: Name[] }
   buyerIds: string[]
 }
 
@@ -70,14 +96,14 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     shortName: "",
     contactName: "",
     contactEmail: "",
-    integration: "csv",
+    csv: true,
+    api: false,
     cityIds: ["chi"],
     positionIds: ["bartender", "barback", "concessions"],
     coiExpiresOn: addDaysISO(todayISO(), 240),
     coiFile: "",
     msaSigned: false,
     rates: {},
-    roster: 18,
     buyerIds: [],
   }))
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }))
@@ -104,7 +130,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const buyers = BUYERS.filter((b) => LOCATIONS.some((l) => l.buyerId === b.id && form.cityIds.includes(l.cityId)))
 
   const ready = [
-    !!form.name.trim() && !!form.contactName.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactEmail.trim()),
+    !!form.name.trim() && !!form.contactName.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactEmail.trim()) && (form.csv || form.api),
     form.cityIds.length > 0 && form.positionIds.length > 0,
     form.msaSigned && form.coiExpiresOn > todayISO(),
     rows.length > 0 && badRates.length === 0,
@@ -132,7 +158,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       shortName: form.shortName.trim() || undefined,
       contactName: form.contactName.trim(),
       contactEmail: form.contactEmail.trim(),
-      integration: form.integration,
+      integration: form.csv && form.api ? "both" : form.api ? "api" : "csv",
       cityIds: form.cityIds,
       positionIds: form.positionIds,
       coiExpiresOn: form.coiExpiresOn,
@@ -140,7 +166,8 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       msaSigned: form.msaSigned,
       rates: rows.map((r) => ({ cityId: r.cityId, positionId: r.positionId, proRate: r.pay, markupPct: r.markup })),
       buyerIds: form.buyerIds.filter((b) => buyers.some((x) => x.id === b)),
-      roster: form.roster,
+      roster: form.roster?.names.length ?? 0,
+      rosterNames: form.roster?.names,
     })
     setBusy(false)
     if (!id) return
@@ -167,8 +194,8 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           <DialogTitle>{created ? `${form.name.trim()} is on Iris` : "Add an agency"}</DialogTitle>
           <DialogDescription>
             {created
-              ? `${short} can sign in, and buyers that approved it send it the shifts their other agencies leave open.`
-              : "Everything Compass needs before an agency gets its first shift. Nothing is saved until the last step."}
+              ? `${short} can sign in and take shifts from the buyers that approved it.`
+              : "Everything Compass needs before an agency gets its first shift."}
           </DialogDescription>
         </DialogHeader>
 
@@ -176,7 +203,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           <div className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <Stat label="Rate card" value={`${rows.length} rates`} sub={`${joinNames(form.cityIds.map((c) => city(c).name))}, live today`} />
-              <Stat label="Pros" value={String(pros.length)} sub={held ? `${held} held until their background check clears` : "All cleared to work"} />
+              <Stat label="Workers" value={String(pros.length)} sub={held ? `${held} held until their background check clears` : "All cleared to work"} />
               <Stat label="Approved for" value={String(form.buyerIds.length)} sub={form.buyerIds.length ? joinNames(form.buyerIds.map((b) => BUYERS.find((x) => x.id === b)!.name)) : "No buyers yet"} />
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -206,12 +233,12 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 <Field label="Contact email">
                   <input value={form.contactEmail} onChange={(e) => set({ contactEmail: e.target.value })} placeholder="alex@northwindstaff.com" type="email" className={inputClass} />
                 </Field>
-                <Field label="Sends hours and Pros by" className="sm:col-span-2">
+                <Field label="Sends workers and hours by" hint="Pick one or both." className="sm:col-span-2">
                   <div className="flex gap-2">
-                    <Chip on={form.integration === "csv"} onClick={() => set({ integration: "csv" })}>
+                    <Chip on={form.csv} onClick={() => set({ csv: !form.csv })}>
                       CSV uploads
                     </Chip>
-                    <Chip on={form.integration === "api"} onClick={() => set({ integration: "api" })}>
+                    <Chip on={form.api} onClick={() => set({ api: !form.api })}>
                       API connection
                     </Chip>
                   </div>
@@ -272,22 +299,20 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                   <Checkbox checked={form.msaSigned} onCheckedChange={(v) => set({ msaSigned: v === true })} className="mt-0.5" />
                   <span className="flex flex-col gap-0.5">
                     <span className="text-body-3 font-semibold">Master services agreement signed</span>
-                    <span className="text-caption-1 text-faded">The Compass agreement every agency on the program signs.</span>
+
                   </span>
                 </label>
                 <div className="grid gap-3 rounded-xl border border-border bg-page-faded p-4 sm:grid-cols-3">
                   <Term label="Payment terms" value={`Net ${PROGRAM.paymentTermsDays}, by ACH through Iris`} />
-                  <Term label="Markup cap" value={`${PROGRAM.maxMarkupPct}% over the Pro's pay`} />
-                  <Term label="Compliance" value="Background check, I-9 and Compass orientation for every Pro" />
+                  <Term label="Markup cap" value={`${PROGRAM.maxMarkupPct}% over the worker's pay`} />
+                  <Term label="Compliance" value="Background check, I-9 and Compass orientation for every worker" />
                 </div>
               </div>
             )}
 
             {step === 3 && (
               <div className="flex flex-col gap-3">
-                <p className="text-body-3 text-faded">
-                  Iris starts each rate at what the agencies already here pay, with a {DEFAULT_MARKUP}% markup. The bill rate is what Compass pays per hour.
-                </p>
+                <p className="text-body-3 text-faded">Rates start at what agencies here already pay.</p>
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full min-w-[620px] text-left text-body-3">
                     <thead>
@@ -362,20 +387,11 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
             {step === 4 && (
               <div className="flex flex-col gap-4">
-                <Field label="Pros to bring over" hint="Iris checks every Pro's documents as they arrive. Anyone missing one stays off shifts until it's current." className="max-w-xs">
-                  <Select value={String(form.roster)} onValueChange={(v) => set({ roster: Number(v) })}>
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROSTERS.map((n) => (
-                        <SelectItem key={n} value={String(n)}>
-                          {n ? `${n} Pros from ${short}'s roster` : "None yet"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                <RosterImport
+                  roster={form.roster}
+                  sampleFile={`${(form.shortName.trim() || form.name.trim().split(/\s+/)[0] || "agency").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-roster.csv`}
+                  onChange={(roster) => set({ roster })}
+                />
                 <div className="flex flex-col gap-2">
                   <span className="text-caption-1 font-medium text-faded">Buyers that can send it shifts</span>
                   {buyers.length ? (
@@ -387,7 +403,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                           <span className="flex flex-col">
                             <span className="text-body-3 font-semibold">{b.name}</span>
                             <span className="text-caption-1 text-faded">
-                              {units} {units === 1 ? "unit" : "units"} in its markets · competes on rate for their shifts
+                              {units} {units === 1 ? "unit" : "units"} in its markets
                             </span>
                           </span>
                         </label>
@@ -418,7 +434,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 <Summary label="Rate card">
                   {rows.length} rates, {rows.filter((r) => r.over !== undefined && r.over > 0.1).length} more than 10% above the market
                 </Summary>
-                <Summary label="Pros">{form.roster || "None yet"}</Summary>
+                <Summary label="Workers">{form.roster ? `${form.roster.names.length} from ${form.roster.file}` : "None yet"}</Summary>
                 <Summary label="Approved for">{form.buyerIds.length ? joinNames(form.buyerIds.map((b) => BUYERS.find((x) => x.id === b)!.name)) : "No buyers yet"}</Summary>
               </dl>
             )}
@@ -455,6 +471,52 @@ function Term({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-0.5">
       <span className="text-caption-1 text-faded">{label}</span>
       <span className="text-body-3 font-medium">{value}</span>
+    </div>
+  )
+}
+
+function RosterImport({ roster, sampleFile, onChange }: { roster?: { file: string; names: Name[] }; sampleFile: string; onChange: (roster?: { file: string; names: Name[] }) => void }) {
+  const [error, setError] = useState<string>()
+  const read = async (file?: File) => {
+    if (!file) return
+    const names = readRoster(await file.text())
+    setError(names.length ? undefined : `No names found in ${file.name}. It needs a first and last name column.`)
+    onChange(names.length ? { file: file.name, names } : undefined)
+  }
+  return (
+    <div className="flex flex-col gap-2" data-tour="agency-roster">
+      <span className="text-caption-1 font-medium text-faded">Their workers</span>
+      {roster ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+          <span className="flex items-center gap-2 text-body-3">
+            <FileSpreadsheet className="size-4 text-positive-fg" />
+            <span className="font-semibold">{roster.file}</span>
+            <span className="text-faded">· {roster.names.length} workers</span>
+            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onChange(undefined)}>
+              Remove
+            </Button>
+          </span>
+          <span className="text-caption-1 text-faded">
+            {joinNames(roster.names.slice(0, 4).map((n) => `${n.firstName} ${n.lastName}`))}
+            {roster.names.length > 4 ? ` and ${roster.names.length - 4} more` : ""}. Iris checks each one&apos;s documents as they arrive.
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-input px-3 text-body-3 font-medium hover:bg-hover">
+            <Upload className="size-4" /> Upload roster CSV
+            <input type="file" accept=".csv,text/csv" className="sr-only" onChange={(e) => read(e.target.files?.[0])} />
+          </label>
+          <Button
+            variant="ghost"
+            className="h-9"
+            onClick={() => onChange({ file: sampleFile, names: SAMPLE_NAMES.map((n) => ({ firstName: n.split(" ")[0], lastName: n.split(" ").slice(1).join(" ") })) })}
+          >
+            Use a sample roster
+          </Button>
+          {error && <span className="text-caption-1 text-critical-fg">{error}</span>}
+        </div>
+      )}
     </div>
   )
 }

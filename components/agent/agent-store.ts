@@ -27,7 +27,8 @@ export interface ShiftDraft {
   /** In release order. `why` says why the first one is first. */
   release: { supplierId: string; name: string; rate: number; at: string; why?: string }[]
   total: string
-  budget?: { text: string; over: boolean }
+  /** The department, or the unit when it has none, and the cost center the hours are charged to. */
+  chargedTo?: { name: string; costCenter: string }
   note?: string
 }
 

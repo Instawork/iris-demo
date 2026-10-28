@@ -62,13 +62,13 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
     >
       <DialogContent className="gap-0 p-0 sm:max-w-lg" data-tour="assign-dialog">
         <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
-          <DialogTitle className="text-featured-3 font-bold">Assign Pros</DialogTitle>
+          <DialogTitle className="text-featured-3 font-bold">Assign workers</DialogTitle>
           <DialogDescription className="text-body-3">
             {position(group.positionId).name} · {loc.name} · {formatDateLong(group.date)} · {formatInterval(group.start, group.end, city(loc.cityId).tz)}
           </DialogDescription>
           <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-input px-3">
             <Search className="size-4 text-subtle" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your Pros" className="w-full bg-transparent text-body-3 outline-none placeholder:text-subtle" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your workers" className="w-full bg-transparent text-body-3 outline-none placeholder:text-subtle" />
           </div>
         </DialogHeader>
         <div className="max-h-[52svh] overflow-y-auto px-2 py-2 scrollbar-thin">
@@ -121,7 +121,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
               row
             )
           })}
-          {rows.length === 0 && <p className="px-3 py-8 text-center text-body-3 text-faded">No Pros with this position in {city(loc.cityId).name}.</p>}
+          {rows.length === 0 && <p className="px-3 py-8 text-center text-body-3 text-faded">No workers with this position in {city(loc.cityId).name}.</p>}
         </div>
         <DialogFooter className="mx-0 mb-0 items-center px-5 py-3 sm:justify-between">
           <span className="text-caption-1 text-faded">
@@ -134,12 +134,12 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
             onClick={async () => {
               const n = await assignPros(group.id, picked)
               if (!n) return
-              toast.success(`${n} Pro${n === 1 ? "" : "s"} assigned`, { description: `${position(group.positionId).name} at ${loc.name}` })
+              toast.success(`${n} worker${n === 1 ? "" : "s"} assigned`, { description: `${position(group.positionId).name} at ${loc.name}` })
               setPicked([])
               onOpenChange(false)
             }}
           >
-            Assign {picked.length || ""} Pro{picked.length === 1 ? "" : "s"}
+            Assign {picked.length || ""} Worker{picked.length === 1 ? "" : "s"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -8,7 +8,7 @@ import { toast } from "sonner"
 
 import { SupplierLogo, WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
-import { InfoTip } from "@/components/common/info-tip"
+import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { ProAvatar } from "@/components/common/pro-avatar"
@@ -23,18 +23,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, specsFor, templateCsv } from "@/lib/csv"
+import { plural } from "@/lib/format"
 import { PROGRAM, POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier, teamFor } from "@/lib/reference"
 import type { Location, Position, Workspace } from "@/lib/types"
 
 const ROLE_HINT: Record<string, string> = {
   Admin: "Everything, including team and billing settings",
-  "Program admin": "Rates, suppliers, policies and every buyer",
+  "Program admin": "Rates, agencies, policies and every buyer",
   "Approves orders": "Approves orders that run over a unit's budget",
   "Can book": "Book and edit shifts at assigned locations",
   "Can approve hours": "Approve, edit and dispute timesheets",
   Finance: "Invoices, invoice groups and payments",
-  Compliance: "Pro compliance and supplier insurance",
-  Operations: "Fill shifts, manage Pros and submit hours",
+  Compliance: "Worker compliance and agency insurance",
+  Operations: "Fill shifts, manage workers and submit hours",
 }
 
 export function SettingsPage({ section }: { section: string }) {
@@ -81,7 +82,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <Surface elevated className="lg:col-span-2">
-        <SurfaceHeader title="Organization" info="Shown to suppliers and on invoices." />
+        <SurfaceHeader title="Organization" info="Shown to agencies and on invoices." />
         <div className="flex items-center gap-4 px-5 pt-4">
           <WorkspaceAvatar ws={ws} size="xl" />
           <div className="flex flex-col">
@@ -94,7 +95,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
             <>
               <Field label="Locations">{locationsFor(ws.buyerId).length} work locations</Field>
               <Field label="Program">Compass Group USA flexible labor program</Field>
-              <Field label="Payment terms" hint="Set by Compass for every supplier.">Net {PROGRAM.paymentTermsDays}, paid by ACH through Iris</Field>
+              <Field label="Payment terms" hint="Set by Compass for every agency.">Net {PROGRAM.paymentTermsDays}, paid by ACH through Iris</Field>
             </>
           )}
           {ws.kind === "supplier" && sup && (
@@ -111,8 +112,8 @@ function CompanySection({ ws }: { ws: Workspace }) {
           )}
           {ws.kind === "compass" && (
             <>
-              <Field label="Payment terms">Net {PROGRAM.paymentTermsDays} for every supplier</Field>
-              <Field label="Required for every Pro">Background check, I-9 and Compass orientation, plus food handler and alcohol certificates by position</Field>
+              <Field label="Payment terms">Net {PROGRAM.paymentTermsDays} for every agency</Field>
+              <Field label="Required for every worker">Background check, I-9 and Compass orientation, plus food handler and alcohol certificates by position</Field>
             </>
           )}
           <Field label="Main contact">
@@ -126,7 +127,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
           {[
             { key: "attention", label: "Shifts that need attention", sub: "Under 80% filled within 3 days" },
             { key: "digest", label: "Daily digest", sub: "Approvals, invoices and fills at 7am" },
-            { key: "invoices", label: "Anomalous invoices", sub: "When an invoice runs well above what other suppliers would charge" },
+            { key: "invoices", label: "Anomalous invoices", sub: "When an invoice runs well above what other agencies would charge" },
             { key: "fills", label: "Fully staffed", sub: "When a shift is fully filled" },
           ].map((p) => (
             <label key={p.key} className="flex items-center justify-between gap-3 rounded-lg px-1 py-2.5">
@@ -176,11 +177,23 @@ function LocationsSection({ ws }: { ws: Workspace }) {
         </span>
       ),
     },
-    { id: "cc", header: "Cost center", info: "Charged on every invoice line for this location.", cell: (l) => <code className="font-mono text-caption-1">{l.costCenter}</code> },
+    { id: "cc", header: "Cost center", cell: (l) => <code className="font-mono text-caption-1">{l.costCenter}</code> },
+    {
+      id: "departments",
+      header: "Departments",
+      cell: (l) =>
+        l.departments?.length ? (
+          <Tip content={l.departments.map((d) => `${d.name} · ${d.costCenter}`).join(", ")}>
+            <span>{plural(l.departments.length, "department")}</span>
+          </Tip>
+        ) : (
+          <span className="text-faded">None</span>
+        ),
+    },
     {
       id: "suppliers",
-      header: "Suppliers available",
-      info: "Suppliers with at least one active rate in this city.",
+      header: "Agencies available",
+      info: "Agencies with at least one active rate in this city.",
       cell: (l) => (
         <span className="flex -space-x-1">
           {SUPPLIERS.filter((s) => data.rateCards.some((c) => c.supplierId === s.id && c.cityId === l.cityId && c.status === "active")).map((s) => (
@@ -226,7 +239,7 @@ function PositionsSection() {
       id: "requirements",
       header: "Required to work",
       className: "whitespace-normal",
-      info: "Iris checks these on every placement, from any supplier.",
+      info: "Iris checks these on every placement, from any agency.",
       cell: (p) => (
         <span className="flex flex-wrap gap-1">
           {requirementsFor([p.id]).map((r) => (
@@ -322,7 +335,7 @@ function TeamSection({ ws }: { ws: Workspace }) {
 function IntegrationsSection({ ws }: { ws: Workspace }) {
   const data = useData()
   const [copied, setCopied] = useState(false)
-  const flows = ["Shift requests", "Pro assignments", "Clock-ins", "Timesheets", "Invoices"]
+  const flows = ["Shift requests", "Worker assignments", "Clock-ins", "Timesheets", "Invoices"]
   if (ws.kind === "supplier") {
     const sup = supplier(ws.supplierId!)
     return (
@@ -380,7 +393,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
             <div className="mt-5 flex flex-col gap-3">
               <p className="flex items-center gap-1.5 text-caption-1 text-faded">
                 CSV templates
-                <InfoTip>Upload these with Upload CSV at the top of any page, or drop them on our SFTP folder. Templates come prefilled with your shifts and Pros.</InfoTip>
+                <InfoTip>Upload these with Upload CSV at the top of any page, or drop them on our SFTP folder. Templates come prefilled with your shifts and workers.</InfoTip>
               </p>
               <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
                 {specsFor("supplier").map((s) => (
@@ -412,7 +425,7 @@ function IntegrationsSection({ ws }: { ws: Workspace }) {
   return (
     <>
       <Surface elevated className="overflow-hidden">
-        <SurfaceHeader title="One connection to every supplier" info="Every agency connects to Iris once, by API or CSV. You never integrate with them one by one." />
+        <SurfaceHeader title="One connection to every agency" info="Every agency connects to Iris once, by API or CSV. You never integrate with them one by one." />
         <div className="px-4 pb-4">
           <HubDiagram />
         </div>

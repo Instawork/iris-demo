@@ -42,7 +42,7 @@ import {
   invoiceTips,
   invoiceTotal,
 } from "@/lib/metrics"
-import { PROGRAM, buyer, location, position, supplier } from "@/lib/reference"
+import { PROGRAM, buyer, costCenterOf, location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +69,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const isHigh = (lineId: string) => deltaOf(lineId) >= ANOMALY_THRESHOLD
   const group = inv.groupId ? data.invoiceGroups.find((g) => g.id === inv.groupId) : undefined
   const shifts = new Map(data.groups.map((g) => [g.id, g]))
-  const costCenters = [...new Set(inv.lines.map((l) => location(l.locationId).costCenter))]
+  const costCenters = [...new Set(inv.lines.map((l) => costCenterOf(l.locationId, l.departmentId, l.positionId)))]
   const byDate = [...inv.lines].sort((a, b) => a.date.localeCompare(b.date) || a.proName.localeCompare(b.proName))
   const found = new Set(billingFindings(data, inv.id).map((f) => f.lineId))
   const credits = inv.credits ?? []
@@ -178,7 +178,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                 <thead>
                   <tr className="text-caption-1 text-faded">
                     <th className="px-3 py-2 font-medium">Shift</th>
-                    <th className="px-3 py-2 font-medium">Pro</th>
+                    <th className="px-3 py-2 font-medium">Worker</th>
                     <th className="px-3 py-2 font-medium">Date</th>
                     <th className="px-3 py-2 text-right font-medium">Hours</th>
                     <th className="px-3 py-2 text-right font-medium">Bill rate</th>
@@ -234,7 +234,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                         </td>
                         <td className="px-3 py-2.5 text-right tabular">
                           {high ? (
-                            <Tip content={`${formatDelta(delta)} vs. other suppliers' rating-weighted rate for this role, ${rate(l.billRate / (1 + delta))}`}>
+                            <Tip content={`${formatDelta(delta)} vs. other agencies' rating-weighted rate for this role, ${rate(l.billRate / (1 + delta))}`}>
                               <span className="font-semibold text-critical-fg">{money(l.billRate)}</span>
                             </Tip>
                           ) : (
@@ -296,10 +296,10 @@ export function InvoiceDetail({ id }: { id: string }) {
         <Surface elevated className="flex flex-col self-start">
           <SurfaceHeader title="Summary" />
           <dl className="flex flex-col gap-2 px-5 pt-4 pb-5 text-body-3">
-            <Row label="Labor" hint="Approved hours at the supplier's bill rate for each shift's city and role.">
+            <Row label="Labor" hint="Approved hours at the agency's bill rate for each shift's city and role.">
               {money(invoiceSubtotal(inv))}
             </Row>
-            <Row label="Tips" hint="Passed through to Pros with no markup.">
+            <Row label="Tips" hint="Passed through to workers with no markup.">
               {money(invoiceTips(inv))}
             </Row>
             {credits.length > 0 && (

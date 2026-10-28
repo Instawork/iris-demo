@@ -61,7 +61,7 @@ function recurringShifts(data: DemoData, buyerId: string): Prediction[] {
       date: next,
       spots: headcount,
       title: `${pos.name} · ${loc.name}`,
-      detail: `${cadence} · ${plural(headcount, "Pro")} · ${formatClockShort(last.start)}–${formatClockShort(last.end)} · ${formatDay(next)} · est. ${moneyWhole(estimate)}`,
+      detail: `${cadence} · ${plural(headcount, "worker")} · ${formatClockShort(last.start)}–${formatClockShort(last.end)} · ${formatDay(next)} · est. ${moneyWhole(estimate)}`,
       evidence: `You posted this shift ${plural(past.length, "time")} in the last 6 weeks. ${formatDay(next, "EEEE, MMMM d")} isn’t posted yet.`,
       bars: [...recent.map((g) => ({ value: g.slots.length, predicted: false })), { value: headcount, predicted: true }],
       cta: "Draft shift",
@@ -96,9 +96,9 @@ function fillRisks(data: DemoData, supplierId: string): Prediction[] {
       id: `fill:${g.id}`,
       kind: "fill-risk" as const,
       title: `${pos.name} · ${loc.name} likely to start ${short} short`,
-      detail: `${g.code} · ${formatDay(g.date)} · ${formatClockShort(g.start)} · ${plural(open, "open spot")} · ${plural(available, "cleared Pro")} free that day`,
-      evidence: `Counts your Pros in ${city(loc.cityId).name} who are cleared for ${pos.name} and not already on a shift ${formatDay(g.date, "EEEE")}.`,
-      cta: "Assign Pros",
+      detail: `${g.code} · ${formatDay(g.date)} · ${formatClockShort(g.start)} · ${plural(open, "open spot")} · ${plural(available, "cleared worker")} free that day`,
+      evidence: `Counts your workers in ${city(loc.cityId).name} who are cleared for ${pos.name} and not already on a shift ${formatDay(g.date, "EEEE")}.`,
+      cta: "Assign workers",
       href: `/shifts/${g.id}`,
     }))
 }
@@ -109,10 +109,10 @@ function expiringPros(data: DemoData, supplierId?: string): Prediction | undefin
   return {
     id: "expiring",
     kind: "expiring",
-    title: `${plural(pros.length, "Pro")} will drop off shifts within 30 days`,
+    title: `${plural(pros.length, "worker")} will drop off shifts within 30 days`,
     detail: "A required document expires soon. Renewing now keeps them eligible.",
-    evidence: "Iris stops placing a Pro the day a required document expires.",
-    cta: "Review Pros",
+    evidence: "Iris stops placing a worker the day a required document expires.",
+    cta: "Review workers",
     href: "/professionals?filter=compliant",
   }
 }

@@ -1,4 +1,4 @@
-import type { Buyer, City, Directory, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
+import type { Buyer, City, Department, Directory, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
 
 /** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
@@ -7,6 +7,8 @@ export const PROGRAM = {
   paymentTermsDays: 15,
   dueSoonDays: 7,
   cascadeHoursBefore: 4,
+  /** Over-budget orders wait for a district approver. Off until a buyer asks for it. */
+  budgetApprovals: false,
 }
 
 /** Each sector runs ordering its own way. Levy orders by event and holds release until 72 hours before doors. */
@@ -72,6 +74,35 @@ export const BUYERS: Buyer[] = [
   { id: "levy-chi", brand: "Levy", region: "Chicago", name: "Levy · Chicago", sector: "Sports & Entertainment" },
   { id: "chartwells-south", brand: "Chartwells", region: "South", name: "Chartwells · South", sector: "Higher Education" },
 ]
+
+const DEPARTMENTS_BY_KIND: Record<string, { name: string; positionIds: string[] }[]> = {
+  venue: [
+    { name: "Concessions", positionIds: ["concessions", "cashier", "porter"] },
+    { name: "Bars", positionIds: ["bartender", "barback"] },
+    { name: "Suites", positionIds: ["suite"] },
+  ],
+  "Convention center": [
+    { name: "Banquets", positionIds: ["server", "bartender", "barback", "porter"] },
+    { name: "Kitchen", positionIds: ["linecook", "prepcook", "dishwasher"] },
+  ],
+  dining: [
+    { name: "Residential dining", positionIds: ["linecook", "prepcook", "dishwasher", "server"] },
+    { name: "Retail", positionIds: ["cashier", "concessions", "porter"] },
+  ],
+}
+
+/** The departments a unit of this kind usually has, each charged to its own cost center under the unit's. */
+export function departmentsFor(kind: string, costCenter: string): Department[] {
+  const key = ["Stadium", "Arena", "Ballpark"].includes(kind) ? "venue" : kind === "Convention center" ? kind : "dining"
+  return DEPARTMENTS_BY_KIND[key].map((d, i) => ({
+    id: d.name.toLowerCase().replace(/[^a-z]+/g, "-"),
+    name: d.name,
+    costCenter: costCenter ? `${costCenter}-${(i + 1) * 10}` : "",
+    positionIds: d.positionIds,
+  }))
+}
+
+const withDepartments = (l: Location): Location => ({ ...l, departments: departmentsFor(l.kind, l.costCenter) })
 
 const SHIPPED_LOCATIONS: Location[] = [
   {
@@ -144,7 +175,7 @@ const SHIPPED_LOCATIONS: Location[] = [
     zip: "75205",
     costCenter: "CHW-2310",
   },
-]
+].map(withDepartments)
 
 export const POSITIONS: Position[] = [
   {
@@ -291,7 +322,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     initials: "IW",
     color: "var(--supplier-instawork)",
     integration: "api",
-    integrationDetail: "API connection: shifts, Pros, clock-ins and timesheets sync hourly.",
+    integrationDetail: "API connection: shifts, workers, clock-ins and timesheets sync hourly.",
     syncedUploads: ["professionals", "timesheets"],
     isInstawork: true,
     tagline: "On-demand hospitality staffing",
@@ -396,7 +427,7 @@ const SHIPPED_WORKSPACES: Workspace[] = [
     kind: "supplier",
     supplierId: "crewline",
     name: "Crewline Staffing",
-    sublabel: "Supplier · API connected",
+    sublabel: "Agency · API connected",
     user: { name: "Devon Brooks", firstName: "Devon", title: "Account Manager", email: "devon@crewline.example" },
   },
   {
@@ -404,7 +435,7 @@ const SHIPPED_WORKSPACES: Workspace[] = [
     kind: "supplier",
     supplierId: "harbor",
     name: "Harbor Hospitality",
-    sublabel: "Supplier · CSV uploads",
+    sublabel: "Agency · CSV uploads",
     user: { name: "Renee Park", firstName: "Renee", title: "Client Services Lead", email: "renee@harborhospitality.example" },
   },
   {
@@ -412,7 +443,7 @@ const SHIPPED_WORKSPACES: Workspace[] = [
     kind: "supplier",
     supplierId: "instawork",
     name: "Instawork",
-    sublabel: "Supplier · API connected",
+    sublabel: "Agency · API connected",
     user: { name: "Marcus Lee", firstName: "Marcus", title: "Enterprise Operations", email: "marcus.lee@instawork.com" },
   },
   {
@@ -420,7 +451,7 @@ const SHIPPED_WORKSPACES: Workspace[] = [
     kind: "supplier",
     supplierId: "metro",
     name: "Metro Event Staff",
-    sublabel: "Supplier · CSV uploads",
+    sublabel: "Agency · CSV uploads",
     user: { name: "Luis Ortega", firstName: "Luis", title: "Operations Lead", email: "luis@metroeventstaff.example" },
   },
 ]
@@ -553,11 +584,21 @@ export const findPosition = (id: string) => positionMap.get(id)
 export const findSupplier = (id: string) => supplierMap.get(id)
 export const findWorkspace = (id: string) => workspaceMap.get(id)
 
+/** The department work is charged to: the one named, else the one the role belongs to, else none. */
+export function departmentOf(locationId: string, departmentId?: string, positionId?: string): Department | undefined {
+  const list = findLocation(locationId)?.departments ?? []
+  return list.find((d) => d.id === departmentId) ?? (positionId ? list.find((d) => d.positionIds?.includes(positionId)) : undefined)
+}
+
+/** The cost center an invoice line is charged to: its department's, or the unit's when it has none. */
+export const costCenterOf = (locationId: string, departmentId?: string, positionId?: string) =>
+  departmentOf(locationId, departmentId, positionId)?.costCenter || location(locationId).costCenter
+
 export const policyFor = (buyerId: string) => SECTOR_POLICIES.find((p) => p.buyerId === buyerId) ?? SECTOR_POLICIES[0]
 
-/** Who approves over-budget orders at a location. */
+/** Who approves over-budget orders at a location. Nobody while the program runs without budget approvals. */
 export const approversFor = (locationId: string) =>
-  WORKSPACES.filter((w) => w.approves?.includes(locationId) || findLocation(locationId)?.approverIds?.includes(w.id))
+  PROGRAM.budgetApprovals ? WORKSPACES.filter((w) => w.approves?.includes(locationId) || findLocation(locationId)?.approverIds?.includes(w.id)) : []
 
 export const locationsFor = (buyerId?: string) =>
   buyerId ? LOCATIONS.filter((l) => l.buyerId === buyerId) : LOCATIONS

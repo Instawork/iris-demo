@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { ChevronRight, CircleHelp, Menu, Moon, PanelLeft, Play, Plus, Search, Sun, Upload } from "lucide-react"
 import { Fragment, useMemo } from "react"
 
+import { SIDES, SideBadge } from "@/components/common/side-badge"
 import { SECTION_LABELS, SETTINGS_LABELS } from "@/components/shell/nav-config"
 import { Button } from "@/components/ui/button"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
@@ -72,6 +73,16 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
         </TooltipContent>
       </Tooltip>
       <span className="mx-1 hidden h-4 w-px bg-border md:block" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span data-tour="side" className="mr-1 cursor-default">
+            <SideBadge kind={ws.kind} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-[260px]">
+          You&apos;re seeing what {SIDES[ws.kind].noun} sees. {SIDES[ws.kind].does}
+        </TooltipContent>
+      </Tooltip>
       <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
         {crumbs.map((c, i) => (
           <Fragment key={`${c.label}-${i}`}>

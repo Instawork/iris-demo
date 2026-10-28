@@ -73,8 +73,8 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
   return (
     <Surface elevated data-tour="peer">
       <SurfaceHeader
-        title="Compared with other suppliers"
-        info={`What the same hours would have cost from the other suppliers with rates for each shift's city and role, weighted by their rating. Invoices ${Math.round(ANOMALY_THRESHOLD * 100)}% or more above it are flagged.`}
+        title="Compared with other agencies"
+        info={`What the same hours would have cost from the other agencies with rates for each shift's city and role, weighted by their rating. Invoices ${Math.round(ANOMALY_THRESHOLD * 100)}% or more above it are flagged.`}
         actions={
           review ? (
             <StatusBadge tone={review.status === "reviewed" ? "positive" : "primary"}>
@@ -96,12 +96,12 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
         }
       />
       <div className="grid gap-3 px-5 pt-4 sm:grid-cols-3">
-        <Figure label="This invoice" info="Labor only. Tips pass straight through to Pros, so they aren't compared." sub={`${sup.shortName} · score ${b.score}`}>
+        <Figure label="This invoice" info="Labor only. Tips pass straight through to workers, so they aren't compared." sub={`${sup.shortName} · score ${b.score}`}>
           {money(b.labor)}
         </Figure>
         <Figure
           label="Benchmark"
-          info={`Each line priced at the other suppliers' bill rates for the same city and role, weighted by their scores, then scaled to ${sup.shortName}'s score of ${b.score}.`}
+          info={`Each line priced at the other agencies' bill rates for the same city and role, weighted by their scores, then scaled to ${sup.shortName}'s score of ${b.score}.`}
           sub="Rating-weighted"
         >
           {money(b.fair)}
@@ -114,7 +114,7 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
         <table className="w-full text-left text-body-3">
           <thead>
             <tr className="text-caption-1 text-faded">
-              <th className="px-3 py-2 font-medium">Supplier</th>
+              <th className="px-3 py-2 font-medium">Agency</th>
               <th className="px-3 py-2 text-right font-medium">
                 <span className="inline-flex items-center gap-1">
                   Score <InfoTip>Out of 100: fill rate, reliability, compliance and speed to fill.</InfoTip>
@@ -123,7 +123,7 @@ export function PeerComparison({ invoice }: { invoice: Invoice }) {
               <th className="px-3 py-2 text-right font-medium">Would have charged</th>
               <th className="px-3 py-2 text-right font-medium">
                 <span className="inline-flex items-center gap-1">
-                  vs. this invoice <InfoTip>Compared with this invoice&apos;s labor on the hours that supplier has rates for.</InfoTip>
+                  vs. this invoice <InfoTip>Compared with this invoice&apos;s labor on the hours that agency has rates for.</InfoTip>
                 </span>
               </th>
             </tr>

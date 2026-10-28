@@ -104,6 +104,7 @@ function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data
         buyerId: g.buyerId,
         locationId: g.locationId,
         positionId: g.positionId,
+        ...(g.departmentId ? { departmentId: g.departmentId } : {}),
         date: g.date,
         scheduledStart: g.start,
         scheduledEnd: g.end,

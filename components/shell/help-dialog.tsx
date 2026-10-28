@@ -14,21 +14,21 @@ import type { PersonaKind } from "@/lib/types"
 
 const STEPS: Record<PersonaKind, { icon: typeof CalendarPlus; title: string; body: string }[]> = {
   buyer: [
-    { icon: Scale, title: "Approve your suppliers", body: "Compare every agency's rate for a role on Rate Cards, pick the best offer, and approve the agencies you trust." },
-    { icon: CalendarPlus, title: "Post a shift", body: "Pick a location, position and time. Every approved supplier is notified at once." },
-    { icon: BadgeCheck, title: "Approve the hours", body: "Approve hours on Timesheets. Approving them generates the supplier's invoice." },
-    { icon: Coins, title: "Review invoices", body: "Every invoice is built from approved hours, tips and the supplier's rate. Nobody uploads them." },
+    { icon: Scale, title: "Approve your agencies", body: "Compare every agency's rate for a role on Rate Cards, pick the best offer, and approve the agencies you trust." },
+    { icon: CalendarPlus, title: "Post a shift", body: "Pick a location, position and time. Every approved agency is notified at once." },
+    { icon: BadgeCheck, title: "Approve the hours", body: "Approve hours on Timesheets. Approving them generates the agency's invoice." },
+    { icon: Coins, title: "Review invoices", body: "Every invoice is built from approved hours, tips and the agency's rate. Nobody uploads them." },
   ],
   supplier: [
-    { icon: Scale, title: "Upload rates and Pros", body: "Upload your rates by city and your Pros by CSV, or connect by API. An agent proposes fixes before anything saves." },
+    { icon: Scale, title: "Upload rates and workers", body: "Upload your rates by city and your workers by CSV, or connect by API. An agent proposes fixes before anything saves." },
     { icon: CalendarPlus, title: "Get approved, get shifts", body: "Buyers that approve you are sent to you every time they post a shift." },
-    { icon: BadgeCheck, title: "Place compliant Pros", body: "Only Pros with current documents can be assigned. Their profile shows exactly what's missing." },
+    { icon: BadgeCheck, title: "Place compliant workers", body: "Only workers with current documents can be assigned. Their profile shows exactly what's missing." },
     { icon: Coins, title: "Submit hours, get paid", body: "Submit hours and tips. Approved hours become your invoice automatically." },
   ],
   compass: [
     { icon: CalendarPlus, title: "Watch spend", body: "Every location ranked by spend, with the ones far above their normal week flagged." },
-    { icon: Scale, title: "Rank suppliers", body: "Suppliers scored on fill rate, no-shows, compliance and time to fill." },
-    { icon: BadgeCheck, title: "Review anomalies", body: "Invoices much higher than other suppliers would have charged, weighted by rating, become your todos." },
+    { icon: Scale, title: "Rank agencies", body: "Agencies scored on fill rate, no-shows, compliance and time to fill." },
+    { icon: BadgeCheck, title: "Review anomalies", body: "Invoices much higher than other agencies would have charged, weighted by rating, become your todos." },
     { icon: Coins, title: "Upload business activity", body: "Events, meals served and revenue by location, stored to compare against labor spend later." },
   ],
 }

@@ -42,8 +42,10 @@ export interface BookingInput {
   onlyAgencyId?: string
   /** This agency sees it first instead of the buyer's pick for the role. The rest follow by rate. */
   firstAgencyId?: string
-  /** Pros to book first, if they're cleared and free. The rest of the spots go out as usual. */
+  /** Workers to book first, if they're cleared and free. The rest of the spots go out as usual. */
   requestedProIds?: string[]
+  /** The department it's charged to, when not the one the role belongs to. */
+  departmentId?: string
 }
 
 export interface RateCardInput {

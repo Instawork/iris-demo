@@ -60,7 +60,7 @@ import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatClock, formatClockShort, formatDateLong, formatInterval, formatTimestamp, spanMinutes, timeAgo } from "@/lib/dates"
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
-import { buyer, city, location, position, supplier } from "@/lib/reference"
+import { buyer, city, departmentOf, location, position, supplier } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
 import type { Pro, ShiftGroup, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -102,6 +102,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
 
   const pos = position(group.positionId)
   const loc = location(group.locationId)
+  const department = departmentOf(loc.id, group.departmentId, group.positionId)
   const sent = joinNames(group.supplierIds.map((id) => supplier(id).shortName))
   const supplierReleases =
     group.supplierReleases ??
@@ -182,7 +183,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             )}
             {group.liveFill && upcoming && group.supplierIds.length > 0 && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-faded px-2.5 py-1 text-caption-1 font-semibold text-primary">
-                <span className="size-1.5 animate-live rounded-full bg-primary" /> Suppliers are filling this now
+                <span className="size-1.5 animate-live rounded-full bg-primary" /> Agencies are filling this now
               </span>
             )}
           </div>
@@ -223,7 +224,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           )}
           {isSupplier && upcoming && filled < total && (
             <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => setAssignOpen(true)} data-tour="assign">
-              <UserPlus className="size-4" /> Assign Pros
+              <UserPlus className="size-4" /> Assign workers
             </Button>
           )}
           <Button
@@ -231,7 +232,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             className="h-9 gap-1.5 rounded-lg text-body-3"
             onClick={() => toast(`Message sent to ${isSupplier ? buyer(group.buyerId).name : sent}`, { description: "In production this opens a shared thread on the shift." })}
           >
-            <Mail className="size-4" /> {isSupplier ? "Contact buyer" : group.supplierIds.length > 1 ? "Contact suppliers" : "Contact supplier"}
+            <Mail className="size-4" /> {isSupplier ? "Contact buyer" : group.supplierIds.length > 1 ? "Contact agencies" : "Contact agency"}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -243,7 +244,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
               {isBuyer && upcoming && (
                 <>
                   <DropdownMenuItem onSelect={() => setHeadcountOpen(true)}>
-                    <Users /> Change number of Pros
+                    <Users /> Change number of workers
                   </DropdownMenuItem>
                 </>
               )}
@@ -273,7 +274,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <Surface elevated data-tour="roster">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
               <div className="flex items-center gap-3">
-                <h3 className="text-body-2 font-bold">{phase === "past" ? "Timesheets" : "Pros"}</h3>
+                <h3 className="text-body-2 font-bold">{phase === "past" ? "Timesheets" : "Workers"}</h3>
                 <span className="inline-flex items-center gap-2 rounded-lg bg-tint-faded px-2 py-1 text-caption-1 font-semibold">
                   <FillPipe ratio={fillRatio(group)} tone={fillTone(group)} className="h-4 w-1.5" />
                   {filled} of {total} filled
@@ -292,7 +293,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                 )}
                 {isBuyer && upcoming && (
                   <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg text-caption-1" onClick={() => setHeadcountOpen(true)}>
-                    <UserPlus className="size-3.5" /> Add Pros
+                    <UserPlus className="size-3.5" /> Add workers
                   </Button>
                 )}
               </div>
@@ -374,7 +375,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                         {pro && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon-sm" aria-label="Pro actions">
+                              <Button variant="ghost" size="icon-sm" aria-label="Worker actions">
                                 <MoreHorizontal className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -394,10 +395,10 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                                     variant="destructive"
                                     onSelect={() => {
                                       setRoster(ws.buyerId!, [pro.id], "blocked")
-                                      toast(`${pro.firstName} is blocked`, { description: "They can't book your shifts with any supplier." })
+                                      toast(`${pro.firstName} is blocked`, { description: "They can't book your shifts with any agency." })
                                     }}
                                   >
-                                    <Ban /> Block Pro
+                                    <Ban /> Block worker
                                   </DropdownMenuItem>
                                 </>
                               )}
@@ -461,7 +462,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                               {group.cancelledAt
                                 ? `${plural(openSpots, "spot")} cancelled`
                                 : group.liveFill && group.supplierIds.length
-                                  ? `Finding ${openSpots === 1 ? "a Pro" : `${openSpots} Pros`}…`
+                                  ? `Finding ${openSpots === 1 ? "a worker" : `${openSpots} workers`}…`
                                   : plural(openSpots, "open spot")}
                             </span>
                             {!group.cancelledAt && (
@@ -492,11 +493,12 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                     <Detail label="Address">
                       {loc.address} {loc.zip}
                     </Detail>
-                    <Detail label="Cost center">
-                      <code className="font-mono">{loc.costCenter}</code>
+                    <Detail label={department ? "Department" : "Cost center"}>
+                      {department ? `${department.name} · ` : ""}
+                      <code className="font-mono">{department?.costCenter || loc.costCenter}</code>
                     </Detail>
                     <Detail label="Paid hours">
-                      {groupHours(group)} per Pro, {group.breakMins ? `after a ${group.breakMins} min unpaid break` : "with no unpaid break"}
+                      {groupHours(group)} per worker, {group.breakMins ? `after a ${group.breakMins} min unpaid break` : "with no unpaid break"}
                     </Detail>
                   </dl>
                 </AccordionContent>
@@ -510,8 +512,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
           <ReleaseCard group={group} />
           <Surface elevated data-tour="release">
             <SurfaceHeader
-              title="Suppliers"
-              info="Your pick for the role sees this shift first, then the other approved agencies by rate, until it fills. Each Pro is billed at their own agency's rate."
+              title="Agencies"
+              info="Your pick for the role sees this shift first, then the other approved agencies by rate, until it fills. Each worker is billed at their own agency's rate."
               description={`${group.supplierIds.length} of ${supplierReleases.length} released`}
             />
             <ul className="flex flex-col px-3 pt-2 pb-2">
@@ -527,7 +529,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-body-3 font-semibold">{s.shortName}</span>
                       <span className="text-caption-1 text-faded">
-                        {released ? (filledBy ? `${filledBy} of ${total} spots filled` : "Released · no Pros yet") : filled >= total ? "Not needed, already full" : releasedAt ? `Scheduled ${formatTimestamp(releasedAt)}` : group.approval?.status === "declined" ? "Not sent" : "After approval"}
+                        {released ? (filledBy ? `${filledBy} of ${total} spots filled` : "Released · no workers yet") : filled >= total ? "Not needed, already full" : releasedAt ? `Scheduled ${formatTimestamp(releasedAt)}` : group.approval?.status === "declined" ? "Not sent" : "After approval"}
                       </span>
                     </span>
                     {card && <span className="text-body-3 font-medium tabular">{money(card.billRate)}/hr</span>}
@@ -537,7 +539,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             </ul>
             <div className="flex items-end justify-between border-t border-border px-5 py-4">
               <span className="flex items-center gap-1 text-caption-1 text-faded">
-                Estimated total <InfoTip>At {supplier(group.supplierId).shortName}&apos;s {money(group.billRate)}/hr bill rate for {total} Pros.</InfoTip>
+                Estimated total <InfoTip>At {supplier(group.supplierId).shortName}&apos;s {money(group.billRate)}/hr bill rate for {total} Workers.</InfoTip>
               </span>
               <span className="text-body-2 font-bold tabular">{money(groupEstimate(group))}</span>
             </div>
@@ -572,8 +574,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
             <AlertDialogTitle>Cancel this shift?</AlertDialogTitle>
             <AlertDialogDescription>
               {filled > 0
-                ? `${filled} confirmed Pro${filled === 1 ? "" : "s"} will be notified by their suppliers. Cancelling within 24 hours of the start may be billable under the supplier's terms.`
-                : `${sent} will stop looking for Pros. Nothing will be billed.`}
+                ? `${filled} confirmed worker${filled === 1 ? "" : "s"} will be notified by their agencies. Cancelling within 24 hours of the start may be billable under the agency's terms.`
+                : `${sent} will stop looking for workers. Nothing will be billed.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -610,7 +612,7 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 export function RateBreakdown({ proRate, billRate, markupPct }: { proRate: number; billRate: number; markupPct: number }) {
   const share = billRate ? proRate / billRate : 0
   return (
-    <Tip content={`Pay rate ${money(proRate)}/hr + markup ${money(billRate - proRate)}/hr (${markupPct}%) = ${money(billRate)}/hr bill rate`}>
+    <Tip content={`Pay rate ${money(proRate)}/hr + ${markupPct}% markup = ${money(billRate)}/hr bill rate`}>
       <div className="mt-3 flex flex-col gap-1.5">
         <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
           <motion.span initial={false} animate={{ width: `${share * 100}%` }} transition={{ duration: 0.3 }} className="h-full rounded-full bg-foreground" />
@@ -623,7 +625,7 @@ export function RateBreakdown({ proRate, billRate, markupPct }: { proRate: numbe
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block size-1.5 rounded-full bg-border-strong" />
-            Markup {money(billRate - proRate)}
+            Markup {markupPct}%
           </span>
         </div>
       </div>
@@ -644,7 +646,7 @@ function HeadcountDialog({ open, onOpenChange, group, onSave }: { open: boolean;
     >
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Change number of Pros</DialogTitle>
+          <DialogTitle>Change number of workers</DialogTitle>
           <DialogDescription>
             {filled} already confirmed. You can add spots or remove open ones. Each spot is {groupHours(group)} paid hours at {money(group.billRate)}/hr.
           </DialogDescription>
@@ -668,7 +670,7 @@ function HeadcountDialog({ open, onOpenChange, group, onSave }: { open: boolean;
           <Button
             onClick={() => {
               onSave(value)
-              toast.success(`Now ${value} Pros`, { description: value > group.slots.length ? "Your suppliers are filling the new spots." : "Open spots removed." })
+              toast.success(`Now ${value} workers`, { description: value > group.slots.length ? "Your agencies are filling the new spots." : "Open spots removed." })
               onOpenChange(false)
             }}
             disabled={value === group.slots.length}
@@ -713,7 +715,7 @@ function TipsDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Pay tips</DialogTitle>
-          <DialogDescription>Tips pass straight through to Pros with no markup. Split a pool by hours, or enter each Pro&apos;s tip.</DialogDescription>
+          <DialogDescription>Tips pass straight through to workers with no markup. Split a pool by hours, or enter each worker&apos;s tip.</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-lg bg-page-faded p-3">
           <Coins className="size-4 text-faded" />
@@ -784,7 +786,7 @@ function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], 
     const last = confirmations[confirmations.length - 1]
     const proName = (id?: string) => {
       const p = pros.find((x) => x.id === id)
-      return p ? `${p.firstName} ${p.lastName[0]}.` : "A Pro"
+      return p ? `${p.firstName} ${p.lastName[0]}.` : "A worker"
     }
     items.push({ at: first.confirmedAt!, text: `${proName(first.proId)} confirmed first`, dot: "bg-positive" })
     if (confirmations.length > 1) {

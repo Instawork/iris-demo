@@ -105,7 +105,17 @@ export interface Location {
   minRating?: number
   /** Workspaces that approve its over-budget orders, beside the buyer's district approvers. */
   approverIds?: string[]
+  /** Parts of the unit that are charged separately, like a stadium's concessions and its suites. */
+  departments?: Department[]
   onboarded?: Onboarded
+}
+
+export interface Department {
+  id: string
+  name: string
+  costCenter: string
+  /** Roles that land here unless the order says otherwise. */
+  positionIds?: string[]
 }
 
 export type PositionCategory = "Front of house" | "Back of house" | "Events"
@@ -287,6 +297,8 @@ export interface RoleMove {
   at: string
   fromPositionId: string
   positionId: string
+  fromDepartmentId?: string
+  departmentId?: string
   billRate: number
   by: string
   recordedAt: string
@@ -297,6 +309,7 @@ export interface RoleMove {
 export interface RoleLink {
   timesheetId: string
   positionId: string
+  departmentId?: string
   at: string
 }
 
@@ -313,6 +326,8 @@ export interface ShiftGroup {
   buyerId: string
   locationId: string
   positionId: string
+  /** The department it's charged to. Missing means the one its role belongs to. */
+  departmentId?: string
   name?: string
   eventName?: string
   date: string
@@ -390,6 +405,8 @@ export interface Timesheet {
   buyerId: string
   locationId: string
   positionId: string
+  /** Set when this part of the shift was worked in another department than the order's. */
+  departmentId?: string
   date: string
   scheduledStart: string
   scheduledEnd: string
@@ -431,6 +448,7 @@ export interface InvoiceLine {
   groupId?: string
   positionId: string
   locationId: string
+  departmentId?: string
   date: string
   scheduledStart?: string
   scheduledEnd?: string

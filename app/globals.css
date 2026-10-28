@@ -101,6 +101,9 @@
   --color-nav-active: var(--nav-active);
   --color-nav-active-foreground: var(--nav-active-foreground);
   --color-info: var(--info);
+  --color-side-buyer: var(--side-buyer);
+  --color-side-agency: var(--side-agency);
+  --color-side-corporate: var(--side-corporate);
   --color-positive: var(--positive);
   --color-positive-faded: var(--positive-faded);
   --color-positive-fg: var(--positive-fg);
@@ -251,6 +254,9 @@
   --supplier-metro: var(--chart-5);
   --buyer-levy: var(--chart-1);
   --buyer-chartwells: var(--chart-3);
+  --side-buyer: oklch(0.55 0.13 245);
+  --side-agency: oklch(0.6 0.14 50);
+  --side-corporate: oklch(0.52 0.16 300);
   --logo-tile: oklch(0.2 0.008 70);
   --grid: oklch(0.93 0.004 85);
   --scrollbar: color-mix(in oklch, var(--foreground) 18%, transparent);
@@ -330,6 +336,9 @@
   --supplier-metro: var(--chart-5);
   --buyer-levy: var(--chart-1);
   --buyer-chartwells: var(--chart-3);
+  --side-buyer: oklch(0.72 0.12 245);
+  --side-agency: oklch(0.76 0.13 55);
+  --side-corporate: oklch(0.72 0.13 300);
   --grid: oklch(1 0 0 / 7%);
   --elevation-raised: 0 0 0 0 transparent;
   --elevation-overlay: 0 0 0 1px oklch(1 0 0 / 8%), 0 24px 48px -12px oklch(0 0 0 / 0.55);

@@ -71,7 +71,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-body-2 font-bold">{title}</span>
             {group.liveFill && phase === "upcoming" && group.supplierIds.length > 0 && (
-              <Tip content="Suppliers are confirming Pros right now">
+              <Tip content="Agencies are confirming workers right now">
                 <span className="inline-flex h-5 items-center gap-1.5 rounded-md bg-brand px-1.5 text-caption-1 font-semibold text-brand-foreground">
                   <span className="size-1.5 animate-pulse rounded-full bg-brand-foreground" />
                   Filling now
@@ -92,7 +92,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {group.eventName && <span className="text-body-3 font-medium text-primary">{group.eventName}</span>}
             {group.badges.map((b) => (
-              <Tip key={b} content={b === "TIPS" ? "Tips eligible: add tips per Pro after the shift" : b}>
+              <Tip key={b} content={b === "TIPS" ? "Tips eligible: add tips per worker after the shift" : b}>
                 <span>
                   <StatusBadge>{b}</StatusBadge>
                 </span>
@@ -114,7 +114,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
           <div className="flex shrink-0 items-center gap-2 text-body-2 sm:flex-col sm:items-end sm:gap-0.5">
             {isPast ? (
               <span className="font-bold">
-                {filled} Pros <span className="px-1 text-subtle">|</span> {money(groupEstimate({ ...group, slots: group.slots.filter((s) => s.proId) }))}
+                {filled} Workers <span className="px-1 text-subtle">|</span> {money(groupEstimate({ ...group, slots: group.slots.filter((s) => s.proId) }))}
               </span>
             ) : (
               <>
@@ -134,7 +134,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
             {pros.length > 0 && <AvatarStack pros={pros} />}
             {filled > 0 && (
               <Link href={href} onClick={(e) => e.stopPropagation()} className="text-body-2 font-medium text-foreground underline-offset-4 hover:text-primary hover:underline">
-                View all Pros
+                View all workers
               </Link>
             )}
           </div>
@@ -146,7 +146,7 @@ export function ShiftCard({ group }: { group: ShiftGroup }) {
             )}
             {!isPast && !group.cancelledAt && ws.kind === "supplier" && filled < total && (
               <Button size="sm" className="h-8 gap-1.5 rounded-lg px-3 text-caption-1 font-semibold" onClick={() => setAssignOpen(true)}>
-                <UserPlus className="size-3.5" /> Assign Pros
+                <UserPlus className="size-3.5" /> Assign workers
               </Button>
             )}
           </div>

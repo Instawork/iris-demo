@@ -39,20 +39,20 @@ const FILTERS: { value: Filter; label: string; tooltip?: string; empty?: { title
   {
     value: "onboarding",
     label: "Onboarding",
-    tooltip: "New Pros still finishing their documents. They can't work yet.",
-    empty: { title: "No one is onboarding", description: "New Pros show up here until every document they need is complete." },
+    tooltip: "New workers still finishing their documents. They can't work yet.",
+    empty: { title: "No one is onboarding", description: "New workers show up here until every document they need is complete." },
   },
   {
     value: "not_compliant",
     label: "Not compliant",
     tooltip: "A required document is missing, pending or expired. Iris won't place them until it's fixed.",
-    empty: { title: "Everyone is compliant", description: "No active Pro has a missing or expired document." },
+    empty: { title: "Everyone is compliant", description: "No active worker has a missing or expired document." },
   },
   {
     value: "compliant",
     label: "Compliant",
     tooltip: "Cleared to work. Some have a document expiring within 30 days.",
-    empty: { title: "No one is cleared yet", description: "Pros show up here once every document they need is complete." },
+    empty: { title: "No one is cleared yet", description: "Workers show up here once every document they need is complete." },
   },
 ]
 
@@ -180,7 +180,7 @@ export function ProfessionalsPage() {
       ? [
           {
             id: "supplier",
-            header: "Supplier",
+            header: "Agency",
             sortValue: (r: Row) => supplier(r.pro.supplierId).shortName,
             cell: (r: Row) => (
               <span className="inline-flex items-center gap-2">
@@ -194,7 +194,7 @@ export function ProfessionalsPage() {
     {
       id: "status",
       header: "Status",
-      info: "New Pros finish onboarding when every document their positions need is complete. After that, Iris checks the background check (BGC), I-9, Compass orientation and the food handler or alcohol certs each position needs before every shift.",
+      info: "New workers finish onboarding when every document their positions need is complete. After that, Iris checks the background check (BGC), I-9, Compass orientation and the food handler or alcohol certs each position needs before every shift.",
       sortValue: (r) => (r.standing === "onboarding" ? 30 + r.onboarding.left : TONE_RANK[r.compliance.tone] * 10 + r.compliance.issues.length),
       cell: (r) =>
         r.standing === "onboarding" ? (
@@ -217,28 +217,28 @@ export function ProfessionalsPage() {
   ]
 
   const empty = hasFilters
-    ? { title: "No professionals match", description: "Try a different name, supplier or position." }
+    ? { title: "No professionals match", description: "Try a different name, agency or position." }
     : (FILTERS.find((f) => f.value === filter)?.empty ?? {
         title: "No professionals yet",
         description:
           ws.kind === "supplier"
-            ? "Upload a CSV of your Pros to start their onboarding."
+            ? "Upload a CSV of your workers to start their onboarding."
             : ws.kind === "buyer"
-              ? "Pros show up here once they're booked at your locations."
-              : "No supplier has added Pros yet.",
+              ? "Workers show up here once they're booked at your locations."
+              : "No agency has added workers yet.",
       })
 
   return (
     <>
       <PageHeader
         className="pt-4"
-        title={ws.kind === "supplier" ? "My Professionals" : "Professionals"}
+        title={ws.kind === "supplier" ? "My Workers" : "Workers"}
         description={
           ws.kind === "supplier"
-            ? "Your Pros, their onboarding and the documents Compass requires. Open a Pro for their resume, interviews, offers, documents and reviews."
+            ? "Your workers, their onboarding and the documents Compass requires. Open a worker for their resume, interviews, offers, documents and reviews."
             : ws.kind === "buyer"
-              ? "Pros who worked or are booked at your locations, from every supplier. Rate them after a shift, and favorite or block them from their profile."
-              : "Every Pro across every supplier and whether they're cleared to work Compass shifts."
+              ? "Workers who worked or are booked at your locations, from every agency. Rate them after a shift, and favorite or block them from their profile."
+              : "Every worker across every agency and whether they're cleared to work Compass shifts."
         }
         actions={
           <>
@@ -265,10 +265,10 @@ export function ProfessionalsPage() {
             items={FILTERS.filter((f) => !(buyerId && f.value === "onboarding")).map((f) => ({ value: f.value, label: f.label, tooltip: f.tooltip, count: counts[f.value] }))}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <SearchInput value={query} onChange={setQuery} placeholder="Name or Pro ID" className="w-52" />
+            <SearchInput value={query} onChange={setQuery} placeholder="Name or worker ID" className="w-52" />
             {showSupplier && (
               <MultiSelectFilter
-                label="Suppliers"
+                label="Agencies"
                 options={SUPPLIERS.filter((s) => rows.some((r) => r.pro.supplierId === s.id)).map((s) => ({
                   value: s.id,
                   label: s.name,

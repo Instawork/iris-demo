@@ -49,8 +49,8 @@ const greetingWord = () => {
 
 const SCOPE_LINE: Record<PersonaKind, string> = {
   buyer: "Iris checked your shifts, hours and invoices.",
-  supplier: "Iris checked your shifts, Pros and rate cards.",
-  compass: "Iris checked spend, invoices and Pro safety across the program.",
+  supplier: "Iris checked your shifts, workers and rate cards.",
+  compass: "Iris checked spend, invoices and worker safety across the program.",
 }
 
 /** Shortcuts for the composer. One that a to-do already offers stays hidden while that to-do is open. */
@@ -61,7 +61,7 @@ const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIc
     { label: "Approve hours", prompt: "Approve hours", icon: CheckCheck, todo: "approve" },
   ],
   supplier: [
-    { label: "Assign Pros", prompt: "Assign Pros", icon: UsersRound },
+    { label: "Assign workers", prompt: "Assign workers", icon: UsersRound },
     { label: "Upload a rate card", prompt: "Upload rate card", icon: BadgeDollarSign },
     { label: "Submit hours", prompt: "Submit hours", icon: Clock, todo: "timesheets" },
   ],
@@ -75,7 +75,7 @@ const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIc
 const examplesFor = (kind: PersonaKind) => {
   const soon = formatDay(addDaysISO(todayISO(), 9), "MMMM do")
   if (kind === "buyer") return [`Create 3 line cook shifts on ${soon} from 8am to 4pm`, "Upload next month’s shifts", "Approve yesterday’s hours", "Spend by venue this month"]
-  if (kind === "supplier") return ["Assign Pros to this weekend’s shifts", "Upload a new rate card", "Submit hours for last week", "What did we bill each buyer last month?"]
+  if (kind === "supplier") return ["Assign workers to this weekend’s shifts", "Upload a new rate card", "Submit hours for last week", "What did we bill each buyer last month?"]
   return ["Spend by agency last month", "Fill rate by agency for the last 28 days", "Review flagged invoices", "Cost per hour by market and agency"]
 }
 
@@ -129,7 +129,7 @@ function Pattern({ bars }: { bars: NonNullable<Prediction["bars"]> }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div tabIndex={0} aria-label="Pros per shift by week" className="flex h-9 shrink-0 items-end gap-[3px] rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+        <div tabIndex={0} aria-label="Workers per shift by week" className="flex h-9 shrink-0 items-end gap-[3px] rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
           {bars.map((b, i) => (
             <span
               key={i}
@@ -145,7 +145,7 @@ function Pattern({ bars }: { bars: NonNullable<Prediction["bars"]> }) {
         </div>
       </TooltipTrigger>
       <TooltipContent className="flex flex-col gap-0.5">
-        <span className="font-medium">Pros per shift, by week</span>
+        <span className="font-medium">Workers per shift, by week</span>
         <span className="tabular opacity-80">
           Past: {past.join(", ")}. Expected: {expected.join(", ")}.
         </span>

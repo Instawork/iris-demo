@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRight, CalendarPlus, Check, MapPin, ShieldCheck, Users } from "lucide-react"
+import { ArrowLeft, ArrowRight, CalendarPlus, Check, MapPin, Plus, ShieldCheck, Users, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -14,14 +14,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { canWork, itemState } from "@/lib/compliance"
 import { todayISO } from "@/lib/dates"
-import { moneyWhole } from "@/lib/format"
-import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, marketForZip, policyFor, requirementLabel, requirementsFor } from "@/lib/reference"
+import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, departmentsFor, marketForZip, requirementLabel, requirementsFor } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import type { Pro, RequirementId } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import type { Department, Pro, RequirementId } from "@/lib/types"
 
 /**
- * Adding a unit: the buyer it belongs to, where it is, what every Pro working there needs, and what it orders. The
- * market comes from the ZIP code, so Iris shows which agencies and how many Pros can staff it before it's saved.
+ * Adding a unit: the buyer it belongs to, where it is, the roles it orders and what workers need for them, and the
+ * departments it charges to. The market comes from the ZIP code, so Iris shows which agencies and how many workers
+ * can staff it before it's saved.
  */
 
 const KINDS = ["Stadium", "Arena", "Ballpark", "Convention center", "Campus dining", "Corporate dining", "Hospital", "Senior living"]
@@ -35,14 +36,7 @@ const ROLES_FOR: Record<string, string[]> = {
 }
 const KITCHEN_ROLES = ["linecook", "prepcook", "dishwasher", "cashier"]
 
-const RATINGS = [
-  { value: "0", label: "Any rating" },
-  { value: "4", label: "4.0 or higher" },
-  { value: "4.5", label: "4.5 or higher" },
-  { value: "4.8", label: "4.8 or higher" },
-]
-
-const STEPS = ["Unit", "Location", "Requirements", "Ordering", "Review"]
+const STEPS = ["Unit", "Location", "Roles", "Departments", "Review"]
 
 const BLOCKING = ["missing", "pending", "expired"]
 
@@ -55,9 +49,9 @@ interface Form {
   zip: string
   positionIds: string[]
   requires: RequirementId[]
-  minRating: number
-  weeklyBudget: string
-  approverIds: string[]
+  departments: Department[]
+  /** Set once the departments are edited, so changing the type or cost center stops replacing them. */
+  ownDepartments: boolean
 }
 
 export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -80,11 +74,15 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
     zip: "",
     positionIds: ROLES_FOR.Stadium,
     requires: [],
-    minRating: 0,
-    weeklyBudget: "",
-    approverIds: approversOf(buyers[0].id).filter((w) => w.approves?.length).map((w) => w.id),
+    departments: [],
+    ownDepartments: false,
   }))
-  const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }))
+  const set = (patch: Partial<Form>) =>
+    setForm((f) => {
+      const next = { ...f, ...patch }
+      return next.ownDepartments ? next : { ...next, departments: departmentsFor(next.kind, next.costCenter.trim() || "CC").filter((d) => !d.positionIds || d.positionIds.some((p) => next.positionIds.includes(p))) }
+    })
+  const editDepartment = (i: number, patch: Partial<Department>) => set({ ownDepartments: true, departments: form.departments.map((d, j) => (j === i ? { ...d, ...patch } : d)) })
   const today = todayISO()
 
   const market = /^\d{5}$/.test(form.zip) ? marketForZip(form.zip) : undefined
@@ -93,7 +91,6 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const documents = [...new Set([...requirementsFor(form.positionIds), ...form.requires])]
 
   const qualifies = (p: Pro) =>
-    (!form.minRating || p.rating >= form.minRating) &&
     form.positionIds.some((r) => canWork(p, r, today).ok) &&
     form.requires.every((id) => !BLOCKING.includes(itemState(p.compliance[id], today)))
   const pool = useMemo(() => (market ? data.pros.filter((p) => p.cityId === market.id && p.status === "active" && p.positionIds.some((r) => form.positionIds.includes(r))) : []), [data.pros, market, form.positionIds])
@@ -102,8 +99,8 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const ready = [
     !!form.name.trim() && !!form.costCenter.trim(),
     !!form.address.trim() && !!market,
-    true,
     form.positionIds.length > 0,
+    form.departments.every((d) => d.name.trim() && d.costCenter.trim()),
     true,
   ]
 
@@ -126,9 +123,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       costCenter: form.costCenter.trim(),
       positionIds: form.positionIds,
       requires: form.requires,
-      minRating: form.minRating || undefined,
-      weeklyBudget: Number(form.weeklyBudget) || undefined,
-      approverIds: form.approverIds,
+      departments: form.departments.map((d) => ({ name: d.name.trim(), costCenter: d.costCenter.trim(), positionIds: d.positionIds })),
     })
     setBusy(false)
     if (!id) return
@@ -154,7 +149,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is live` : "Add a unit"}</DialogTitle>
           <DialogDescription>
-            {created ? "It can book shifts now. Every order there goes to the buyer's pick for the role first, then the other agencies by rate." : "A unit is one location with its own cost center: a venue, a campus, a hospital."}
+            {created ? "It can book shifts now." : "One location with its own cost center: a venue, a campus, a hospital."}
           </DialogDescription>
         </DialogHeader>
 
@@ -162,8 +157,8 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           <div className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <Stat label="Agencies that staff it" value={String(order.length)} sub={joinNames(order.map((id) => SUPPLIERS.find((s) => s.id === id)?.shortName ?? id))} />
-              <Stat label="Pros who qualify today" value={String(qualified)} sub={`of ${pool.length} in ${market?.name}`} />
-              <Stat label="Weekly budget" value={Number(form.weeklyBudget) ? moneyWhole(Number(form.weeklyBudget)) : "None"} sub={Number(form.weeklyBudget) ? "Orders over it need an approver" : "Orders go straight out"} />
+              <Stat label="Workers who qualify today" value={String(qualified)} sub={`of ${pool.length} in ${market?.name}`} />
+              <Stat label="Departments" value={String(form.departments.length)} sub={joinNames(form.departments.map((d) => d.name)) || "Billed to the unit"} />
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" onClick={() => close(false)} data-tour="wizard-done">
@@ -183,7 +178,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             {step === 0 && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Buyer">
-                  <Select value={form.buyerId} onValueChange={(v) => set({ buyerId: v, approverIds: approversOf(v).filter((w) => w.approves?.length).map((w) => w.id) })} disabled={buyers.length === 1}>
+                  <Select value={form.buyerId} onValueChange={(v) => set({ buyerId: v })} disabled={buyers.length === 1}>
                     <SelectTrigger className="h-9 w-full">
                       <SelectValue />
                     </SelectTrigger>
@@ -213,7 +208,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                 <Field label="Unit name">
                   <input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Soldier Field" className={inputClass} autoFocus />
                 </Field>
-                <Field label="Cost center" hint="The unit number every invoice line for it is charged to.">
+                <Field label="Cost center">
                   <input value={form.costCenter} onChange={(e) => set({ costCenter: e.target.value.toUpperCase() })} placeholder="LEV-4450" className={inputClass} />
                 </Field>
               </div>
@@ -259,20 +254,27 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             {step === 2 && (
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <span className="text-caption-1 font-medium text-faded">What Iris checks before every shift here</span>
+                  <span className="text-caption-1 font-medium text-faded">Roles it orders</span>
+                  {categories.map((c) => (
+                    <div key={c} className="flex flex-wrap items-center gap-2">
+                      <span className="w-28 text-caption-1 text-subtle">{c}</span>
+                      {POSITIONS.filter((p) => p.category === c).map((p) => (
+                        <Chip key={p.id} on={form.positionIds.includes(p.id)} onClick={() => set({ positionIds: toggle(form.positionIds, p.id) })}>
+                          {p.name}
+                        </Chip>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-caption-1 font-medium text-faded">Checked before every shift</span>
                   <span className="flex flex-wrap gap-1.5">
                     {documents.map((id) => (
                       <StatusBadge key={id} tone={form.requires.includes(id) ? "primary" : "positive"} size="sm">
                         <ShieldCheck className="size-3" /> {requirementLabel(id)}
                       </StatusBadge>
                     ))}
-                    {form.minRating > 0 && (
-                      <StatusBadge tone="primary" size="sm">
-                        <ShieldCheck className="size-3" /> Rated {form.minRating.toFixed(1)} or higher
-                      </StatusBadge>
-                    )}
                   </span>
-                  <span className="text-caption-1 text-subtle">Background check, I-9 and Compass orientation apply everywhere. Food and bar roles add their certificates.</span>
                 </div>
                 <div className="flex flex-col gap-2">
                   <span className="text-caption-1 font-medium text-faded">This unit also requires</span>
@@ -285,67 +287,41 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                     </Chip>
                   </div>
                 </div>
-                <Field label="Minimum Pro rating" className="max-w-56">
-                  <Select value={String(form.minRating)} onValueChange={(v) => set({ minRating: Number(v) })}>
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RATINGS.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>
-                          {r.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
                 <QualifyLine qualified={qualified} pool={pool.length} city={market?.name} />
               </div>
             )}
 
             {step === 3 && (
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <span className="text-caption-1 font-medium text-faded">Roles this unit orders</span>
-                  {categories.map((c) => (
-                    <div key={c} className="flex flex-wrap items-center gap-2">
-                      <span className="w-28 text-caption-1 text-subtle">{c}</span>
-                      {POSITIONS.filter((p) => p.category === c).map((p) => (
-                        <Chip key={p.id} on={form.positionIds.includes(p.id)} onClick={() => set({ positionIds: toggle(form.positionIds, p.id) })}>
-                          {p.name}
-                        </Chip>
-                      ))}
-                    </div>
+              <div className="flex flex-col gap-3" data-tour="unit-departments">
+                <div className="grid grid-cols-[1fr_150px_minmax(0,1.2fr)_32px] items-center gap-x-3 gap-y-2">
+                  <span className="text-caption-1 font-medium text-faded">Department</span>
+                  <span className="text-caption-1 font-medium text-faded">Cost center</span>
+                  <span className="text-caption-1 font-medium text-faded">Roles</span>
+                  <span />
+                  {form.departments.map((d, i) => (
+                    <DepartmentRow
+                      key={d.id}
+                      department={d}
+                      roles={form.positionIds}
+                      onChange={(patch) => editDepartment(i, patch)}
+                      onRemove={() => set({ ownDepartments: true, departments: form.departments.filter((_, j) => j !== i) })}
+                    />
                   ))}
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Weekly budget" hint="Orders that take a week over it wait for an approver.">
-                    <input value={form.weeklyBudget} onChange={(e) => set({ weeklyBudget: e.target.value.replace(/[^\d]/g, "") })} placeholder="No budget" inputMode="numeric" className={inputClass} />
-                  </Field>
-                  <Field label="Approves orders over budget">
-                    <Select value={form.approverIds[0] ?? "none"} onValueChange={(v) => set({ approverIds: v === "none" ? [] : [v] })}>
-                      <SelectTrigger className="h-9 w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nobody</SelectItem>
-                        {approversOf(form.buyerId).map((w) => (
-                          <SelectItem key={w.id} value={w.id}>
-                            {w.user.name} <span className="text-faded">· {w.user.title}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                </div>
-                <div className="flex items-start gap-3 rounded-xl border border-border bg-page-faded p-4">
-                  <Users className="mt-0.5 size-4 shrink-0" />
-                  <span className="text-body-3">
-                    {order.length
-                      ? `Orders go to ${joinNames(order.map((id) => SUPPLIERS.find((s) => s.id === id)!.shortName))}, best offer first, then by rate, ${policyFor(form.buyerId).tierGapHours} hours apart.`
-                      : `None of ${buyer(form.buyerId).name}'s approved agencies has rates for these roles here yet.`}
-                  </span>
-                </div>
+                {!form.departments.length && <span className="text-body-3 text-faded">No departments. Everything is charged to {form.costCenter.trim() || "the unit"}.</span>}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  onClick={() =>
+                    set({
+                      ownDepartments: true,
+                      departments: [...form.departments, { id: `dept-${Date.now()}`, name: "", costCenter: `${form.costCenter.trim()}-${(form.departments.length + 1) * 10}` }],
+                    })
+                  }
+                >
+                  <Plus /> Add department
+                </Button>
               </div>
             )}
 
@@ -362,13 +338,10 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                   {market ? ` · ${market.name} market` : ""}
                 </Summary>
                 <Summary label="Roles">{joinNames(form.positionIds.map((id) => POSITIONS.find((p) => p.id === id)!.name))}</Summary>
-                <Summary label="Every Pro needs">
-                  {joinNames(documents.map(requirementLabel))}
-                  {form.minRating ? `, rated ${form.minRating.toFixed(1)}+` : ""}
-                </Summary>
-                <Summary label="Budget">{Number(form.weeklyBudget) ? `${moneyWhole(Number(form.weeklyBudget))} a week` : "None"}</Summary>
+                <Summary label="Every worker needs">{joinNames(documents.map(requirementLabel))}</Summary>
+                <Summary label="Departments">{form.departments.length ? form.departments.map((d) => `${d.name.trim()} (${d.costCenter.trim()})`).join(", ") : "None"}</Summary>
                 <Summary label="Staffed by">{order.length ? joinNames(order.map((id) => SUPPLIERS.find((s) => s.id === id)!.shortName)) : "No agency yet"}</Summary>
-                <Summary label="Pros who qualify today">
+                <Summary label="Workers who qualify today">
                   {qualified} of {pool.length} in {market?.name}
                 </Summary>
               </dl>
@@ -410,8 +383,37 @@ function QualifyLine({ qualified, pool, city }: { qualified: number; pool: numbe
         <span className="font-semibold tabular">
           {qualified} of {pool}
         </span>{" "}
-        Pros in {city} who do these roles could work here today. Pros missing anything stay off its shifts until it&apos;s current.
+        workers in {city} who do these roles could work here today.
       </span>
     </div>
+  )
+}
+
+function DepartmentRow({ department, roles, onChange, onRemove }: { department: Department; roles: string[]; onChange: (patch: Partial<Department>) => void; onRemove: () => void }) {
+  const own = department.positionIds ?? []
+  return (
+    <>
+      <input value={department.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="Concessions" className={inputClass} aria-label="Department name" />
+      <input value={department.costCenter} onChange={(e) => onChange({ costCenter: e.target.value.toUpperCase() })} placeholder="LEV-4450-10" className={inputClass} aria-label="Cost center" />
+      <span className="flex flex-wrap gap-1">
+        {roles.map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={own.includes(id)}
+            onClick={() => onChange({ positionIds: own.includes(id) ? own.filter((x) => x !== id) : [...own, id] })}
+            className={cn(
+              "h-6 rounded-md border px-1.5 text-caption-1 transition-colors",
+              own.includes(id) ? "border-foreground/25 bg-foreground/[0.06] font-medium" : "border-transparent text-subtle hover:bg-hover hover:text-foreground",
+            )}
+          >
+            {POSITIONS.find((p) => p.id === id)?.name}
+          </button>
+        ))}
+      </span>
+      <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label={`Remove ${department.name || "department"}`}>
+        <X />
+      </Button>
+    </>
   )
 }

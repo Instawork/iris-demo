@@ -204,7 +204,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
         <div className="flex items-start gap-4 pr-8">
           {pro && <ProAvatar pro={pro} size="lg" ring />}
           <div className="flex min-w-0 flex-col gap-1">
-            <SheetTitle className="text-featured-3">{pro ? fullName(pro) : "Unknown Pro"}</SheetTitle>
+            <SheetTitle className="text-featured-3">{pro ? fullName(pro) : "Unknown worker"}</SheetTitle>
             <SheetDescription className="flex flex-col gap-0.5 text-body-3">
               <span>
                 {position(t.positionId).name} · {loc.name}
