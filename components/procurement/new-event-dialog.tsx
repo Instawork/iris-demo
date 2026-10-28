@@ -117,23 +117,17 @@ function NewEventForm({ onClose }: { onClose: () => void }) {
       </div>
       <div className="flex flex-col gap-2">
         <span className="text-body-3 font-semibold">Invite</span>
-        <div className="grid gap-1.5 sm:grid-cols-2">
-          {SUPPLIERS.map((s) => {
-            const here = s.cityIds.includes(cityId)
-            return (
-              <label
-                key={s.id}
-                className={cn("flex items-center gap-2.5 rounded-lg border border-border px-3 py-2", here ? "cursor-pointer hover:bg-hover/50" : "opacity-50")}
-              >
-                <Checkbox checked={agencies.includes(s.id)} disabled={!here} onCheckedChange={() => setAgencies((a) => toggle(a, s.id))} />
-                <SupplierLogo supplierId={s.id} size="sm" />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-body-3 font-medium">{s.name}</span>
-                  <span className="text-caption-1 text-faded">{here ? (s.integration === "api" ? "Bids by API or in Iris" : "Bids in Iris") : `Not in ${city(cityId).name}`}</span>
-                </span>
-              </label>
-            )
-          })}
+        <div className="grid max-h-56 gap-1.5 overflow-y-auto scrollbar-thin sm:grid-cols-2">
+          {SUPPLIERS.filter((s) => s.cityIds.includes(cityId)).map((s) => (
+            <label key={s.id} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2 hover:bg-hover/50">
+              <Checkbox checked={agencies.includes(s.id)} onCheckedChange={() => setAgencies((a) => toggle(a, s.id))} />
+              <SupplierLogo supplierId={s.id} size="sm" />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-body-3 font-medium">{s.name}</span>
+                <span className="text-caption-1 text-faded">{s.integration === "api" ? "Bids by API or in Iris" : "Bids in Iris"}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </div>
       <label className="flex w-48 flex-col gap-1.5">

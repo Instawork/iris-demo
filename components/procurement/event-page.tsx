@@ -1,26 +1,31 @@
 "use client"
 
 import Link from "next/link"
-import { Check, CircleCheck, FileSearch, MessageSquareText } from "lucide-react"
+import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
-import { InfoTip } from "@/components/common/info-tip"
-import { StatusBadge } from "@/components/common/status-badge"
+import { SearchInput } from "@/components/common/filters"
+import { InfoTip, Tip } from "@/components/common/info-tip"
+import { PillTabs } from "@/components/common/pill-tabs"
+import { StatusBadge, toneText } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { StageBadge, StageTrack, agencyStatus, moneyYear, termLabel } from "@/components/procurement/sourcing-bits"
+import { BenchmarkBar, BenchmarkLegend, Change, StageBadge, Timeline, VsMarket, agencyStatus, moneyYear, termLabel, type Mark } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Input } from "@/components/ui/input"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { formatDateShort, formatTimestamp } from "@/lib/dates"
+import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, pct, round2 } from "@/lib/format"
-import { PROGRAM, position, supplier } from "@/lib/reference"
-import { activeCard, bestOn, bidsOf, latestBid, marketName, openCounters, responded, spendOf } from "@/lib/sourcing"
+import { PROGRAM, city, position, supplier } from "@/lib/reference"
+import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
+import { activeCard, bestOn, bidsOf, latestBid, lineOf, marketName, openCounters, responded, spendOf } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
-import type { SourcingEvent, SourcingLine, SourcingMessage } from "@/lib/types"
+import type { SourcingEvent, SourcingLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function EventPage({ id }: { id: string }) {
@@ -46,327 +51,576 @@ export function EventPage({ id }: { id: string }) {
   }
   return (
     <>
-      <div className="flex flex-col gap-1.5 pt-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
-          <StageBadge ev={ev} size="sm" />
-          <StatusBadge tone="neutral" size="sm">
-            {ev.category}
-          </StatusBadge>
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pt-4">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-caption-1 text-faded">
+            <span className="font-mono">{ev.number}</span> · {ev.category}
+          </span>
+          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-featured-1 font-semibold">
+            {ev.title}
+            <StageBadge ev={ev} />
+          </h1>
+          <p className="text-body-3 text-faded">
+            {marketName(ev)} · {ev.lines.length} roles · {ev.invited.length} agencies · Term {termLabel(ev)}
+          </p>
         </div>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-featured-1 font-semibold">{ev.title}</h1>
-          {!isAgency && ev.status === "open" && <ApproveAll ev={ev} />}
-        </div>
-        <p className="text-body-3 text-faded">
-          {marketName(ev)} · Term {termLabel(ev)} · {ev.lines.length} roles · Opened by {ev.createdBy}
-        </p>
-      </div>
-      <Surface elevated className="px-5 py-4">
-        <StageTrack ev={ev} />
-      </Surface>
-      {isAgency ? <AgencyBid ev={ev} supplierId={ws.supplierId!} /> : <CompassView ev={ev} />}
+        {!isAgency && ev.status === "open" && <ApproveBids ev={ev} />}
+      </header>
+      {isAgency ? <AgencyView ev={ev} supplierId={ws.supplierId!} /> : <CompassView ev={ev} />}
     </>
   )
 }
 
 /* --------------------------------- Compass -------------------------------- */
 
-function CompassView({ ev }: { ev: SourcingEvent }) {
-  const spend = spendOf(ev)
-  const bidders = responded(ev).length
-  return (
-    <>
-      <Surface elevated className="grid divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-        <Kpi label="Today's rates" value={moneyYear(spend.baseline)} sub="A year, at today's shares" />
-        <Kpi label="Latest bids" value={bidders ? moneyYear(spend.proposed) : "—"} sub={`${bidders} of ${ev.invited.length} agencies in`} />
-        <Kpi
-          label="Savings"
-          value={bidders ? `${spend.savings >= 0 ? "−" : "+"}${pct(Math.abs(spend.savingsPct), 1)}` : "—"}
-          sub={bidders ? `${moneyYear(Math.abs(spend.savings))} a year` : "Waiting on bids"}
-          tone={spend.savings > 0 ? "positive" : undefined}
-        />
-        <Kpi
-          label="Lowest bid on every role"
-          info="If each role's hours went to its lowest bidder. Iris already sends shifts to the lowest rate first."
-          value={bidders ? moneyYear(spend.lowest) : "—"}
-          sub={bidders && spend.baseline ? `${pct((spend.baseline - spend.lowest) / spend.baseline, 1)} below today` : undefined}
-        />
-      </Surface>
-      <BidMatrix ev={ev} />
-      <Thread ev={ev} />
-    </>
-  )
+/** What Compass pays for a line today, averaged over its agencies at their share of the hours. */
+const todayOn = (line: SourcingLine) => Object.entries(line.baseline).reduce((sum, [s, rate]) => sum + rate * (line.share[s] ?? 0), 0)
+
+/** Every agency's latest bid on a line, lowest first. */
+const bidsOn = (ev: SourcingEvent, line: SourcingLine) =>
+  ev.invited
+    .flatMap((s) => {
+      const bid = latestBid(ev, s)?.lines[line.id]
+      return bid ? [{ supplierId: s, bid }] : []
+    })
+    .sort((a, b) => a.bid.billRate - b.bid.billRate)
+
+/** An agency's latest bid against the market, weighted by its share of each role's hours. */
+function agencyVsMarket(ev: SourcingEvent, supplierId: string) {
+  let bid = 0
+  let market = 0
+  for (const line of ev.lines) {
+    const rate = latestBid(ev, supplierId)?.lines[line.id]?.billRate
+    if (rate === undefined) continue
+    const hours = line.hours * (line.share[supplierId] ?? 1 / Math.max(1, Object.keys(line.share).length))
+    bid += hours * rate
+    market += hours * benchmark(ev.cityId, line.positionId).median
+  }
+  return market ? bid / market - 1 : undefined
 }
 
-function Kpi({ label, value, sub, info, tone }: { label: string; value: string; sub?: string; info?: string; tone?: "positive" }) {
+type Selection = { kind: "role"; lineId: string } | { kind: "agency"; supplierId: string } | null
+
+function CompassView({ ev }: { ev: SourcingEvent }) {
+  const [view, setView] = useState<"role" | "agency">("role")
+  const [open, setOpen] = useState<Selection>(null)
   return (
-    <div className="flex flex-col gap-1 px-5 py-4">
-      <span className="flex items-center gap-1.5 text-body-3 text-faded">
-        {label}
-        {info && <InfoTip>{info}</InfoTip>}
-      </span>
-      <span className={cn("text-[24px] leading-8 font-semibold tracking-[-0.03em] tabular", tone === "positive" && "text-positive-fg")}>{value}</span>
-      {sub && <span className="text-caption-1 text-faded">{sub}</span>}
+    <div className="grid gap-4 xl:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
+        <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
+          <SurfaceHeader
+            title="Bids"
+            description={`Latest round, against the ${city(ev.cityId).name} market`}
+            actions={
+              <PillTabs
+                size="sm"
+                value={view}
+                onChange={setView}
+                items={[
+                  { value: "role", label: "By role" },
+                  { value: "agency", label: "By agency", count: ev.invited.length },
+                ]}
+              />
+            }
+          />
+          {view === "role" ? (
+            <RoleTable ev={ev} onOpen={(lineId) => setOpen({ kind: "role", lineId })} />
+          ) : (
+            <AgencyTable ev={ev} onOpen={(supplierId) => setOpen({ kind: "agency", supplierId })} />
+          )}
+        </Surface>
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <Savings ev={ev} />
+        <Surface elevated className="pb-4">
+          <SurfaceHeader title="Timeline" />
+          <div className="px-5 pt-4">
+            <Timeline ev={ev} />
+          </div>
+        </Surface>
+        <Activity ev={ev} />
+      </div>
+      <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
+        <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
+          {open?.kind === "role" && <RoleSheet ev={ev} line={lineOf(ev, open.lineId)} />}
+          {open?.kind === "agency" && <AgencySheet ev={ev} supplierId={open.supplierId} />}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
 
-const change = (to: number, from?: number) => (from ? to / from - 1 : undefined)
-
-function Delta({ value }: { value?: number }) {
-  if (value === undefined || Math.abs(value) < 0.0005) return <span className="text-caption-1 text-faded">Same as today</span>
+function Savings({ ev }: { ev: SourcingEvent }) {
+  const s = spendOf(ev)
+  const bids = responded(ev).length
+  const market = ev.lines.reduce((sum, l) => sum + l.hours * benchmark(ev.cityId, l.positionId).median, 0)
+  const rows = [
+    { label: "Today's rates", value: s.baseline },
+    { label: "Latest bids", value: bids ? s.proposed : undefined },
+    { label: "At the market median", value: market, info: `Every role's hours at what the ${city(ev.cityId).name} market bills for it.` },
+  ]
   return (
-    <span className={cn("text-caption-1 tabular", value < 0 ? "text-positive-fg" : "text-critical-fg")}>
-      {value < 0 ? "−" : "+"}
-      {pct(Math.abs(value), 1)} vs today
-    </span>
-  )
-}
-
-/** Every role down the side, every agency across the top, the latest bid in each cell and the lowest one marked. */
-function BidMatrix({ ev }: { ev: SourcingEvent }) {
-  const approve = useStore((s) => s.approveBids)
-  const cols = ev.invited
-  const grid = `minmax(150px,1.3fr) 92px repeat(${cols.length}, minmax(124px,1fr))`
-  return (
-    <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
-      <SurfaceHeader
-        title="Bids"
-        info="Bill rate per hour from each agency's latest round. The lowest bid on each role is marked. Click a bid to counter it."
-        actions={ev.status === "open" && <span className="text-caption-1 text-faded">Click a bid to counter</span>}
-      />
-      <div className="overflow-x-auto">
-        <div className="min-w-[720px]">
-          <div className="grid items-end gap-3 border-y border-border bg-page-faded px-4 py-2.5" style={{ gridTemplateColumns: grid }}>
-            <span className="text-caption-1 font-medium text-faded">Role</span>
-            <span className="text-right text-caption-1 font-medium text-faded">Hours a year</span>
-            {cols.map((s) => {
-              const st = agencyStatus(ev, s)
-              return (
-                <span key={s} className="flex flex-col items-end gap-1">
-                  <span className="flex items-center gap-1.5">
-                    <SupplierLogo supplierId={s} size="xs" />
-                    <span className="text-body-3 font-semibold">{supplier(s).shortName}</span>
-                  </span>
-                  <StatusBadge tone={st.tone} size="sm">
-                    {st.label}
-                  </StatusBadge>
-                </span>
-              )
-            })}
-          </div>
-          {ev.lines.map((line) => {
-            const best = bestOn(ev, line.id)
-            return (
-              <div key={line.id} className="grid items-center gap-3 border-b border-border/70 px-4 py-2" style={{ gridTemplateColumns: grid }}>
-                <span className="font-semibold">{position(line.positionId).name}</span>
-                <span className="text-right text-faded tabular">{line.hours.toLocaleString("en-US")}</span>
-                {cols.map((s) => (
-                  <BidCell key={s} ev={ev} line={line} supplierId={s} best={best?.supplierId === s && responded(ev).length > 1} />
-                ))}
-              </div>
-            )
-          })}
-          <div className="grid items-start gap-3 bg-page-faded/60 px-4 py-3" style={{ gridTemplateColumns: grid }}>
-            <span className="flex flex-col">
-              <span className="font-semibold">A year</span>
-              <span className="text-caption-1 text-faded">At each agency&apos;s share</span>
-            </span>
-            <span />
-            {cols.map((s) => {
-              const spend = spendOf(ev, s)
-              const bid = latestBid(ev, s)
-              const waiting = openCounters(ev, s).length > 0
-              return (
-                <span key={s} className="flex flex-col items-end gap-1.5">
-                  <span className="font-semibold tabular">{bid ? moneyYear(spend.proposed) : "—"}</span>
-                  {bid && <Delta value={change(spend.proposed, spend.baseline)} />}
-                  {ev.approved[s] ? (
-                    <span className="inline-flex h-7 items-center gap-1 text-caption-1 font-medium text-positive-fg">
-                      <CircleCheck className="size-3.5" /> Live on rate card
-                    </span>
-                  ) : bid && ev.status === "open" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 rounded-md text-caption-1"
-                      disabled={waiting}
-                      title={waiting ? "Waiting on an answer to your counter" : undefined}
-                      data-tour="approve-bid"
-                      onClick={() =>
-                        void approve(ev.id, [s]).then((n) => n && toast.success(`${supplier(s).shortName}'s rates are approved`, { description: `They're live on its ${marketName(ev)} rate card.` }))
-                      }
-                    >
-                      <Check className="size-3.5" /> Approve
-                    </Button>
-                  ) : null}
-                </span>
-              )
-            })}
-          </div>
-        </div>
+    <Surface elevated className="flex flex-col gap-4 p-5">
+      <div className="flex flex-col gap-0.5">
+        <span className="flex items-center gap-1.5 text-body-3 text-faded">
+          {ev.status === "awarded" ? "Savings approved" : "Projected savings"}
+          <InfoTip>Latest bids against today&apos;s rates, at each agency&apos;s share of the hours.</InfoTip>
+        </span>
+        <span className={cn("text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular", s.savings > 0 && "text-positive-fg")}>
+          {bids ? (s.savings > 0 ? moneyYear(s.savings) : "None yet") : "—"}
+        </span>
+        <span className="text-caption-1 text-faded">
+          {bids ? (s.savings > 0 ? `A year, ${pct(s.savingsPct, 1)} below today's rates` : "The bids so far don't beat today's rates") : "Waiting on the first bid"}
+        </span>
       </div>
+      <dl className="flex flex-col gap-2 border-t border-border/70 pt-4 text-body-3">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between gap-3">
+            <dt className="flex items-center gap-1.5 text-faded">
+              {r.label}
+              {r.info && <InfoTip>{r.info}</InfoTip>}
+            </dt>
+            <dd className="font-medium tabular">{r.value === undefined ? "—" : moneyYear(r.value)}</dd>
+          </div>
+        ))}
+      </dl>
     </Surface>
   )
 }
 
-function BidCell({ ev, line, supplierId, best }: { ev: SourcingEvent; line: SourcingLine; supplierId: string; best: boolean }) {
-  const counter = useStore((s) => s.counterBid)
-  const rounds = bidsOf(ev, supplierId).filter((b, i, all) => b.lines[line.id] && b.lines[line.id].billRate !== all[i - 1]?.lines[line.id]?.billRate)
-  const bid = latestBid(ev, supplierId)?.lines[line.id]
-  const open = openCounters(ev, supplierId).find((m) => m.lineId === line.id)
-  const field = bestOn(ev, line.id)
-  const suggested = bid ? round2(field && field.supplierId !== supplierId && field.billRate < bid.billRate ? field.billRate : bid.billRate * 0.97) : 0
-  const [ask, setAsk] = useState(suggested.toFixed(2))
-  const [pop, setPop] = useState(false)
-  if (!bid) return <span className="text-right text-caption-1 text-subtle">{line.baseline[supplierId] ? "No bid yet" : "Doesn't staff"}</span>
-  const locked = !!ev.approved[supplierId] || ev.status === "awarded"
-  const askN = Number(ask)
-  const send = () =>
-    void counter(ev.id, supplierId, line.id, askN).then((ok) => {
-      if (!ok) return
-      setPop(false)
-      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `${position(line.positionId).name} at ${money(askN)}/hr` })
-    })
+const th = "px-3 pb-2.5 font-medium whitespace-nowrap"
+
+/** One row per role, so it reads the same with four agencies or four hundred. */
+function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string) => void }) {
   return (
-    <Popover open={pop} onOpenChange={(o) => (setPop(o), o && setAsk(suggested.toFixed(2)))}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          data-tour="bid-cell"
-          data-supplier={supplierId}
-          data-position={line.positionId}
-          className={cn(
-            "flex flex-col items-end rounded-lg px-2 py-1 text-right ring-1 ring-inset transition-colors",
-            best ? "bg-positive-faded ring-positive-border/80" : "ring-transparent hover:bg-hover/70 hover:ring-border",
-            open && "ring-warning-border bg-warning-faded",
-          )}
-        >
-          <span className="flex items-center gap-1 font-semibold tabular">
-            {best && <span className="text-caption-2 font-semibold text-positive-fg">Lowest</span>}
-            {money(bid.billRate)}
-          </span>
-          {open ? <span className="text-caption-1 text-warning-fg tabular">Asked {money(open.ask!)}</span> : <Delta value={change(bid.billRate, line.baseline[supplierId])} />}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 gap-3">
-        <div className="flex items-center gap-2">
-          <SupplierLogo supplierId={supplierId} size="sm" />
-          <span className="flex flex-col">
-            <span className="text-body-3 font-semibold">
-              {supplier(supplierId).shortName} · {position(line.positionId).name}
-            </span>
-            <span className="text-caption-1 text-faded tabular">
-              Pay {money(bid.proRate)} · markup {bid.markupPct}%
-            </span>
-          </span>
-        </div>
-        <ol className="flex flex-col gap-1 rounded-lg bg-page-faded px-3 py-2 text-body-3 tabular">
-          {line.baseline[supplierId] && (
-            <li className="flex justify-between text-faded">
-              <span>Today</span>
-              <span>{money(line.baseline[supplierId])}</span>
-            </li>
-          )}
-          {rounds.map((r) => (
-            <li key={r.round} className="flex justify-between">
-              <span>Round {r.round}</span>
-              <span className={r === rounds.at(-1) ? "font-semibold" : "text-faded"}>{money(r.lines[line.id].billRate)}</span>
-            </li>
-          ))}
-          {field && field.supplierId !== supplierId && (
-            <li className="flex justify-between border-t border-border/70 pt-1 text-faded">
-              <span>Lowest bid ({supplier(field.supplierId).shortName})</span>
-              <span>{money(field.billRate)}</span>
-            </li>
-          )}
-        </ol>
-        {locked ? (
-          <p className="text-caption-1 text-faded">Approved. This rate is on the agency&apos;s rate card.</p>
-        ) : open ? (
-          <p className="text-caption-1 text-faded">
-            You asked for {money(open.ask!)}. Waiting on {supplier(supplierId).contactName.split(" ")[0]}.
-          </p>
-        ) : (
-          <div className="flex items-end gap-2">
-            <label className="flex flex-1 flex-col gap-1">
-              <span className="text-caption-1 font-medium text-faded">Ask for</span>
-              <span className="relative">
-                <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">$</span>
-                <input
-                  inputMode="decimal"
-                  value={ask}
-                  onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
-                  onKeyDown={(e) => e.key === "Enter" && askN > 0 && askN < bid.billRate && send()}
-                  className="h-9 w-full rounded-lg border border-input bg-card pr-2 pl-6 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-                />
-              </span>
-            </label>
-            <Button className="h-9" disabled={!(askN > 0 && askN < bid.billRate)} onClick={send} data-tour="send-counter">
-              Counter
-            </Button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+    <>
+      <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
+        <table className="w-full min-w-[720px] text-body-3">
+          <thead>
+            <tr className="text-caption-1 text-faded">
+              <th className={cn(th, "text-left")}>Role</th>
+              <th className={cn(th, "text-right")}>Today</th>
+              <th className={cn(th, "text-right")}>
+                <span className="inline-flex items-center gap-1">
+                  Market
+                  <InfoTip>{`The median bill rate for the role across ${benchmark(ev.cityId, ev.lines[0].positionId).agencies} ${city(ev.cityId).name} agencies.`}</InfoTip>
+                </span>
+              </th>
+              <th className={cn(th, "text-right")}>Best bid</th>
+              <th className={cn(th, "w-[22%] text-left")}>Against the market</th>
+              <th className={cn(th, "text-right")}>vs market</th>
+              <th className="w-6" />
+            </tr>
+          </thead>
+          <tbody>
+            {ev.lines.map((line) => {
+              const b = benchmark(ev.cityId, line.positionId)
+              const bids = bidsOn(ev, line)
+              const best = bids[0]
+              const today = todayOn(line)
+              const asked = ev.messages.some((m) => m.open && m.lineId === line.id)
+              return (
+                <tr
+                  key={line.id}
+                  data-tour="role-row"
+                  data-position={line.positionId}
+                  onClick={() => onOpen(line.id)}
+                  className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60"
+                >
+                  <td className="px-3 py-2.5">
+                    <span className="flex flex-col">
+                      <span className="font-medium">{position(line.positionId).name}</span>
+                      <span className="text-caption-1 text-faded">
+                        {bids.length} {bids.length === 1 ? "bid" : "bids"}
+                        {asked && <span className="text-warning-fg"> · countered</span>}
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-faded tabular">{today ? money(today) : "—"}</td>
+                  <td className="px-3 py-2.5 text-right text-faded tabular">{money(b.median)}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {best ? (
+                      <span className="flex flex-col items-end">
+                        <span className="font-semibold tabular">{money(best.bid.billRate)}</span>
+                        <span className="text-caption-1 text-faded">{supplier(best.supplierId).shortName}</span>
+                      </span>
+                    ) : (
+                      <span className="text-faded">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <BenchmarkBar
+                      b={b}
+                      marks={[...(today ? [{ value: today, kind: "today" as const }] : []), ...(best ? [{ value: best.bid.billRate, kind: "best" as const }] : [])]}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
+                    <VsMarket value={best ? vsMarket(best.bid.billRate, b) : undefined} />
+                  </td>
+                  <td className="pr-3">
+                    <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
+        <BenchmarkLegend />
+        {ev.status === "open" && <span className="text-caption-1 text-faded">Open a role to see every bid and counter</span>}
+      </div>
+    </>
   )
 }
 
-function ApproveAll({ ev }: { ev: SourcingEvent }) {
-  const approve = useStore((s) => s.approveBids)
-  const [open, setOpen] = useState(false)
-  const ready = responded(ev).filter((s) => !ev.approved[s])
-  const waiting = ready.filter((s) => openCounters(ev, s).length)
-  const go = ready.filter((s) => !waiting.includes(s))
-  const roles = ev.lines.length
+/** One row per agency, most savings first. */
+function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: string) => void }) {
+  const [query, setQuery] = useState("")
+  const rows = ev.invited
+    .filter((s) => supplier(s).name.toLowerCase().includes(query.trim().toLowerCase()))
+    .map((s) => ({ s, spend: spendOf(ev, s), bid: latestBid(ev, s), status: agencyStatus(ev, s) }))
+    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || b.spend.savings - a.spend.savings)
   return (
     <>
-      <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={!go.length} onClick={() => setOpen(true)} data-tour="approve-all">
+      {ev.invited.length > 8 && (
+        <div className="px-5 pt-3">
+          <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-64" />
+        </div>
+      )}
+      <div className="overflow-x-auto px-2 pt-3 pb-2 scrollbar-thin">
+        <table className="w-full min-w-[640px] text-body-3">
+          <thead>
+            <tr className="text-caption-1 text-faded">
+              <th className={cn(th, "text-left")}>Agency</th>
+              <th className={cn(th, "text-right")}>Roles priced</th>
+              <th className={cn(th, "text-right")}>A year</th>
+              <th className={cn(th, "text-right")}>vs today</th>
+              <th className={cn(th, "text-right")}>vs market</th>
+              <th className="w-6" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ s, spend, bid, status }) => (
+              <tr key={s} data-supplier={s} onClick={() => onOpen(s)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
+                <td className="px-3 py-2.5">
+                  <span className="flex items-center gap-2.5">
+                    <SupplierLogo supplierId={s} size="sm" />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium">{supplier(s).name}</span>
+                      <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
+                        {status.label === "Invited" ? "No bid yet" : status.label}
+                      </span>
+                    </span>
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right text-faded tabular">{bid ? `${Object.keys(bid.lines).length} of ${ev.lines.length}` : "—"}</td>
+                <td className="px-3 py-2.5 text-right font-semibold tabular">{bid ? moneyYear(spend.proposed) : "—"}</td>
+                <td className="px-3 py-2.5 text-right">{bid ? <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> : <span className="text-faded">—</span>}</td>
+                <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
+                  <VsMarket value={bid ? agencyVsMarket(ev, s) : undefined} />
+                </td>
+                <td className="pr-3">
+                  <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+/** A role's market benchmark up top, then every bid on it, lowest first, each one counterable. */
+function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
+  const b = benchmark(ev.cityId, line.positionId)
+  const bids = bidsOn(ev, line)
+  const today = todayOn(line)
+  const waiting = ev.invited.filter((s) => line.baseline[s] !== undefined && !latestBid(ev, s)?.lines[line.id])
+  return (
+    <>
+      <SheetHeader className="gap-1 border-b border-border px-6 pt-6 pb-5">
+        <SheetTitle className="text-featured-3 font-semibold">{position(line.positionId).name}</SheetTitle>
+        <SheetDescription className="text-body-3 text-faded">
+          {city(ev.cityId).name} · {line.hours.toLocaleString("en-US")} hours a year
+        </SheetDescription>
+      </SheetHeader>
+      <MarketBlock b={b} today={today} marks={[...bids.slice(1).map((x) => ({ value: x.bid.billRate, kind: "bid" as const })), ...(today ? [{ value: today, kind: "today" as const }] : []), ...(bids[0] ? [{ value: bids[0].bid.billRate, kind: "best" as const }] : [])]} cityId={ev.cityId} />
+      <section className="flex flex-col gap-1 px-6 py-5">
+        <h3 className="pb-2 text-body-3 font-semibold">Bids, lowest first</h3>
+        {bids.length ? (
+          <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
+            {bids.map((x, i) => (
+              <BidRow key={x.supplierId} ev={ev} line={line} supplierId={x.supplierId} market={b} lead={<SupplierLogo supplierId={x.supplierId} size="md" />} title={supplier(x.supplierId).name} best={i === 0 && bids.length > 1} />
+            ))}
+          </ol>
+        ) : (
+          <p className="text-body-3 text-faded">No bids on this role yet.</p>
+        )}
+        {waiting.length > 0 && (
+          <p className="pt-3 text-caption-1 text-faded">
+            No bid yet from {listOf(waiting.map((s) => supplier(s).shortName))}.
+          </p>
+        )}
+      </section>
+    </>
+  )
+}
+
+/** One agency's bid, role by role, against the market. */
+function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
+  const bid = latestBid(ev, supplierId)
+  const spend = spendOf(ev, supplierId)
+  const status = agencyStatus(ev, supplierId)
+  const lines = ev.lines.filter((l) => bid?.lines[l.id])
+  return (
+    <>
+      <SheetHeader className="flex-row items-center gap-3 border-b border-border px-6 pt-6 pb-5">
+        <SupplierLogo supplierId={supplierId} size="lg" />
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <SheetTitle className="truncate text-featured-3 font-semibold">{supplier(supplierId).name}</SheetTitle>
+          <SheetDescription className="text-body-3 text-faded">
+            {status.label === "Approved" ? "Approved" : status.label === "Countered" ? "Countered" : bid ? `Round ${bid.round}` : "Hasn't bid yet"}
+            {bid ? ` · sent ${formatTimestamp(bid.at)}` : ""}
+          </SheetDescription>
+        </span>
+      </SheetHeader>
+      {bid && (
+        <dl className="grid grid-cols-3 divide-x divide-border border-b border-border text-body-3">
+          {[
+            { label: "A year", value: moneyYear(spend.proposed) },
+            { label: "vs today", value: <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> },
+            { label: "vs market", value: <VsMarket value={agencyVsMarket(ev, supplierId)} /> },
+          ].map((c) => (
+            <div key={c.label} className="flex flex-col gap-0.5 px-6 py-4">
+              <dt className="text-caption-1 text-faded">{c.label}</dt>
+              <dd className="text-body-2 font-semibold tabular">{c.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <section className="flex flex-col px-6 py-5">
+        {lines.length ? (
+          <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
+            {lines.map((l) => (
+              <BidRow key={l.id} ev={ev} line={l} supplierId={supplierId} market={benchmark(ev.cityId, l.positionId)} title={position(l.positionId).name} best={bestOn(ev, l.id)?.supplierId === supplierId && responded(ev).length > 1} />
+            ))}
+          </ol>
+        ) : (
+          <p className="text-body-3 text-faded">Nothing to compare until {supplier(supplierId).shortName} bids.</p>
+        )}
+      </section>
+    </>
+  )
+}
+
+function MarketBlock({ b, today, marks, cityId }: { b: Benchmark; today?: number; marks: Mark[]; cityId: string }) {
+  const stats = [
+    { label: "Market median", value: money(b.median), sub: `${b.agencies} ${city(cityId).name} agencies` },
+    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}`, sub: "Of the market" },
+    { label: "You pay today", value: today ? money(today) : "—", sub: today ? <VsMarket value={vsMarket(today, b)} /> : "No rate yet" },
+  ]
+  return (
+    <section className="flex flex-col gap-4 border-b border-border bg-page-faded/50 px-6 py-5">
+      <dl className="grid grid-cols-3 gap-4">
+        {stats.map((s) => (
+          <div key={s.label} className="flex flex-col gap-0.5">
+            <dt className="text-caption-1 text-faded">{s.label}</dt>
+            <dd className="text-body-2 font-semibold tabular">{s.value}</dd>
+            <dd className="text-caption-1 text-faded">{s.sub}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex flex-col gap-1.5">
+        <BenchmarkBar b={b} marks={marks} className="h-5" />
+        <span className="flex justify-between text-caption-2 text-faded tabular">
+          <span>{money(b.low)}</span>
+          <span>{money(b.high)}</span>
+        </span>
+      </div>
+    </section>
+  )
+}
+
+/** One bid on one role, with its history a click away and a counter right in the row. */
+function BidRow({
+  ev,
+  line,
+  supplierId,
+  market,
+  lead,
+  title,
+  best,
+}: {
+  ev: SourcingEvent
+  line: SourcingLine
+  supplierId: string
+  market: Benchmark
+  lead?: React.ReactNode
+  title: string
+  best: boolean
+}) {
+  const counter = useStore((s) => s.counterBid)
+  const bid = latestBid(ev, supplierId)!.lines[line.id]
+  const asked = openCounters(ev, supplierId).find((m) => m.lineId === line.id)
+  const field = bestOn(ev, line.id)
+  const locked = !!ev.approved[supplierId] || ev.status === "awarded"
+  const first = bidsOf(ev, supplierId).find((b) => b.lines[line.id])?.lines[line.id]
+  const [ask, setAsk] = useState<string | null>(null)
+  const askN = Number(ask)
+  const valid = askN > 0 && askN < bid.billRate
+  const suggest = () => round2(field && field.supplierId !== supplierId && field.billRate < bid.billRate ? field.billRate : Math.min(bid.billRate * 0.97, market.median))
+  const send = () =>
+    void counter(ev.id, supplierId, line.id, askN).then((ok) => {
+      if (!ok) return
+      setAsk(null)
+      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `${position(line.positionId).name} at ${money(askN)}/hr` })
+    })
+  return (
+    <li className="flex flex-col" data-tour="bid-row" data-supplier={supplierId} data-position={line.positionId}>
+      <div className="flex items-center gap-3 px-4 py-3">
+        {lead}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-2">
+            <span className="truncate font-medium">{title}</span>
+            {best && (
+              <StatusBadge tone="positive" size="sm">
+                Lowest
+              </StatusBadge>
+            )}
+          </span>
+          <span className="truncate text-caption-1 text-faded">
+            Pay {money(bid.proRate)} + {bid.markupPct}%{first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}
+          </span>
+        </span>
+        <span className="flex flex-col items-end">
+          <span className="font-semibold tabular">{money(bid.billRate)}</span>
+          <VsMarket value={vsMarket(bid.billRate, market)} className="text-caption-1" />
+        </span>
+        <span className="flex w-[84px] shrink-0 justify-end">
+          {locked ? (
+            <span className="flex items-center gap-1 text-caption-1 font-medium text-positive-fg">
+              <CircleCheck className="size-3.5" /> Approved
+            </span>
+          ) : asked ? (
+            <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
+              <span className="text-right text-caption-1 font-medium text-warning-fg">Asked {money(asked.ask!)}</span>
+            </Tip>
+          ) : ask === null ? (
+            <Button variant="outline" size="sm" data-tour="counter" onClick={() => setAsk(suggest().toFixed(2))}>
+              Counter
+            </Button>
+          ) : null}
+        </span>
+      </div>
+      {ask !== null && !asked && !locked && (
+        <form
+          className="flex items-center gap-2 border-t border-border/70 bg-page-faded/60 px-4 py-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (valid) send()
+          }}
+        >
+          <span className="text-caption-1 font-medium text-faded">Counter at</span>
+          <span className="relative w-28">
+            <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">$</span>
+            <input
+              inputMode="decimal"
+              aria-label="Counter at"
+              value={ask}
+              autoFocus
+              onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
+              className="h-8 w-full rounded-lg border border-input bg-card pr-2 pl-6 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+            />
+          </span>
+          <span className="flex-1 truncate text-caption-1 text-faded">Market {money(market.median)}</span>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAsk(null)}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
+            Send
+          </Button>
+        </form>
+      )}
+    </li>
+  )
+}
+
+function ApproveBids({ ev }: { ev: SourcingEvent }) {
+  const approve = useStore((s) => s.approveBids)
+  const [open, setOpen] = useState(false)
+  const pending = responded(ev).filter((s) => !ev.approved[s])
+  const ready = pending.filter((s) => !openCounters(ev, s).length)
+  const [picked, setPicked] = useState<string[]>([])
+  const chosen = picked.filter((s) => ready.includes(s))
+  const total = chosen.reduce(
+    (t, s) => {
+      const spend = spendOf(ev, s)
+      return { baseline: t.baseline + spend.baseline, proposed: t.proposed + spend.proposed }
+    },
+    { baseline: 0, proposed: 0 },
+  )
+  const go = () =>
+    void approve(ev.id, chosen).then((n) => {
+      if (!n) return
+      setOpen(false)
+      toast.success(n === 1 ? `${supplier(chosen[0]).shortName}'s bid is approved` : `${n} bids approved`, { description: `The new rates are live on the ${city(ev.cityId).name} rate cards.` })
+    })
+  return (
+    <>
+      <Button
+        className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold"
+        disabled={!ready.length}
+        onClick={() => (setPicked(ready), setOpen(true))}
+        data-tour="approve-all"
+        title={pending.length && !ready.length ? "Every bid is waiting on an answer to a counter" : undefined}
+      >
         <Check className="size-4" /> Approve bids
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Approve {go.length === 1 ? `${supplier(go[0]).shortName}'s bid` : `${go.length} bids`}</DialogTitle>
-            <DialogDescription>
-              Their latest prices on {roles} roles go live on their {marketName(ev)} rate cards today. New shifts price at them, and the change is in the rate log.
-            </DialogDescription>
+            <DialogTitle>Approve bids</DialogTitle>
+            <DialogDescription>Each agency&apos;s latest prices go live on its {city(ev.cityId).name} rate card today. New shifts price at them.</DialogDescription>
           </DialogHeader>
-          <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
-            {go.map((s) => {
+          <ul className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-lg border border-border scrollbar-thin">
+            {pending.map((s) => {
               const spend = spendOf(ev, s)
+              const waiting = !ready.includes(s)
               return (
-                <li key={s} className="flex items-center gap-2.5 px-3 py-2">
-                  <SupplierLogo supplierId={s} size="sm" />
-                  <span className="flex-1 font-medium">{supplier(s).name}</span>
-                  <span className="flex flex-col items-end">
-                    <span className="text-body-3 font-semibold tabular">{moneyYear(spend.proposed)}</span>
-                    <Delta value={change(spend.proposed, spend.baseline)} />
-                  </span>
+                <li key={s}>
+                  <label className={cn("flex items-center gap-3 px-3 py-2.5", waiting ? "opacity-60" : "cursor-pointer hover:bg-hover/50")}>
+                    <Checkbox
+                      checked={chosen.includes(s)}
+                      disabled={waiting}
+                      onCheckedChange={(on) => setPicked((p) => (on ? [...p, s] : p.filter((x) => x !== s)))}
+                    />
+                    <SupplierLogo supplierId={s} size="sm" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate font-medium">{supplier(s).name}</span>
+                      <span className="text-caption-1 text-faded">{waiting ? "Waiting on an answer to your counter" : `Round ${latestBid(ev, s)!.round}`}</span>
+                    </span>
+                    <span className="flex flex-col items-end">
+                      <span className="text-body-3 font-semibold tabular">{moneyYear(spend.proposed)}</span>
+                      <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} />
+                    </span>
+                  </label>
                 </li>
               )
             })}
           </ul>
-          {waiting.length > 0 && (
-            <p className="text-caption-1 text-faded">
-              {waiting.map((s) => supplier(s).shortName).join(", ")} still owes you an answer on a counter, so it waits.
+          {chosen.length > 0 && total.baseline > total.proposed && (
+            <p className="text-body-3 text-faded">
+              Saves <span className="font-semibold text-positive-fg">{moneyYear(total.baseline - total.proposed)}</span> a year against today&apos;s rates.
             </p>
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={() =>
-                void approve(ev.id, go).then((n) => {
-                  if (!n) return
-                  setOpen(false)
-                  toast.success(`${n} ${n === 1 ? "bid" : "bids"} approved`, { description: `The new rates are live on the ${marketName(ev)} rate cards.` })
-                })
-              }
-            >
-              Approve and publish rates
+            <Button disabled={!chosen.length} onClick={go}>
+              Approve {chosen.length === 1 ? "1 bid" : `${chosen.length} bids`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -375,232 +629,328 @@ function ApproveAll({ ev }: { ev: SourcingEvent }) {
   )
 }
 
-function Thread({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
-  const items = ev.messages.filter((m) => !supplierId || m.supplierId === supplierId)
-  const rounds = ev.bids.filter((b) => (!supplierId || b.supplierId === supplierId) && b.round === 1)
-  const feed: { at: string; key: string; node: React.ReactNode }[] = [
-    ...items.map((m) => ({ at: m.at, key: m.id, node: <Message m={m} ev={ev} /> })),
-    ...rounds.map((b) => ({
-      at: b.at,
-      key: `${b.supplierId}-bid`,
-      node: (
-        <Entry who={supplier(b.supplierId).contactName} org={supplier(b.supplierId).shortName} supplierId={b.supplierId} at={b.at}>
-          Sent a bid on {Object.keys(b.lines).length} roles.
-        </Entry>
-      ),
-    })),
-  ].sort((a, b) => b.at.localeCompare(a.at))
+/* -------------------------------- Activity -------------------------------- */
+
+interface Entry {
+  key: string
+  at: string
+  supplierId?: string
+  who: string
+  org: string
+  text: string
+  waiting?: boolean
+}
+
+const listOf = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`)
+
+function entriesOf(ev: SourcingEvent, supplierId?: string): Entry[] {
+  const messages: Entry[] = ev.messages
+    .filter((m) => !supplierId || m.supplierId === supplierId)
+    .map((m) => ({
+      key: m.id,
+      at: m.at,
+      supplierId: m.from === "agency" ? m.supplierId : undefined,
+      who: m.by,
+      org: m.from === "compass" ? `Compass to ${supplierId ? "you" : supplier(m.supplierId).shortName}` : supplier(m.supplierId).shortName,
+      text: m.text,
+      waiting: m.open,
+    }))
+  const bids: Entry[] = ev.bids
+    .filter((b) => b.round === 1 && (!supplierId || b.supplierId === supplierId))
+    .map((b) => ({ key: `${b.supplierId}-bid`, at: b.at, supplierId: b.supplierId, who: b.by, org: supplier(b.supplierId).shortName, text: `Sent a bid on ${Object.keys(b.lines).length} roles.` }))
+  const byTime = new Map<string, string[]>()
+  for (const [s, at] of Object.entries(ev.approved)) if (!supplierId || s === supplierId) byTime.set(at, [...(byTime.get(at) ?? []), s])
+  const approvals: Entry[] = [...byTime].map(([at, ids]) => ({
+    key: `${at}-ok`,
+    at,
+    who: ev.createdBy,
+    org: "Compass",
+    text: supplierId ? "Approved your bid. The rates are live." : `Approved ${listOf(ids.map((s) => supplier(s).shortName))}. The rates are live.`,
+  }))
+  return [...messages, ...bids, ...approvals].sort((a, b) => b.at.localeCompare(a.at))
+}
+
+function Activity({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
+  const [all, setAll] = useState(false)
+  const entries = entriesOf(ev, supplierId)
+  const shown = all ? entries : entries.slice(0, 5)
   return (
-    <Surface elevated>
-      <SurfaceHeader title="Negotiation" description={supplierId ? "Between you and Compass" : "Every counter and answer, newest first"} />
-      {feed.length ? (
-        <ol className="flex flex-col px-4 pb-3">{feed.map((f) => <li key={f.key}>{f.node}</li>)}</ol>
+    <Surface elevated className="pb-2">
+      <SurfaceHeader title={supplierId ? "Messages" : "Activity"} description={entries.length ? undefined : "Nothing yet"} />
+      {entries.length ? (
+        <ol className="flex flex-col px-5 pt-2">
+          {shown.map((e) => (
+            <li key={e.key} className="flex gap-3 border-b border-border/60 py-3 last:border-0">
+              {e.supplierId ? (
+                <SupplierLogo supplierId={e.supplierId} size="sm" />
+              ) : (
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-foreground text-[10px] font-semibold text-background">CG</span>
+              )}
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-body-3">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate">
+                    <span className="font-semibold">{e.who}</span> <span className="text-caption-1 text-faded">{e.org}</span>
+                  </span>
+                  <span className="shrink-0 text-caption-1 text-faded" title={formatTimestamp(e.at)}>
+                    {timeAgo(e.at)}
+                  </span>
+                </span>
+                <span className="text-foreground/90">{e.text}</span>
+                {e.waiting && <span className="text-caption-1 font-medium text-warning-fg">Waiting on an answer</span>}
+              </div>
+            </li>
+          ))}
+        </ol>
       ) : (
-        <div className="px-4 pb-4">
-          <EmptyState icon={MessageSquareText} title="Nothing yet" description="Bids and counters show up here." compact />
+        <div className="px-5 pt-3 pb-3">
+          <p className="flex items-center gap-2 text-caption-1 text-faded">
+            <MessageSquareText className="size-3.5" /> Bids and counters show up here.
+          </p>
+        </div>
+      )}
+      {entries.length > 5 && (
+        <div className="px-3">
+          <Button variant="ghost" size="sm" className="w-full text-faded" onClick={() => setAll((a) => !a)}>
+            {all ? "Show less" : `Show all ${entries.length}`}
+          </Button>
         </div>
       )}
     </Surface>
   )
 }
 
-function Message({ m, ev }: { m: SourcingMessage; ev: SourcingEvent }) {
-  const fromCompass = m.from === "compass"
-  const role = m.lineId ? position(ev.lines.find((l) => l.id === m.lineId)!.positionId).name : undefined
-  return (
-    <Entry who={m.by} org={fromCompass ? `Compass to ${supplier(m.supplierId).shortName}` : supplier(m.supplierId).shortName} supplierId={fromCompass ? undefined : m.supplierId} at={m.at}>
-      <span className="flex flex-wrap items-center gap-1.5">
-        {role && (
-          <StatusBadge tone="neutral" size="sm">
-            {role}
-          </StatusBadge>
-        )}
-        {m.ask !== undefined && (
-          <StatusBadge tone={m.open ? "warning" : "neutral"} size="sm">
-            Asked {money(m.ask)}
-            {m.open ? " · waiting" : ""}
-          </StatusBadge>
-        )}
-      </span>
-      <span>{m.text}</span>
-    </Entry>
-  )
-}
-
-function Entry({ who, org, supplierId, at, children }: { who: string; org: string; supplierId?: string; at: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-3 border-b border-border/60 py-3 last:border-0">
-      {supplierId ? (
-        <SupplierLogo supplierId={supplierId} size="sm" />
-      ) : (
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-foreground text-[10px] font-semibold text-background">CG</span>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col gap-1 text-body-3">
-        <span className="flex flex-wrap items-baseline gap-x-2">
-          <span className="font-semibold">{who}</span>
-          <span className="text-caption-1 text-faded">{org}</span>
-          <span className="ml-auto text-caption-1 text-faded tabular">{formatTimestamp(at)}</span>
-        </span>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 /* --------------------------------- Agency --------------------------------- */
 
-function AgencyBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
+function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
   const data = useData()
   const submit = useStore((s) => s.submitBid)
   const bid = latestBid(ev, supplierId)
   const counters = openCounters(ev, supplierId)
   const approvedAt = ev.approved[supplierId]
   const locked = !!approvedAt || ev.status === "awarded"
-  const start = () =>
+  const [form, setForm] = useState<Record<string, { pay: string; markup: string }>>(() =>
     Object.fromEntries(
       ev.lines.map((l) => {
-        const b = bid?.lines[l.id]
-        const card = activeCard(data.rateCards, supplierId, ev.cityId, l.positionId)
-        const v = b ?? card
+        const v = bid?.lines[l.id] ?? activeCard(data.rateCards, supplierId, ev.cityId, l.positionId)
         return [l.id, { pay: v ? v.proRate.toFixed(2) : "", markup: v ? String(v.markupPct) : "" }]
       }),
-    )
-  const [form, setForm] = useState<Record<string, { pay: string; markup: string }>>(start)
+    ),
+  )
+  const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const set = (lineId: string, patch: Partial<{ pay: string; markup: string }>) => setForm((f) => ({ ...f, [lineId]: { ...f[lineId], ...patch } }))
 
   const priced = ev.lines.flatMap((l) => {
-    const pay = Number(form[l.id]?.pay)
-    const markup = Number(form[l.id]?.markup)
-    return pay > 0 && form[l.id]?.markup !== "" && markup >= 0 ? [{ line: l, pay, markup, bill: billFrom(pay, markup) }] : []
+    const f = form[l.id]
+    const pay = Number(f?.pay)
+    const markup = Number(f?.markup)
+    return pay > 0 && f?.markup !== "" && markup >= 0 ? [{ line: l, pay, markup, bill: billFrom(pay, markup) }] : []
   })
-  const over = priced.filter((p) => p.markup > PROGRAM.maxMarkupPct)
+  const over = priced.some((p) => p.markup > PROGRAM.maxMarkupPct)
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
+  const today = spendOf(ev, supplierId).baseline
   const round = (bid?.round ?? 0) + 1
+  const status = agencyStatus(ev, supplierId)
 
   const send = async () => {
     setBusy(true)
-    const n = await submit(ev.id, Object.fromEntries(priced.map((p) => [p.line.id, { proRate: p.pay, markupPct: p.markup }])))
+    const n = await submit(
+      ev.id,
+      Object.fromEntries(priced.map((p) => [p.line.id, { proRate: p.pay, markupPct: p.markup }])),
+      note.trim() || undefined,
+    )
     setBusy(false)
-    if (n) toast.success(n === 1 ? "Bid sent to Compass" : `Round ${n} sent to Compass`, { description: "You'll hear back here." })
+    if (!n) return
+    setNote("")
+    toast.success(n === 1 ? "Bid sent to Compass" : `Round ${n} sent to Compass`, { description: "Compass's answer shows up here." })
   }
 
   return (
-    <>
-      {approvedAt ? (
-        <Surface className="flex items-center gap-3 border-positive-border/80 bg-positive-faded px-4 py-3 text-body-3">
-          <CircleCheck className="size-4 text-positive-fg" />
-          <span>
-            Compass approved your bid on {formatTimestamp(approvedAt)}. These rates are live on your rate card.{" "}
+    <div className="grid gap-4 xl:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
+        {approvedAt ? (
+          <Banner tone="positive" icon={CircleCheck}>
+            Compass approved your bid on {formatDateFull(approvedAt.slice(0, 10))}. These rates are live on your rate card.{" "}
             <Link href="/procurement?tab=rates" className="font-medium underline underline-offset-4">
               See your rate cards
             </Link>
-          </span>
-        </Surface>
-      ) : counters.length ? (
-        <Surface className="flex items-center gap-3 border-warning-border/80 bg-warning-faded px-4 py-3 text-body-3">
-          <MessageSquareText className="size-4 text-warning-fg" />
-          <span>
+          </Banner>
+        ) : counters.length ? (
+          <Banner tone="warning" icon={MessageSquareText}>
             Compass countered {counters.length === 1 ? "one of your rates" : `${counters.length} of your rates`}. Accept the ask or send your best, then send round {round}.
-          </span>
-        </Surface>
-      ) : null}
-      <Surface elevated className="overflow-hidden" data-tour="agency-bid">
-        <SurfaceHeader
-          title={bid ? `Your bid · round ${bid.round}` : "Your bid"}
-          info="Hours are Compass's estimate for the year. Leave a role blank to skip it."
-          description={bid ? `Sent ${formatTimestamp(bid.at)}` : `Due ${formatDateShort(ev.closesOn)}`}
-        />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-body-3">
-            <thead className="border-y border-border bg-page-faded text-caption-1 text-faded">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-medium">Role</th>
-                <th className="px-3 py-2.5 text-right font-medium">Hours a year</th>
-                <th className="px-3 py-2.5 text-right font-medium">Today</th>
-                <th className="px-3 py-2.5 text-right font-medium">Pay rate</th>
-                <th className="px-3 py-2.5 text-right font-medium">Markup</th>
-                <th className="px-4 py-2.5 text-right font-medium">Bill rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ev.lines.map((l) => {
-                const f = form[l.id]
-                const pay = Number(f?.pay)
-                const markup = Number(f?.markup)
-                const bill = pay > 0 && f?.markup !== "" ? billFrom(pay, markup) : undefined
-                const ask = counters.find((m) => m.lineId === l.id)
-                return (
-                  <tr key={l.id} className="border-b border-border/70 last:border-0">
-                    <td className="px-4 py-2 font-semibold">{position(l.positionId).name}</td>
-                    <td className="px-3 py-2 text-right text-faded tabular">{l.hours.toLocaleString("en-US")}</td>
-                    <td className="px-3 py-2 text-right text-faded tabular">{l.baseline[supplierId] ? money(l.baseline[supplierId]) : "—"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <NumberField prefix="$" value={f?.pay ?? ""} disabled={locked} onChange={(v) => set(l.id, { pay: v })} />
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <NumberField suffix="%" value={f?.markup ?? ""} disabled={locked} invalid={markup > PROGRAM.maxMarkupPct} onChange={(v) => set(l.id, { markup: v })} />
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <span className="flex flex-col items-end">
-                        <span className="font-semibold tabular">{bill ? money(bill) : "—"}</span>
-                        {ask && !locked ? (
-                          <button
-                            type="button"
-                            className="text-caption-1 font-medium text-warning-fg underline-offset-4 hover:underline"
-                            onClick={() => pay > 0 && set(l.id, { markup: String(round2((ask.ask! / pay - 1) * 100)) })}
-                          >
-                            Compass asks {money(ask.ask!)} · Accept
-                          </button>
-                        ) : bill ? (
-                          <Delta value={change(bill, l.baseline[supplierId])} />
-                        ) : null}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        {!locked && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-page-faded/60 px-4 py-3">
-            <span className="text-body-3 text-faded">
-              {over.length ? (
-                <span className="text-critical-fg">Markup is capped at {PROGRAM.maxMarkupPct}% on this program.</span>
-              ) : (
-                <>
-                  About <span className="font-semibold text-foreground tabular">{moneyYear(billings)}</span> a year at your share of the hours
-                </>
-              )}
-            </span>
-            <Button disabled={busy || !priced.length || over.length > 0} onClick={send} data-tour="submit-bid">
-              {bid ? `Send round ${round}` : "Submit bid"}
-            </Button>
+          </Banner>
+        ) : null}
+        <Surface elevated className="overflow-hidden" data-tour="agency-bid">
+          <SurfaceHeader
+            title={bid ? `Your bid, round ${bid.round}` : "Your bid"}
+            description={bid ? `Sent ${formatTimestamp(bid.at)}` : `Due ${formatDateShort(ev.closesOn)}`}
+            info="Hours are Compass's estimate for the year. Leave a role blank to skip it."
+          />
+          <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
+            <table className="w-full min-w-[640px] text-body-3">
+              <thead>
+                <tr className="text-caption-1 text-faded">
+                  <th className="px-3 pb-2 text-left font-medium">Role</th>
+                  <th className="px-3 pb-2 text-right font-medium">Hours a year</th>
+                  <th className="px-3 pb-2 text-right font-medium">Today</th>
+                  <th className="px-3 pb-2 text-right font-medium">Pay rate</th>
+                  <th className="px-3 pb-2 text-right font-medium">Markup</th>
+                  <th className="px-3 pb-2 text-right font-medium">Bill rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ev.lines.map((l) => {
+                  const f = form[l.id]
+                  const pay = Number(f?.pay)
+                  const markup = Number(f?.markup)
+                  const bill = pay > 0 && f?.markup !== "" ? billFrom(pay, markup) : undefined
+                  const ask = locked ? undefined : counters.find((m) => m.lineId === l.id)
+                  const was = l.baseline[supplierId]
+                  return (
+                    <tr key={l.id} className={cn("border-t border-border/70", ask && "bg-warning-faded/50")}>
+                      <td className="px-3 py-2">
+                        <span className="flex flex-col">
+                          <span className="font-medium">{position(l.positionId).name}</span>
+                          {ask && (
+                            <span className="text-caption-1 text-warning-fg">
+                              Compass asks {money(ask.ask!)}
+                              <button
+                                type="button"
+                                className="ml-2 font-semibold underline-offset-4 hover:underline"
+                                onClick={() => pay > 0 && set(l.id, { markup: String(round2((ask.ask! / pay - 1) * 100)) })}
+                              >
+                                Accept
+                              </button>
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-faded tabular">{l.hours.toLocaleString("en-US")}</td>
+                      <td className="px-3 py-2 text-right text-faded tabular">{was ? money(was) : "—"}</td>
+                      <td className="px-3 py-2 text-right">
+                        <NumberField prefix="$" value={f?.pay ?? ""} disabled={locked} label={`${position(l.positionId).name} pay rate`} onChange={(v) => set(l.id, { pay: v })} />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <NumberField
+                          suffix="%"
+                          value={f?.markup ?? ""}
+                          disabled={locked}
+                          invalid={markup > PROGRAM.maxMarkupPct}
+                          label={`${position(l.positionId).name} markup`}
+                          onChange={(v) => set(l.id, { markup: v })}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <span className="flex flex-col items-end">
+                          <span className="font-semibold tabular">{bill ? money(bill) : "—"}</span>
+                          {bill && was ? <Change value={bill / was - 1} /> : null}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
-      </Surface>
-      <Thread ev={ev} supplierId={supplierId} />
-    </>
+          {!locked && (
+            <div className="flex flex-wrap items-center gap-3 border-t border-border bg-page-faded/60 px-5 py-3">
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to Compass (optional)" className="h-9 min-w-56 flex-1 rounded-lg bg-card" />
+              <Button className="h-9" disabled={busy || !priced.length || over} onClick={send} data-tour="submit-bid">
+                {bid ? `Send round ${round}` : "Submit bid"}
+              </Button>
+            </div>
+          )}
+          {over && !locked && <p className="px-5 pb-3 text-caption-1 text-critical-fg">Markup is capped at {PROGRAM.maxMarkupPct}% on this program.</p>}
+        </Surface>
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <Surface elevated className="flex flex-col gap-4 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-body-3 text-faded">Your bid</span>
+            <StatusBadge tone={status.tone} size="sm" dot>
+              {status.label === "Invited" ? "Not sent yet" : status.label}
+            </StatusBadge>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular">{moneyYear(billings)}</span>
+            <span className="text-caption-1 text-faded">A year at your share of the hours</span>
+          </div>
+          <dl className="flex flex-col gap-2 border-t border-border/70 pt-4 text-body-3">
+            <div className="flex justify-between gap-3">
+              <dt className="text-faded">At today&apos;s rates</dt>
+              <dd className="font-medium tabular">{moneyYear(today)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-faded">Roles priced</dt>
+              <dd className="font-medium tabular">
+                {priced.length} of {ev.lines.length}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-faded">{todayISO() > ev.closesOn ? "Bids closed" : "Bids due"}</dt>
+              <dd className="font-medium">{formatDateFull(ev.closesOn)}</dd>
+            </div>
+          </dl>
+        </Surface>
+        <Surface elevated className="pb-4">
+          <SurfaceHeader title="Timeline" />
+          <div className="px-5 pt-4">
+            <Timeline ev={ev} />
+          </div>
+        </Surface>
+        <Activity ev={ev} supplierId={supplierId} />
+      </div>
+    </div>
   )
 }
 
-function NumberField({ value, onChange, prefix, suffix, disabled, invalid }: { value: string; onChange: (v: string) => void; prefix?: string; suffix?: string; disabled?: boolean; invalid?: boolean }) {
+function Banner({ tone, icon: Icon, children }: { tone: "positive" | "warning"; icon: typeof CircleCheck; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-xl border px-4 py-3 text-body-3",
+        tone === "positive" ? "border-positive-border/80 bg-positive-faded" : "border-warning-border/80 bg-warning-faded",
+      )}
+    >
+      <Icon className={cn("mt-0.5 size-4 shrink-0", tone === "positive" ? "text-positive-fg" : "text-warning-fg")} />
+      <span>{children}</span>
+    </div>
+  )
+}
+
+function NumberField({
+  value,
+  onChange,
+  prefix,
+  suffix,
+  disabled,
+  invalid,
+  label,
+}: {
+  value: string
+  onChange: (v: string) => void
+  prefix?: string
+  suffix?: string
+  disabled?: boolean
+  invalid?: boolean
+  label: string
+}) {
+  if (disabled) return <span className="tabular">{value ? `${prefix ?? ""}${value}${suffix ?? ""}` : "—"}</span>
   return (
     <span className="relative ml-auto inline-block w-24">
-      {prefix && <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">{prefix}</span>}
+      {prefix && <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">{prefix}</span>}
       <input
         inputMode="decimal"
+        aria-label={label}
         value={value}
-        disabled={disabled}
         onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ""))}
         className={cn(
-          "h-8 w-full rounded-md border border-input bg-card text-right text-body-3 font-medium tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15 disabled:bg-transparent disabled:border-transparent",
+          "h-8 w-full rounded-md border border-input bg-card text-right text-body-3 font-medium tabular outline-none transition-shadow focus:border-primary/60 focus:ring-2 focus:ring-primary/15",
           prefix ? "pr-2.5 pl-6" : "pr-7 pl-2.5",
           invalid && "border-critical-border text-critical-fg",
         )}
       />
-      {suffix && <span className="absolute top-1/2 right-2.5 -translate-y-1/2 text-body-3 text-faded">{suffix}</span>}
+      {suffix && <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-body-3 text-faded">{suffix}</span>}
     </span>
   )
 }

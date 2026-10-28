@@ -102,7 +102,7 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
         <button
           type="button"
           onClick={() => setPalette(true)}
-          className="hidden h-8 w-56 items-center gap-2 rounded-lg border border-border bg-tint-faded pr-1.5 pl-2.5 text-body-3 text-subtle transition-colors duration-100 outline-none hover:border-border-strong hover:text-faded focus-visible:ring-2 focus-visible:ring-ring/30 md:flex lg:w-64"
+          className="hidden h-8 w-44 items-center gap-2 rounded-lg border border-border bg-tint-faded pr-1.5 pl-2.5 text-body-3 text-subtle transition-colors duration-100 outline-none hover:border-border-strong hover:text-faded focus-visible:ring-2 focus-visible:ring-ring/30 md:flex xl:w-64"
         >
           <Search className="size-4 shrink-0" />
           <span className="flex-1 truncate text-left">Search or jump to</span>

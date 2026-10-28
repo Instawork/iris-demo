@@ -1,30 +1,31 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { FileSearch, Plus } from "lucide-react"
+import { ChevronRight, FileSearch, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
-import { PageHeader } from "@/components/common/page-header"
+import { InfoTip } from "@/components/common/info-tip"
+import { PageHeader, SectionTitle } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
-import { StatCard } from "@/components/common/stat-card"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { NewEventDialog } from "@/components/procurement/new-event-dialog"
-import { Responders, StageBadge, agencyStatus, moneyYear } from "@/components/procurement/sourcing-bits"
+import { MarketRates } from "@/components/procurement/market-rates"
+import { Change, StageBadge, VsMarket, agencyStatus, moneyYear } from "@/components/procurement/sourcing-bits"
 import { RatesPage } from "@/components/rates/rates-page"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { daysFromToday, formatDateShort, todayISO } from "@/lib/dates"
+import { daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
 import { pct } from "@/lib/format"
-import { marketName, openCounters, responded, spendOf, stageOf } from "@/lib/sourcing"
+import { city } from "@/lib/reference"
+import { benchmark } from "@/lib/market"
+import { latestBid, responded, spendOf } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type Tab = "events" | "rates"
-
-const compact = (n: number) => (Math.abs(n) >= 1e6 ? { value: n / 1e6, decimals: 2, suffix: "M" } : { value: n / 1e3, decimals: 0, suffix: "K" })
 
 /**
  * Procurement: Compass runs sourcing events with its agencies, and the rate cards they produce sit beside them. An
@@ -38,7 +39,10 @@ export function ProcurementPage() {
   const [tab, setTab] = useState<Tab>(params.get("tab") === "rates" ? "rates" : "events")
   const [creating, setCreating] = useState(false)
   const isAgency = ws.kind === "supplier"
-  const events = useMemo(() => (data.sourcing ?? []).filter((e) => !isAgency || e.invited.includes(ws.supplierId!)), [data.sourcing, isAgency, ws.supplierId])
+  const events = useMemo(
+    () => (data.sourcing ?? []).filter((e) => !isAgency || e.invited.includes(ws.supplierId!)).sort((a, b) => b.openedAt.localeCompare(a.openedAt)),
+    [data.sourcing, isAgency, ws.supplierId],
+  )
 
   const change = (next: Tab) => {
     setTab(next)
@@ -53,7 +57,7 @@ export function ProcurementPage() {
         description={
           isAgency
             ? "Compass's invitations to bid, and your rate cards. Approved bids go live on your rate card."
-            : "Invite agencies to bid, compare and negotiate line by line, then approve. Approved bids become rate cards."
+            : "Benchmark every rate against the market, run sourcing events, and approve the bids that win."
         }
         actions={
           !isAgency &&
@@ -68,167 +72,193 @@ export function ProcurementPage() {
         value={tab}
         onChange={change}
         items={[
-          { value: "events", label: isAgency ? "Invitations" : "Sourcing events", count: events.filter((e) => e.status === "open").length },
-          { value: "rates", label: isAgency ? "My rate cards" : "Rate cards" },
+          { value: "events", label: isAgency ? "Invitations" : "Events", count: events.filter((e) => e.status === "open").length },
+          { value: "rates", label: isAgency ? "My rate cards" : "Market rates" },
         ]}
       />
-      {tab === "rates" ? <RatesPage embedded /> : isAgency ? <Invitations events={events} supplierId={ws.supplierId!} /> : <Events events={events} />}
+      {tab === "rates" ? isAgency ? <RatesPage embedded /> : <MarketRates /> : <Events events={events} supplierId={isAgency ? ws.supplierId : undefined} onCreate={() => setCreating(true)} />}
       {!isAgency && <NewEventDialog open={creating} onOpenChange={setCreating} />}
     </>
   )
 }
 
-function Events({ events }: { events: SourcingEvent[] }) {
-  const router = useRouter()
-  const today = todayISO()
-  const live = events.filter((e) => e.status === "open")
-  const totals = live.reduce(
-    (t, e) => {
-      const s = spendOf(e)
-      return { baseline: t.baseline + s.baseline, savings: t.savings + s.savings, bids: t.bids + responded(e).length, invited: t.invited + e.invited.length, counters: t.counters + openCounters(e).length }
-    },
-    { baseline: 0, savings: 0, bids: 0, invited: 0, counters: 0 },
-  )
-
-  const columns: Column<SourcingEvent>[] = [
-    {
-      id: "event",
-      header: "Event",
-      sortValue: (e) => e.openedAt,
-      cell: (e) => (
-        <span className="flex flex-col">
-          <span className="font-semibold">{e.title}</span>
-          <span className="font-mono text-caption-1 text-faded">{e.number}</span>
-        </span>
-      ),
-    },
-    {
-      id: "category",
-      header: "Category",
-      cell: (e) => (
-        <StatusBadge tone="neutral" size="sm">
-          {e.category}
-        </StatusBadge>
-      ),
-    },
-    { id: "stage", header: "Stage", sortValue: (e) => stageOf(e, today), cell: (e) => <StageBadge ev={e} size="sm" /> },
-    { id: "bids", header: "Bids", sortValue: (e) => responded(e).length / e.invited.length, cell: (e) => <Responders ev={e} /> },
-    {
-      id: "due",
-      header: "Bids due",
-      sortValue: (e) => e.closesOn,
-      cell: (e) => {
-        const days = daysFromToday(e.closesOn)
-        return (
-          <span className="flex flex-col whitespace-nowrap">
-            <span className="tabular">{formatDateShort(e.closesOn)}</span>
-            <span className="text-caption-1 text-faded">{e.status === "awarded" ? "Closed" : days >= 0 ? `In ${days} day${days === 1 ? "" : "s"}` : "Closed"}</span>
-          </span>
-        )
-      },
-    },
-    { id: "spend", header: "Spend a year", align: "right", sortValue: (e) => spendOf(e).baseline, cell: (e) => <span className="tabular">{moneyYear(spendOf(e).baseline)}</span> },
-    {
-      id: "savings",
-      header: "Savings",
-      info: "Latest bids against today's rates, at each agency's share of the hours.",
-      align: "right",
-      sortValue: (e) => spendOf(e).savingsPct,
-      cell: (e) => {
-        const s = spendOf(e)
-        if (!responded(e).length) return <span className="text-faded">—</span>
-        return (
-          <span className="flex flex-col items-end tabular">
-            <span className={cn("font-semibold", s.savings > 0 ? "text-positive-fg" : "text-critical-fg")}>
-              {s.savings > 0 ? "−" : "+"}
-              {pct(Math.abs(s.savingsPct), 1)}
-            </span>
-            <span className="text-caption-1 text-faded">{moneyYear(Math.abs(s.savings))} a year</span>
-          </span>
-        )
-      },
-    },
-  ]
-
+function Events({ events, supplierId, onCreate }: { events: SourcingEvent[]; supplierId?: string; onCreate: () => void }) {
+  const open = events.filter((e) => e.status === "open")
+  const closed = events.filter((e) => e.status !== "open")
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Spend in negotiation" prefix="$" {...compact(totals.baseline)} sub={`A year, across ${live.length} open event${live.length === 1 ? "" : "s"}`} tone="brand" />
-        <StatCard
-          label="Projected savings"
-          info="What the latest bids save against today's rates, at each agency's share of the hours."
-          prefix="$"
-          {...compact(totals.savings)}
-          sub={totals.baseline ? `${pct(totals.savings / totals.baseline, 1)} below today's rates` : undefined}
-          tone="positive"
-        />
-        <StatCard
-          label="Bids in"
-          value={totals.bids}
-          suffix={`of ${totals.invited}`}
-          sub={totals.counters ? `${totals.counters} counter${totals.counters === 1 ? "" : "s"} waiting on agencies` : "Nothing waiting on agencies"}
-        />
-      </div>
-      <Surface elevated className="overflow-hidden">
-        <DataTable
-          rows={events}
-          columns={columns}
-          getRowId={(e) => e.id}
-          onRowClick={(e) => router.push(`/procurement/${e.id}`)}
-          rowClassName={(e) => (e.status === "awarded" ? "text-faded" : undefined)}
-          initialSort={{ id: "event", dir: "desc" }}
-          empty={<EmptyState icon={FileSearch} title="No sourcing events yet" description="Start one to have agencies bid on a market's roles." compact />}
-        />
-      </Surface>
+      {!supplierId && open.length > 0 && <Summary events={open} />}
+      <section className="flex flex-col gap-3">
+        <SectionTitle title={supplierId ? "Open invitations" : "Open"} />
+        {open.length ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {open.map((e) => (
+              <EventCard key={e.id} ev={e} supplierId={supplierId} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={FileSearch}
+            title={supplierId ? "No open invitations" : "No open events"}
+            description={supplierId ? "When Compass invites you to bid, it shows up here." : "Start one to have agencies bid on a market's roles."}
+            actions={
+              !supplierId && (
+                <Button variant="outline" onClick={onCreate}>
+                  <Plus className="size-4" /> New event
+                </Button>
+              )
+            }
+            compact
+          />
+        )}
+      </section>
+      {closed.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <SectionTitle title="Closed" />
+          <Surface elevated className="divide-y divide-border overflow-hidden">
+            {closed.map((e) => (
+              <ClosedRow key={e.id} ev={e} supplierId={supplierId} />
+            ))}
+          </Surface>
+        </section>
+      )}
     </>
   )
 }
 
-function Invitations({ events, supplierId }: { events: SourcingEvent[]; supplierId: string }) {
-  const router = useRouter()
-  const columns: Column<SourcingEvent>[] = [
-    {
-      id: "event",
-      header: "Event",
-      sortValue: (e) => e.openedAt,
-      cell: (e) => (
-        <span className="flex flex-col">
-          <span className="font-semibold">{e.title}</span>
-          <span className="font-mono text-caption-1 text-faded">{e.number}</span>
-        </span>
-      ),
+/** What's on the table across every open event, in one strip. */
+function Summary({ events }: { events: SourcingEvent[] }) {
+  const t = events.reduce(
+    (sum, e) => {
+      const s = spendOf(e)
+      const m = marketSpend(e)
+      return { baseline: sum.baseline + s.baseline, savings: sum.savings + s.savings, proposed: sum.proposed + m.proposed, market: sum.market + m.market }
     },
-    { id: "market", header: "Market", cell: (e) => marketName(e) },
-    { id: "roles", header: "Roles", align: "right", cell: (e) => <span className="tabular">{e.lines.length}</span> },
+    { baseline: 0, savings: 0, proposed: 0, market: 0 },
+  )
+  const cells = [
+    { label: "Spend being negotiated", value: moneyYear(t.baseline), sub: `A year, across ${events.length} open event${events.length === 1 ? "" : "s"}` },
     {
-      id: "due",
-      header: "Bids due",
-      sortValue: (e) => e.closesOn,
-      cell: (e) => <span className="tabular">{formatDateShort(e.closesOn)}</span>,
+      label: "Projected savings",
+      value: t.savings > 0 ? moneyYear(t.savings) : "—",
+      sub: t.baseline && t.savings > 0 ? `A year, ${pct(t.savings / t.baseline, 1)} below today's rates` : "Waiting on bids",
+      positive: t.savings > 0,
+      info: "The latest bids against today's rates, at each agency's share of the hours.",
     },
     {
-      id: "status",
-      header: "Your bid",
-      cell: (e) => {
-        const s = agencyStatus(e, supplierId)
-        return (
-          <StatusBadge tone={s.tone} size="sm" dot>
-            {s.label}
-          </StatusBadge>
-        )
-      },
+      label: "Latest bids vs the market",
+      value: t.market ? <VsMarket value={t.proposed / t.market - 1} /> : "—",
+      sub: "Against each market's median rate",
+      info: "Each role's bids against what agencies across that market bill for it, weighted by hours.",
     },
   ]
   return (
-    <Surface elevated className="overflow-hidden">
-      <DataTable
-        rows={events}
-        columns={columns}
-        getRowId={(e) => e.id}
-        onRowClick={(e) => router.push(`/procurement/${e.id}`)}
-        initialSort={{ id: "event", dir: "desc" }}
-        empty={<EmptyState icon={FileSearch} title="No invitations yet" description="When Compass invites you to bid, it shows up here." compact />}
-      />
+    <Surface elevated className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      {cells.map((c) => (
+        <div key={c.label} className="flex flex-col gap-0.5 px-5 py-4">
+          <span className="flex items-center gap-1.5 text-body-3 text-faded">
+            {c.label}
+            {c.info && <InfoTip>{c.info}</InfoTip>}
+          </span>
+          <span className={cn("text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular", c.positive && "text-positive-fg")}>{c.value}</span>
+          <span className="text-caption-1 text-faded">{c.sub}</span>
+        </div>
+      ))}
     </Surface>
+  )
+}
+
+/** The latest bids and the market median over the same hours, for roles with a bid. */
+function marketSpend(ev: SourcingEvent) {
+  let proposed = 0
+  let market = 0
+  for (const line of ev.lines) {
+    for (const [s, share] of Object.entries(line.share)) {
+      const rate = latestBid(ev, s)?.lines[line.id]?.billRate
+      if (rate === undefined) continue
+      proposed += line.hours * share * rate
+      market += line.hours * share * benchmark(ev.cityId, line.positionId).median
+    }
+  }
+  return { proposed, market }
+}
+
+function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
+  const spend = spendOf(ev, supplierId)
+  const days = daysFromToday(ev.closesOn)
+  const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
+  const bids = responded(ev).length
+  const facts = [
+    supplierId
+      ? { label: "Your billings", value: `${moneyYear(spend.baseline)} a year` }
+      : { label: "Bids in", value: `${bids} of ${ev.invited.length}` },
+    {
+      label: days >= 0 ? "Bids due" : "Bids closed",
+      value: days >= 0 ? `${formatDateShort(ev.closesOn)} · ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} left`}` : formatDateShort(ev.closesOn),
+    },
+    ...(supplierId
+      ? []
+      : [{ label: "Projected savings", value: bids ? (spend.savings > 0 ? `${moneyYear(spend.savings)} a year` : "None yet") : "—", positive: spend.savings > 0 && bids > 0 }]),
+  ]
+  return (
+    <Link
+      href={`/procurement/${ev.id}`}
+      data-event={ev.id}
+      className="group flex flex-col gap-5 rounded-xl border border-border bg-card p-5 shadow-raised outline-none transition-colors duration-100 hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring/40"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
+          <span className="text-featured-3 leading-snug font-semibold">{ev.title}</span>
+          <span className="text-body-3 text-faded">
+            {city(ev.cityId).name} · {ev.lines.length} roles · {ev.invited.length} agencies
+          </span>
+        </div>
+        {mine ? (
+          <StatusBadge tone={mine.tone} size="sm" dot>
+            {mine.label === "Invited" ? "Not bid yet" : mine.label}
+          </StatusBadge>
+        ) : (
+          <StageBadge ev={ev} size="sm" />
+        )}
+      </div>
+      <div className="flex items-end gap-6 border-t border-border/70 pt-4">
+        {facts.map((f) => (
+          <span key={f.label} className="flex min-w-0 flex-col">
+            <span className="text-caption-1 text-faded">{f.label}</span>
+            <span className={cn("truncate text-body-3 font-semibold tabular", "positive" in f && f.positive && "text-positive-fg")}>{f.value}</span>
+          </span>
+        ))}
+        <ChevronRight className="ml-auto size-4 shrink-0 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+      </div>
+    </Link>
+  )
+}
+
+function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
+  const spend = spendOf(ev, supplierId)
+  const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
+  return (
+    <Link href={`/procurement/${ev.id}`} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-hover/60">
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate font-medium">{ev.title}</span>
+        <span className="text-caption-1 text-faded">
+          <span className="font-mono">{ev.number}</span> · {ev.category} · {ev.lines.length} roles
+        </span>
+      </span>
+      <span className="hidden flex-col items-end sm:flex">
+        <span className="text-caption-1 text-faded">Approved</span>
+        <span className="text-body-3 tabular">{ev.awardedAt ? formatDateFull(ev.awardedAt.slice(0, 10)) : "—"}</span>
+      </span>
+      <span className="flex w-28 flex-col items-end">
+        <span className="text-caption-1 text-faded">{supplierId ? "Your bid" : "vs the year before"}</span>
+        {mine ? (
+          <span className="text-body-3">{mine.label}</span>
+        ) : (
+          <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} />
+        )}
+      </span>
+      <ChevronRight className="size-4 text-subtle" />
+    </Link>
   )
 }

@@ -7,6 +7,7 @@ import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
+import { benchmark } from "@/lib/market"
 import { billingFindings, billingToReview, complianceScore, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { SUPPLIERS, location, position, supplier } from "@/lib/reference"
@@ -608,16 +609,16 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: /^\/procurement\/rfp-chi-27/,
     href: () => "/procurement/rfp-chi-27",
-    title: "Next year's rates, negotiated here",
+    title: "Next year's rates, benchmarked and negotiated",
     body: (ctx) => {
       const ev = ctx.data.sourcing?.find((e) => e.id === "rfp-chi-27")
       const line = ev?.lines.find((l) => l.positionId === "bartender")
       const bid = ev && line ? latestBid(ev, "harbor")?.lines[line.id] : undefined
       const was = line?.baseline.harbor
-      const cut = bid && was && bid.billRate < was ? ` Harbor's Bartender came down from ${money(was)} to ${money(bid.billRate)}.` : ""
-      return `Agencies bid on every role and Compass counters line by line.${cut} Approved bids go live on their rate cards.`
+      const cut = bid && was && bid.billRate < was ? ` After a counter, Harbor's Bartender came down from ${money(was)} to ${money(bid.billRate)}.` : ""
+      return `Every role's bids sit against what ${benchmark("chi", "bartender").agencies} Chicago agencies charge.${cut} Approved bids go live on the rate cards.`
     },
-    targets: () => [one('[data-tour="bid-cell"][data-supplier="harbor"][data-position="bartender"]')],
+    targets: () => [one('[data-tour="role-row"][data-position="bartender"]')],
     placement: "bottom",
     skip: () => undefined,
   },

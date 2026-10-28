@@ -204,7 +204,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     round: 1,
     at: at(addDaysISO(today, -11 + i), 14 + i),
     by: supplier(s).contactName,
-    lines: firstRound(chiLines, cards, "chi", s, cut[s] ?? 3, s === "harbor" ? { bartender: 52, suite: 46 } : {}),
+    lines: firstRound(chiLines, cards, "chi", s, cut[s] ?? 3, s === "harbor" ? { bartender: 45, suite: 44.5 } : {}),
   }))
   const bartender = chiLines.find((l) => l.positionId === "bartender")!
   const barback = chiLines.find((l) => l.positionId === "barback")!
