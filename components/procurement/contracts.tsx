@@ -56,7 +56,7 @@ export function Contracts() {
     <Surface elevated className="overflow-hidden" data-tour="contracts">
       <SurfaceHeader title="Agency contracts" info="Spend is a year at today's rates and each agency's share of the hours." />
       <div className="overflow-x-auto px-2 pt-3 pb-2 scrollbar-thin">
-        <table className="w-full min-w-[760px] text-body-3">
+        <table className="w-full min-w-[600px] text-body-3">
           <thead>
             <tr className="text-caption-1 text-faded">
               <th className={cn(th, "text-left")}>Agency</th>
@@ -67,15 +67,13 @@ export function Contracts() {
                   <InfoTip>The rebate an agency pays Compass at year end, as a share of spend.</InfoTip>
                 </span>
               </th>
-              <th className={cn(th, "text-right")}>Rebate a year</th>
-              <th className={cn(th, "text-right")}>After VA</th>
               <th className={cn(th, "text-right")}>Payment</th>
               <th className={cn(th, "text-right")}>Contract</th>
               <th className="w-6" />
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ s, now, spend, rebate, ev, offer }) => (
+            {rows.map(({ s, now, spend, ev, offer }) => (
               <tr key={s.id} data-supplier={s.id} onClick={() => router.push(`/agencies/${s.id}`)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
                 <td className="px-3 py-2.5">
                   <span className="flex items-center gap-2.5">
@@ -87,8 +85,6 @@ export function Contracts() {
                 <td className="px-3 py-2.5 text-right">
                   <Offered now={now.vaPct ? `${now.vaPct}%` : "None"} value={`${offer?.vaPct}%`} ev={offer && ev} better={!!offer && offer.vaPct > now.vaPct} />
                 </td>
-                <td className="px-3 py-2.5 text-right font-semibold text-positive-fg tabular">{rebate ? moneyYear(rebate) : "—"}</td>
-                <td className="px-3 py-2.5 text-right tabular">{spend ? moneyYear(spend - rebate) : "—"}</td>
                 <td className="px-3 py-2.5 text-right">
                   <Offered now={`Net ${now.netDays}`} value={`Net ${offer?.netDays}`} ev={offer && ev} better={!!offer && offer.netDays > now.netDays} />
                 </td>
@@ -106,8 +102,6 @@ export function Contracts() {
               <td className="px-3 py-2.5">All agencies</td>
               <td className="px-3 py-2.5 text-right tabular">{moneyYear(spend)}</td>
               <td className="px-3 py-2.5 text-right tabular">{spend ? pct(rebate / spend, 1) : "—"}</td>
-              <td className="px-3 py-2.5 text-right text-positive-fg tabular">{moneyYear(rebate)}</td>
-              <td className="px-3 py-2.5 text-right tabular">{moneyYear(spend - rebate)}</td>
               <td colSpan={3} />
             </tr>
           </tfoot>
