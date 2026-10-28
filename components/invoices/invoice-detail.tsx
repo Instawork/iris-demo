@@ -42,7 +42,7 @@ import {
   invoiceTips,
   invoiceTotal,
 } from "@/lib/metrics"
-import { PROGRAM, buyer, costCenterOf, location, position, supplier } from "@/lib/reference"
+import { buyer, costCenterOf, location, position, supplier, termsOf } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -279,8 +279,8 @@ export function InvoiceDetail({ id }: { id: string }) {
                   </div>
                   <div>
                     <p className="text-caption-1 font-medium text-faded">Terms</p>
-                    <p>Net {PROGRAM.paymentTermsDays} from issue date</p>
-                    <p className="text-faded">Paid through Iris, one payment per consolidated invoice</p>
+                    <p>Net {termsOf(inv.supplierId).netDays} from issue date</p>
+                    <p className="text-faded">Paid by ACH through Iris</p>
                   </div>
                   <div>
                     <p className="text-caption-1 font-medium text-faded">Questions</p>

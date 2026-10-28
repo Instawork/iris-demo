@@ -1206,7 +1206,7 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
   const answered = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
   const text = note ?? (round > 1 ? `Round ${round} is in.` : undefined)
   const message: SourcingMessage[] = text ? [{ id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId: supplierId!, from: "agency", text }] : []
-  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, lines, note }], messages: [...answered, ...message] }
+  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, lines, note, ...(prior?.terms ? { terms: prior.terms } : {}) }], messages: [...answered, ...message] }
   return {
     ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
     notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],

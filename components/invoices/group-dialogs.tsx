@@ -6,16 +6,18 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
+import { PillTabs } from "@/components/common/pill-tabs"
+import { Breakdown, placeOf } from "@/components/invoices/breakdown"
 import { AnomalyFlag, INVOICE_STATUS, InvoiceStatusBadge, groupTotals } from "@/components/invoices/invoice-bits"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort } from "@/lib/dates"
+import { formatDateShort, formatMonth } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import { inScope, invoiceBalance, invoiceStatus, invoiceTotal } from "@/lib/metrics"
-import { buyer, location, position, supplier } from "@/lib/reference"
+import { buyer, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
 export function CreateGroupDialog({
@@ -75,7 +77,7 @@ function CreateGroupBody({ invoiceIds, onClose, onCreated }: { invoiceIds: strin
           </div>
         ))}
       </div>
-      {buyers.length > 1 && <p className="rounded-lg bg-warning-faded px-3 py-2 text-caption-1 text-warning-fg">These invoices are for more than one buyer. Consolidated invoices are usually per buyer.</p>}
+      {buyers.length > 1 && <p className="rounded-lg bg-warning-faded px-3 py-2 text-caption-1 text-warning-fg">These invoices are for more than one buyer. Groups are usually per buyer.</p>}
       {moving > 0 && <p className="rounded-lg bg-tint-faded px-3 py-2 text-caption-1 text-faded">{moving} of these are already in a group and will move to the new one.</p>}
       <DialogFooter className="items-center sm:justify-between">
         <span className="text-body-3">
@@ -102,10 +104,14 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
   const data = useData()
   const { ws, scope } = useWorkspace()
   const { removeFromGroup, deleteInvoiceGroup, payInvoices } = useStore.getState()
+  const [view, setView] = useState<"breakdown" | "invoices">("breakdown")
   const live = groupId ? data.invoiceGroups.find((g) => g.id === groupId) : undefined
   const t = live ? groupTotals(live, data.invoices.filter((i) => inScope(scope, i))) : undefined
   if (!live || !t?.members.length) return <Dialog open={false} onOpenChange={onOpenChange} />
-  const canManage = ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
+  const monthly = !!live.month
+  const shown = monthly ? view : "invoices"
+  const agencies = new Set(t.members.map((m) => m.supplierId)).size
+  const canManage = !monthly && ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
   const payable = ws.kind === "buyer" ? t.members.filter((m) => invoiceBalance(m) > 0 && invoiceStatus(m) !== "in_process" && invoiceStatus(m) !== "open") : []
   const payTotal = payable.reduce((s, m) => s + invoiceBalance(m), 0)
   const download = () =>
@@ -113,19 +119,27 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
       exportName(live.code.toLowerCase()),
       toCsv(
         t.members.flatMap((inv) =>
-          inv.lines.map((l) => ({
+          inv.lines.map((l) => {
+            const [superSector, sector, business, unit, dept] = placeOf(inv, l)
+            return {
             invoice_group_id: live.code,
             invoice_number: inv.number,
             supplier: supplier(inv.supplierId).name,
+            super_sector: superSector.name,
+            sector: sector.name,
+            regional_business: business.name,
+            unit: unit.name,
+            department: dept?.name ?? "",
+            cost_center: dept?.costCenter || unit.costCenter,
             pro: l.proName,
             position: position(l.positionId).name,
-            location: location(l.locationId).name,
             date: l.date,
             hours: l.hours,
             bill_rate: l.billRate.toFixed(2),
             tips: l.tips.toFixed(2),
             amount: (l.amount + l.tips).toFixed(2),
-          })),
+            }
+          }),
         ),
       ),
     )
@@ -134,20 +148,31 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
       <DialogContent className="max-h-[86svh] gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
           <div className="flex flex-wrap items-center gap-2">
-            <DialogTitle className="text-featured-3 font-bold">{live.name}</DialogTitle>
+            <DialogTitle className="text-featured-3 font-bold">{monthly ? formatMonth(live.month!) : live.name}</DialogTitle>
             <StatusBadge tone={INVOICE_STATUS[t.status].tone}>{INVOICE_STATUS[t.status].label}</StatusBadge>
           </div>
           <DialogDescription className="text-body-3">
-            <code className="font-mono">{live.code}</code> · {plural(t.members.length, "invoice")} · {formatDateShort(t.from)} – {formatDateShort(t.to)} ·{" "}
-            {t.status === "open"
-              ? `open: Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}`
-              : live.weekStart
-                ? "kept by Iris for the week"
-                : `created by ${live.createdBy}`}
+            <code className="font-mono">{live.code}</code> · {plural(t.members.length, "invoice")}
+            {monthly
+              ? ` from ${plural(agencies, "agency", "agencies")}${t.status === "open" ? " · Iris adds each week's invoices as it goes" : ""}`
+              : ` · ${formatDateShort(t.from)} – ${formatDateShort(t.to)} · ${t.status === "open" ? `open: Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}` : `created by ${live.createdBy}`}`}
           </DialogDescription>
+          {monthly && (
+            <PillTabs
+              size="sm"
+              className="mt-2 self-start"
+              value={view}
+              onChange={setView}
+              items={[
+                { value: "breakdown", label: "Breakdown" },
+                { value: "invoices", label: "Invoices", count: t.members.length },
+              ]}
+            />
+          )}
         </DialogHeader>
         <div className="max-h-[52svh] overflow-y-auto scrollbar-thin">
-          {t.members.map((m) => (
+          {shown === "breakdown" && <Breakdown invoices={t.members} />}
+          {shown === "invoices" && t.members.map((m) => (
             <div key={m.id} className="flex items-center gap-3 border-b border-border px-5 py-3 last:border-0">
               <SupplierLogo supplierId={m.supplierId} size="md" />
               <Link href={`/invoices/${m.id}`} className="flex flex-1 flex-col hover:underline">

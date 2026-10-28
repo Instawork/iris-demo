@@ -1,4 +1,4 @@
-import type { Buyer, City, Department, Directory, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
+import type { Buyer, City, ContractTerms, Department, Directory, Location, Position, RequirementId, SectorPolicy, Supplier, Workspace } from "@/lib/types"
 
 /** Program rules Compass sets for every supplier on Iris. */
 export const PROGRAM = {
@@ -70,8 +70,8 @@ export const CITIES: City[] = [
 ]
 
 export const BUYERS: Buyer[] = [
-  { id: "levy-chi", brand: "Levy", region: "Chicago", name: "Levy · Chicago", sector: "Sports & Entertainment" },
-  { id: "chartwells-south", brand: "Chartwells", region: "South", name: "Chartwells · South", sector: "Higher Education" },
+  { id: "levy-chi", brand: "Levy", region: "Chicago", name: "Levy · Chicago", sector: "Sports & Leisure" },
+  { id: "chartwells-south", brand: "Chartwells", region: "South", name: "Chartwells · South", sector: "Education" },
 ]
 
 const DEPARTMENTS_BY_KIND: Record<string, { name: string; positionIds: string[] }[]> = {
@@ -296,6 +296,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Devon Brooks",
     contactEmail: "devon@crewline.example",
     profile: { fillRate: 0.88, hoursToFill: 9, noShowRate: 0.032, compliance: 0.94, payIndex: 1.0, markupPct: 36, share: 0.24 },
+    contract: { vaPct: 12, netDays: 30, years: 2 },
   },
   {
     id: "harbor",
@@ -313,6 +314,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Renee Park",
     contactEmail: "renee@harborhospitality.example",
     profile: { fillRate: 0.91, hoursToFill: 14, noShowRate: 0.024, compliance: 0.96, payIndex: 1.04, markupPct: 42, share: 0.18 },
+    contract: { vaPct: 5, netDays: 45, years: 1 },
   },
   {
     id: "instawork",
@@ -330,6 +332,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Marcus Lee",
     contactEmail: "enterprise@instawork.com",
     profile: { fillRate: 0.9, hoursToFill: 7, noShowRate: 0.027, compliance: 0.95, payIndex: 1.02, markupPct: 35, share: 0.3 },
+    contract: { vaPct: 11, netDays: 30, years: 3 },
   },
   {
     id: "metro",
@@ -347,6 +350,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Luis Ortega",
     contactEmail: "luis@metroeventstaff.example",
     profile: { fillRate: 0.74, hoursToFill: 26, noShowRate: 0.068, compliance: 0.85, payIndex: 0.96, markupPct: 38, share: 0.12 },
+    contract: { vaPct: 8, netDays: 15, years: 1 },
   },
 ]
 
@@ -576,6 +580,11 @@ export const location = (id: string) => locationMap.get(id) ?? LOCATIONS[0]
 export const position = (id: string) => positionMap.get(id) ?? POSITIONS[0]
 export const supplier = (id: string) => supplierMap.get(id) ?? SUPPLIERS[0]
 export const workspace = (id: string) => workspaceMap.get(id) ?? WORKSPACES[0]
+
+export const termsOf = (supplierId: string): ContractTerms => supplier(supplierId).contract ?? { vaPct: 0, netDays: PROGRAM.paymentTermsDays, years: 1 }
+
+/** What a rate really costs Compass once the agency's VA rebate comes back. */
+export const afterVa = (rate: number, vaPct: number) => rate * (1 - vaPct / 100)
 
 export const findCity = (id: string) => cityMap.get(id)
 export const findLocation = (id: string) => locationMap.get(id)

@@ -24,7 +24,7 @@ import { Switch } from "@/components/ui/switch"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, specsFor, templateCsv } from "@/lib/csv"
 import { plural } from "@/lib/format"
-import { PROGRAM, POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier, teamFor } from "@/lib/reference"
+import { POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier, teamFor, termsOf } from "@/lib/reference"
 import type { Location, Position, Workspace } from "@/lib/types"
 
 const ROLE_HINT: Record<string, string> = {
@@ -95,7 +95,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
             <>
               <Field label="Locations">{locationsFor(ws.buyerId).length} work locations</Field>
               <Field label="Program">Compass Group USA flexible labor program</Field>
-              <Field label="Payment terms" hint="Set by Compass for every agency.">Net {PROGRAM.paymentTermsDays}, paid by ACH through Iris</Field>
+              <Field label="Payment terms" hint="Set in each agency's contract with Compass.">Paid by ACH through Iris</Field>
             </>
           )}
           {ws.kind === "supplier" && sup && (
@@ -107,12 +107,13 @@ function CompanySection({ ws }: { ws: Workspace }) {
                   {sup.coiExpiresInDays <= 30 ? `Expires in ${sup.coiExpiresInDays} days` : "Valid"}
                 </StatusBadge>
               </Field>
+              <Field label="Contract with Compass">{`Net ${termsOf(sup.id).netDays} · ${termsOf(sup.id).vaPct}% VA · ${plural(termsOf(sup.id).years, "year")}`}</Field>
               <Field label="Remit to">{sup.contactEmail}</Field>
             </>
           )}
           {ws.kind === "compass" && (
             <>
-              <Field label="Payment terms">Net {PROGRAM.paymentTermsDays} for every agency</Field>
+              <Field label="Payment terms">Set in each agency&apos;s contract. See Contracts in Procurement</Field>
               <Field label="Required for every worker">Background check, I-9 and Compass orientation, plus food handler and alcohol certificates by position</Field>
             </>
           )}

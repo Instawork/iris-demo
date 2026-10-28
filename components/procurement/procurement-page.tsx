@@ -11,6 +11,7 @@ import { PageHeader, SectionTitle } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
+import { Contracts } from "@/components/procurement/contracts"
 import { NewEventDialog } from "@/components/procurement/new-event-dialog"
 import { MarketRates } from "@/components/procurement/market-rates"
 import { Change, StageBadge, VsMarket, agencyStatus, moneyYear } from "@/components/procurement/sourcing-bits"
@@ -24,7 +25,7 @@ import { latestBid, responded, spendOf } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Tab = "events" | "rates"
+type Tab = "events" | "rates" | "contracts"
 
 /**
  * Procurement: Compass runs sourcing events with its agencies, and the rate cards they produce sit beside them. An
@@ -35,9 +36,10 @@ export function ProcurementPage() {
   const { ws } = useWorkspace()
   const params = useSearchParams()
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>(params.get("tab") === "rates" ? "rates" : "events")
-  const [creating, setCreating] = useState(false)
   const isAgency = ws.kind === "supplier"
+  const asked = params.get("tab")
+  const [tab, setTab] = useState<Tab>(asked === "rates" ? "rates" : asked === "contracts" && !isAgency ? "contracts" : "events")
+  const [creating, setCreating] = useState(false)
   const events = useMemo(
     () => (data.sourcing ?? []).filter((e) => !isAgency || e.invited.includes(ws.supplierId!)).sort((a, b) => b.openedAt.localeCompare(a.openedAt)),
     [data.sourcing, isAgency, ws.supplierId],
@@ -45,7 +47,7 @@ export function ProcurementPage() {
 
   const change = (next: Tab) => {
     setTab(next)
-    router.replace(next === "rates" ? "/procurement?tab=rates" : "/procurement", { scroll: false })
+    router.replace(next === "events" ? "/procurement" : `/procurement?tab=${next}`, { scroll: false })
   }
 
   return (
@@ -69,9 +71,20 @@ export function ProcurementPage() {
         items={[
           { value: "events", label: isAgency ? "Invitations" : "Events", count: events.filter((e) => e.status === "open").length },
           { value: "rates", label: isAgency ? "My rate cards" : "Market rates" },
+          ...(isAgency ? [] : [{ value: "contracts" as const, label: "Contracts" }]),
         ]}
       />
-      {tab === "rates" ? isAgency ? <RatesPage embedded /> : <MarketRates /> : <Events events={events} supplierId={isAgency ? ws.supplierId : undefined} onCreate={() => setCreating(true)} />}
+      {tab === "contracts" ? (
+        <Contracts />
+      ) : tab === "rates" ? (
+        isAgency ? (
+          <RatesPage embedded />
+        ) : (
+          <MarketRates />
+        )
+      ) : (
+        <Events events={events} supplierId={isAgency ? ws.supplierId : undefined} onCreate={() => setCreating(true)} />
+      )}
       {!isAgency && <NewEventDialog open={creating} onOpenChange={setCreating} />}
     </>
   )
@@ -132,12 +145,12 @@ function Summary({ events }: { events: SourcingEvent[] }) {
     { baseline: 0, savings: 0, proposed: 0, market: 0 },
   )
   const cells = [
-    { label: "Spend being negotiated", value: moneyYear(t.baseline), info: `A year, across ${events.length} open event${events.length === 1 ? "" : "s"}.` },
+    { label: "Spend being negotiated", value: moneyYear(t.baseline), info: `A year after VA, across ${events.length} open event${events.length === 1 ? "" : "s"}.` },
     {
       label: "Projected savings",
       value: t.savings > 0 ? moneyYear(t.savings) : "—",
       positive: t.savings > 0,
-      info: `A year${t.baseline && t.savings > 0 ? `, ${pct(t.savings / t.baseline, 1)} below today's rates` : ""}: the latest bids against today's rates, at each agency's share of the hours.`,
+      info: `A year after VA rebates${t.baseline && t.savings > 0 ? `, ${pct(t.savings / t.baseline, 1)} below today` : ""}: the latest bids and terms against today's, at each agency's share of the hours.`,
     },
     {
       label: "Latest bids vs the market",
@@ -176,7 +189,7 @@ function marketSpend(ev: SourcingEvent) {
 }
 
 function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
-  const spend = spendOf(ev, supplierId)
+  const spend = spendOf(ev, supplierId, !!supplierId)
   const days = daysFromToday(ev.closesOn)
   const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
   const bids = responded(ev).length
@@ -222,7 +235,7 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
 }
 
 function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
-  const spend = spendOf(ev, supplierId)
+  const spend = spendOf(ev, supplierId, !!supplierId)
   const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
   return (
     <Link href={`/procurement/${ev.id}`} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-hover/60">

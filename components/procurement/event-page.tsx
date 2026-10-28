@@ -21,11 +21,11 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, pct, round2 } from "@/lib/format"
-import { city, position, supplier } from "@/lib/reference"
+import { city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
-import { activeCard, bestOn, bidsOf, latestBid, lineOf, marketName, openCounters, responded, spendOf } from "@/lib/sourcing"
+import { activeCard, bestOn, bidsOf, latestBid, lineOf, marketName, netOf, offeredTerms, openCounters, responded, spendOf } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
-import type { SourcingEvent, SourcingLine } from "@/lib/types"
+import type { ContractTerms, SourcingEvent, SourcingLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function EventPage({ id }: { id: string }) {
@@ -72,14 +72,30 @@ export function EventPage({ id }: { id: string }) {
 /** What Compass pays for a line today, averaged over its agencies at their share of the hours. */
 const todayOn = (line: SourcingLine) => Object.entries(line.baseline).reduce((sum, [s, rate]) => sum + rate * (line.share[s] ?? 0), 0)
 
-/** Every agency's latest bid on a line, lowest first. */
+/** Every agency's latest bid on a line, lowest after VA first. */
 const bidsOn = (ev: SourcingEvent, line: SourcingLine) =>
   ev.invited
     .flatMap((s) => {
       const bid = latestBid(ev, s)?.lines[line.id]
-      return bid ? [{ supplierId: s, bid }] : []
+      return bid ? [{ supplierId: s, bid, net: netOf(ev, s, bid.billRate) }] : []
     })
-    .sort((a, b) => a.bid.billRate - b.bid.billRate)
+    .sort((a, b) => a.net - b.net)
+
+const VA_INFO = "VA is the rebate an agency pays Compass at year end, as a share of spend. Bids rank on what's left after it."
+
+const years = (n: number) => `${n} yr${n === 1 ? "" : "s"}`
+
+/** A term the agency offers, with what it has now beneath when the offer changes it. */
+function TermCell({ value, was, better }: { value: string; was?: string; better?: boolean }) {
+  return (
+    <span className="flex flex-col items-end">
+      <span className="font-medium tabular">{value}</span>
+      {was !== undefined && was !== value && <span className={cn("text-caption-1", better ? "text-positive-fg" : "text-faded")}>was {was}</span>}
+    </span>
+  )
+}
+
+const termsLine = (t: ContractTerms) => `${t.vaPct}% VA · Net ${t.netDays} · ${years(t.years)}`
 
 /** An agency's latest bid against the market, weighted by its share of each role's hours. */
 function agencyVsMarket(ev: SourcingEvent, supplierId: string) {
@@ -155,7 +171,7 @@ function Savings({ ev }: { ev: SourcingEvent }) {
       <span className="flex items-center gap-1.5 text-body-3 text-faded">
         {ev.status === "awarded" ? "Savings approved" : "Projected savings"}
         <InfoTip>
-          {`A year${s.savings > 0 ? `, ${pct(s.savingsPct, 1)} below today's rates` : ""}. Today's rates come to ${moneyYear(s.baseline)}${bids ? `, the latest bids to ${moneyYear(s.proposed)}` : ""}, and the ${city(ev.cityId).name} market median to ${moneyYear(market)}.`}
+          {`A year after VA rebates${s.savings > 0 ? `, ${pct(s.savingsPct, 1)} below today's rates and terms` : ""}. Today's rates come to ${moneyYear(s.baseline)}${bids ? `, the latest bids to ${moneyYear(s.proposed)}` : ""}, and the ${city(ev.cityId).name} market median to ${moneyYear(market)}.`}
         </InfoTip>
       </span>
       <span className={cn("text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular", s.savings > 0 && "text-positive-fg")}>
@@ -183,7 +199,12 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
                   <InfoTip>{`The median bill rate for the role across ${benchmark(ev.cityId, ev.lines[0].positionId).agencies} ${city(ev.cityId).name} agencies.`}</InfoTip>
                 </span>
               </th>
-              <th className={cn(th, "text-right")}>Best bid</th>
+              <th className={cn(th, "text-right")}>
+                <span className="inline-flex items-center gap-1">
+                  Best bid
+                  <InfoTip>{VA_INFO}</InfoTip>
+                </span>
+              </th>
               <th className={cn(th, "w-[22%] text-left")}>Against the market</th>
               <th className={cn(th, "text-right")}>vs market</th>
               <th className="w-6" />
@@ -206,7 +227,7 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
                 >
                   <td className="px-3 py-2.5">
                     <span className="flex items-center gap-2">
-                      <span className="font-medium">{position(line.positionId).name}</span>
+                      <span className="font-medium whitespace-nowrap">{position(line.positionId).name}</span>
                       {asked && (
                         <StatusBadge tone="warning" size="sm">
                           Countered
@@ -220,7 +241,9 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
                     {best ? (
                       <span className="flex flex-col items-end">
                         <span className="font-semibold tabular">{money(best.bid.billRate)}</span>
-                        <span className="text-caption-1 text-faded">{supplier(best.supplierId).shortName}</span>
+                        <span className="text-caption-1 whitespace-nowrap text-faded">
+                          {supplier(best.supplierId).shortName} · {offeredTerms(ev, best.supplierId).vaPct}% VA
+                        </span>
                       </span>
                     ) : (
                       <span className="text-faded">—</span>
@@ -232,7 +255,7 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
                       marks={[...(today ? [{ value: today, kind: "today" as const }] : []), ...(best ? [{ value: best.bid.billRate, kind: "best" as const }] : [])]}
                     />
                   </td>
-                  <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
+                  <td className="px-3 py-2.5 text-right text-caption-1 font-medium whitespace-nowrap">
                     <VsMarket value={best ? vsMarket(best.bid.billRate, b) : undefined} />
                   </td>
                   <td className="pr-3">
@@ -266,19 +289,34 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
         </div>
       )}
       <div className="overflow-x-auto px-2 pt-3 pb-2 scrollbar-thin">
-        <table className="w-full min-w-[640px] text-body-3">
+        <table className="w-full min-w-[720px] text-body-3">
           <thead>
             <tr className="text-caption-1 text-faded">
               <th className={cn(th, "text-left")}>Agency</th>
-              <th className={cn(th, "text-right")}>Roles priced</th>
-              <th className={cn(th, "text-right")}>A year</th>
+              <th className={cn(th, "text-right")}>
+                <span className="inline-flex items-center gap-1">
+                  VA
+                  <InfoTip>{VA_INFO}</InfoTip>
+                </span>
+              </th>
+              <th className={cn(th, "text-right")}>Payment</th>
+              <th className={cn(th, "text-right")}>Contract</th>
+              <th className={cn(th, "text-right")}>
+                <span className="inline-flex items-center gap-1">
+                  A year
+                  <InfoTip>At today&apos;s share of the hours, after VA.</InfoTip>
+                </span>
+              </th>
               <th className={cn(th, "text-right")}>vs today</th>
               <th className={cn(th, "text-right")}>vs market</th>
               <th className="w-6" />
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ s, spend, bid, status }) => (
+            {rows.map(({ s, spend, bid, status }) => {
+              const now = termsOf(s)
+              const offer = offeredTerms(ev, s)
+              return (
               <tr key={s} data-supplier={s} onClick={() => onOpen(s)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
                 <td className="px-3 py-2.5">
                   <span className="flex items-center gap-2.5">
@@ -287,11 +325,20 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
                       <span className="truncate font-medium">{supplier(s).name}</span>
                       <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
                         {status.label === "Invited" ? "No bid yet" : status.label}
+                        {bid && Object.keys(bid.lines).length < ev.lines.length ? ` · ${Object.keys(bid.lines).length} of ${ev.lines.length} roles` : ""}
                       </span>
                     </span>
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-right text-faded tabular">{bid ? `${Object.keys(bid.lines).length} of ${ev.lines.length}` : "—"}</td>
+                <td className="px-3 py-2.5 text-right">
+                  <TermCell value={`${offer.vaPct}%`} was={`${now.vaPct}%`} better={offer.vaPct > now.vaPct} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <TermCell value={`Net ${offer.netDays}`} was={`Net ${now.netDays}`} better={offer.netDays > now.netDays} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <TermCell value={years(offer.years)} was={years(now.years)} />
+                </td>
                 <td className="px-3 py-2.5 text-right font-semibold tabular">{bid ? moneyYear(spend.proposed) : "—"}</td>
                 <td className="px-3 py-2.5 text-right">{bid ? <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> : <span className="text-faded">—</span>}</td>
                 <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
@@ -301,7 +348,8 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
                   <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -325,7 +373,10 @@ function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
       </SheetHeader>
       <MarketBlock b={b} today={today} marks={[...bids.slice(1).map((x) => ({ value: x.bid.billRate, kind: "bid" as const })), ...(today ? [{ value: today, kind: "today" as const }] : []), ...(bids[0] ? [{ value: bids[0].bid.billRate, kind: "best" as const }] : [])]} cityId={ev.cityId} />
       <section className="flex flex-col gap-1 px-6 py-5">
-        <h3 className="pb-2 text-body-3 font-semibold">Bids, lowest first</h3>
+        <h3 className="flex items-center gap-1 pb-2 text-body-3 font-semibold">
+          Bids, lowest after VA first
+          <InfoTip>{VA_INFO}</InfoTip>
+        </h3>
         {bids.length ? (
           <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
             {bids.map((x, i) => (
@@ -360,6 +411,7 @@ function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string
           <SheetDescription className="text-body-3 text-faded">
             {status.label === "Approved" ? "Approved" : status.label === "Countered" ? "Countered" : bid ? `Round ${bid.round}` : "Hasn't bid yet"}
             {bid ? ` · sent ${formatTimestamp(bid.at)}` : ""}
+            <span className="block">{termsLine(offeredTerms(ev, supplierId))}</span>
           </SheetDescription>
         </span>
       </SheetHeader>
@@ -442,12 +494,15 @@ function BidRow({
   const bid = latestBid(ev, supplierId)!.lines[line.id]
   const asked = openCounters(ev, supplierId).find((m) => m.lineId === line.id)
   const field = bestOn(ev, line.id)
+  const va = offeredTerms(ev, supplierId).vaPct
+  const net = netOf(ev, supplierId, bid.billRate)
   const locked = !!ev.approved[supplierId] || ev.status === "awarded"
   const first = bidsOf(ev, supplierId).find((b) => b.lines[line.id])?.lines[line.id]
   const [ask, setAsk] = useState<string | null>(null)
   const askN = Number(ask)
   const valid = askN > 0 && askN < bid.billRate
-  const suggest = () => round2(field && field.supplierId !== supplierId && field.billRate < bid.billRate ? field.billRate : Math.min(bid.billRate * 0.97, market.median))
+  const tie = field && field.supplierId !== supplierId && field.net < net ? round2(field.net / (1 - va / 100)) : undefined
+  const suggest = () => round2(tie && tie < bid.billRate ? tie : Math.min(bid.billRate * 0.97, market.median))
   const send = () =>
     void counter(ev.id, supplierId, line.id, askN).then((ok) => {
       if (!ok) return
@@ -462,18 +517,24 @@ function BidRow({
           <span className="flex items-center gap-2">
             <span className="truncate font-medium">{title}</span>
             {best && (
-              <StatusBadge tone="positive" size="sm">
-                Lowest
-              </StatusBadge>
+              <Tip content="Lowest after VA">
+                <span>
+                  <StatusBadge tone="positive" size="sm">
+                    Best
+                  </StatusBadge>
+                </span>
+              </Tip>
             )}
           </span>
           <span className="truncate text-caption-1 text-faded">
-            Pay {money(bid.proRate)} + {bid.markupPct}%{first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}
+            Pay {money(bid.proRate)} + {bid.markupPct}% · {va}% VA{first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}
           </span>
         </span>
         <span className="flex flex-col items-end">
           <span className="font-semibold tabular">{money(bid.billRate)}</span>
-          <VsMarket value={vsMarket(bid.billRate, market)} className="text-caption-1" />
+          <Tip content={`${money(bid.billRate)} less ${va}% VA`}>
+            <span className="text-caption-1 text-faded tabular">{money(net)} after VA</span>
+          </Tip>
         </span>
         <span className="flex w-[84px] shrink-0 justify-end">
           {locked ? (
@@ -724,7 +785,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
     return pay > 0 && f?.markup !== "" && markup >= 0 ? [{ line: l, pay, markup, bill: billFrom(pay, markup) }] : []
   })
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
-  const today = spendOf(ev, supplierId).baseline
+  const today = spendOf(ev, supplierId, true).baseline
   const round = (bid?.round ?? 0) + 1
   const status = agencyStatus(ev, supplierId)
 
@@ -853,6 +914,10 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             <div className="flex justify-between gap-3">
               <dt className="text-faded">At today&apos;s rates</dt>
               <dd className="font-medium tabular">{moneyYear(today)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-faded">Your terms</dt>
+              <dd className="font-medium">{termsLine(offeredTerms(ev, supplierId))}</dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-faded">Roles priced</dt>

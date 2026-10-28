@@ -121,7 +121,8 @@ App: https://cruber-demo.replit.app (no passcode)
 5. Other cases worth a look on fresh data: an Instawork porter at Riverside Convention Center past 40 hours, with overtime split at time and a half; a worker sent home early, billed the four-hour minimum; a Harbor draft missing its clock-out, under **With the agency**.
 6. The chat: "Approve yesterday's hours". Iris approves what matches and holds back what it flagged, naming each one.
 7. As Renee (Harbor): Timesheets, under **Done**, shows Jordan's correction and why.
-8. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453.
+8. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453. Each agency's invoices are due on its own payment terms. Every month rolls into one consolidated invoice for all of Compass: **Invoices**, **Consolidated**, open October to break it down by super sector, sector, regional business and cost center. **Download CSV** carries the same columns.
+9. If contracts come up: **Procurement**, **Contracts** lists each agency's spend, VA rebate, payment terms and contract length, with what's offered in the open renewal underneath. In the Chicago renewal, bids rank after VA: on Bartender, Instawork's $27.67 beats Crewline's $27.18 because its 14% VA brings it to $23.80.
 
 **Say:** Fieldglass shows what the agency submitted. Iris shows it next to what actually happened, says what's wrong, and proposes the fix.
 

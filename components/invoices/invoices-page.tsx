@@ -19,7 +19,7 @@ import { AnomalyFlag, DeltaText, INVOICE_STATUS, InvoiceStatusBadge, groupTotals
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort, todayISO } from "@/lib/dates"
+import { formatDateShort, formatMonth, todayISO } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import {
   billingToReview,
@@ -57,7 +57,7 @@ const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
     "Every invoice in the program, built from approved hours at each agency's rates. Iris flags hours billed above its clock, which go back to the agency for a credit, and invoices priced well above what other agencies charge.",
-  buyer: "Each agency's invoice for the week fills as you approve hours. Iris issues them on Saturday in one consolidated invoice for the week, so there's nothing to upload.",
+  buyer: "Each agency's invoice for the week fills as you approve hours, and Iris issues it on Saturday. Every month rolls into one consolidated invoice, so there's nothing to upload.",
   supplier: "What you're owed. Your invoice for the week fills as the buyer approves your hours, and Iris issues it on Saturday.",
 }
 
@@ -223,8 +223,8 @@ export function InvoicesPage() {
       sortValue: (g) => g.code,
       cell: (g) => (
         <span className="flex flex-col">
-          <span className="font-semibold">{g.code}</span>
-          <span className="text-caption-1 text-faded">{g.name}</span>
+          <span className="font-semibold">{g.month ? formatMonth(g.month) : g.name}</span>
+          <span className="font-mono text-caption-1 text-faded">{g.code}</span>
         </span>
       ),
     },
@@ -380,7 +380,7 @@ export function InvoicesPage() {
                 tooltip: q === "flagged" ? "Anomalous invoices waiting for your review" : undefined,
               })),
             ...(groupRows.length || tab === "groups"
-              ? [{ value: "groups" as const, label: "Consolidated", count: groupRows.length, tooltip: "One invoice for each buyer's week across every agency, reviewed and paid as one" }]
+              ? [{ value: "groups" as const, label: "Consolidated", count: groupRows.length, tooltip: "One invoice a month for all of Compass, broken down by sector, business and cost center" }]
               : []),
           ]}
         />
@@ -429,7 +429,7 @@ export function InvoicesPage() {
               <EmptyState
                 icon={Layers}
                 title="No consolidated invoices yet"
-                description="Iris starts one for each buyer's week as soon as hours are approved."
+                description="Iris starts one each month as soon as hours are approved."
                 actions={
                   canSelect ? (
                     <Button variant="outline" onClick={() => setParams({ tab: undefined })}>

@@ -365,7 +365,15 @@ const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a
 /** An upcoming Levy shift released to Crewline that still has open spots, a West Loop bartender shift if there is one. */
 const assignable = (data: DemoData) =>
   data.groups
-    .filter((g) => g.buyerId === "levy-chi" && isOpenTo(g, "crewline") && groupPhase(g) === "upcoming" && !g.cancelledAt && filledCount(g) < g.slots.length)
+    .filter(
+      (g) =>
+        g.buyerId === "levy-chi" &&
+        isOpenTo(g, "crewline") &&
+        groupPhase(g) === "upcoming" &&
+        !g.cancelledAt &&
+        filledCount(g) < g.slots.length &&
+        eligiblePros(data, g, "crewline").length > 0,
+    )
     .sort(
       (a, b) =>
         Number(b.positionId === "bartender") - Number(a.positionId === "bartender") ||
@@ -611,7 +619,7 @@ export const SCRIPT: TourItem[] = [
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
     title: () => (bidRows().length ? "Counter the highest bid" : "Next year's rates, against the market"),
-    body: () => (bidRows().length ? "Iris suggests the ask from the market and the other bids." : `Each role's bids next to what ${benchmark("chi", "bartender").agencies} Chicago agencies charge.`),
+    body: () => (bidRows().length ? "Iris suggests the ask from the market and the other bids." : `Each role's bids next to what ${benchmark("chi", "bartender").agencies} Chicago agencies charge, ranked after VA.`),
     action: () => (one('[data-tour="send-counter"]') ? "Click Send" : bidRows().length ? "Click Counter, then Send" : "Open Bartender"),
     targets: () => (bidRows().length ? [counterable()] : [one(BARTENDER_ROW)]),
     placement: "left",

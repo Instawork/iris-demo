@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Switch } from "@/components/ui/switch"
 import { useData } from "@/hooks/use-app"
 import { plural } from "@/lib/format"
-import { PROGRAM, SUPPLIERS } from "@/lib/reference"
+import { SUPPLIERS } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
 /** Presenter switches for the shared demo: which agencies Iris staffs on its own, and a live shift to clock out of. */
@@ -28,7 +28,7 @@ export function DemoControlsDialog({ open, onOpenChange }: { open: boolean; onOp
     setClosing(true)
     const numbers = await closeWeekNow()
     setClosing(false)
-    if (numbers.length) toast.success(`Iris issued ${plural(numbers.length, "invoice")}`, { description: `${numbers.join(", ")}, due in ${PROGRAM.paymentTermsDays} days.` })
+    if (numbers.length) toast.success(`Iris issued ${plural(numbers.length, "invoice")}`, { description: `${numbers.join(", ")}, due on each agency's terms.` })
   }
 
   const startLive = async () => {

@@ -79,6 +79,7 @@ export interface Buyer {
   brand: string
   region: string
   name: string
+  /** Compass's super sector, like Sports & Leisure. The brand is the sector inside it. */
   sector: string
 }
 
@@ -143,6 +144,13 @@ export interface SupplierProfile {
   share: number
 }
 
+/** What an agency agrees to beyond its rates. VA is the rebate it pays Compass at year end, as a share of spend. */
+export interface ContractTerms {
+  vaPct: number
+  netDays: number
+  years: number
+}
+
 export interface Supplier {
   id: string
   name: string
@@ -160,6 +168,8 @@ export interface Supplier {
   contactName: string
   contactEmail: string
   profile: SupplierProfile
+  /** Missing on onboarded agencies, which start on the program's terms. */
+  contract?: ContractTerms
   onboarded?: Onboarded & { coiExpiresOn: string; coiFile?: string; msaSignedOn?: string }
 }
 
@@ -286,6 +296,8 @@ export interface Bid {
   by: string
   lines: Record<string, BidLine>
   note?: string
+  /** The terms the agency offers with these prices. Missing means the ones it has now. */
+  terms?: ContractTerms
 }
 
 export interface SourcingMessage {
@@ -585,8 +597,8 @@ export interface InvoiceGroup {
   code: string
   name: string
   buyerId?: string
-  /** Set on the consolidated invoice Iris keeps for each buyer's week. Groups made by hand have none. */
-  weekStart?: string
+  /** Set on the consolidated invoice Iris keeps for each month across all of Compass, as "YYYY-MM". Groups made by hand have none. */
+  month?: string
   createdOn: string
   createdBy: string
   invoiceIds: string[]

@@ -107,6 +107,9 @@ export const formatDateShort = (iso: string) => format(parseDate(iso), "MMM d")
 
 export const formatDateFull = (iso: string) => format(parseDate(iso), "MMM d, yyyy")
 
+/** "2026-10" as "October 2026". */
+export const formatMonth = (month: string) => format(parseDate(`${month}-01`), "MMMM yyyy")
+
 /** Date group header used on the Shifts list: "Today • Tue Oct 13, 2026". */
 export const formatGroupHeader = (iso: string) => {
   const diff = daysFromToday(iso)

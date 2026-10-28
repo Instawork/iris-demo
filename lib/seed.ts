@@ -3,8 +3,8 @@ import { generateBudgets } from "@/lib/domain/budget"
 import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartISO } from "@/lib/dates"
 import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
-import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, emptyDirectory, location, position, requirementsFor, supplier, syncDirectory } from "@/lib/reference"
-import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
+import { CITIES, LOCATIONS, POSITIONS, SUPPLIERS, city, emptyDirectory, location, position, requirementsFor, supplier, syncDirectory, termsOf } from "@/lib/reference"
+import { lineOf, monthlyGroups } from "@/lib/domain/invoicing"
 import { seedRateLog } from "@/lib/rate-log"
 import { defaultReports } from "@/lib/reports"
 import { seedSourcing } from "@/lib/sourcing"
@@ -28,7 +28,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 16
+export const DATA_VERSION = 17
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -847,7 +847,6 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
     const periodStart = addDaysISO(thisWeek, -7 * weeksAgo)
     const periodEnd = addDaysISO(periodStart, 6)
     const issuedOn = addDaysISO(periodEnd, 1)
-    const dueOn = addDaysISO(issuedOn, PROGRAM.paymentTermsDays)
     for (const s of SUPPLIERS) {
       for (const buyerId of ["levy-chi", "chartwells-south"]) {
         const rows = timesheets.filter((t) => t.supplierId === s.id && t.buyerId === buyerId && t.date >= periodStart && t.date <= periodEnd && t.status === "approved")
@@ -866,7 +865,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
           periodStart,
           periodEnd,
           issuedOn,
-          dueOn,
+          dueOn: addDaysISO(issuedOn, termsOf(s.id).netDays),
           status,
           paidAmount: 0,
           lines,
@@ -888,9 +887,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
     .sort((a, b) => a.periodStart.localeCompare(b.periodStart))[0]
   if (oldestMetro) oldestMetro.dueOn = addDaysISO(today, -3)
 
-  const { groups: invoiceGroups, counter } = weeklyGroups(invoices, counters.ig)
-  counters.ig = counter
-  return { invoices, invoiceGroups }
+  return { invoices, invoiceGroups: monthlyGroups(invoices) }
 }
 
 /**

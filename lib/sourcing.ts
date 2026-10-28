@@ -1,13 +1,14 @@
 import { addDaysISO } from "@/lib/dates"
 import { billFrom, money, round2 } from "@/lib/format"
 import { hashString } from "@/lib/random"
-import { POSITIONS, SUPPLIERS, city, position, supplier } from "@/lib/reference"
-import type { Bid, BidLine, DemoData, RateCard, SourcingEvent, SourcingLine, SourcingMessage } from "@/lib/types"
+import { POSITIONS, SUPPLIERS, afterVa, city, position, supplier, termsOf } from "@/lib/reference"
+import type { Bid, BidLine, ContractTerms, DemoData, RateCard, SourcingEvent, SourcingLine, SourcingMessage } from "@/lib/types"
 
 /**
  * Sourcing events: Compass invites agencies to price a market's roles for the fiscal year, compares the bids side by
  * side, counters line by line, and approves each agency's final prices. Approval is what writes the rate cards, so
- * every rate on the program traces back to the round that won it.
+ * every rate on the program traces back to the round that won it. Bids compare after VA, the rebate each agency pays
+ * back at year end, so a higher rate with a bigger rebate can be the better buy.
  */
 
 export const CATEGORY = "Temporary labor"
@@ -59,12 +60,39 @@ export function buildLines(cards: RateCard[], cityId: string, positionIds: strin
   })
 }
 
+/** What an agency bills Compass in a year on its rate cards today, at its share of each market's hours. */
+export function yearlySpend(cards: RateCard[], supplierId: string) {
+  let total = 0
+  for (const cityId of supplier(supplierId).cityIds) {
+    const carrying = SUPPLIERS.filter((s) => s.cityIds.includes(cityId)).map((s) => s.id)
+    for (const line of buildLines(cards, cityId, roles, carrying)) {
+      const rate = line.baseline[supplierId]
+      if (rate !== undefined) total += line.hours * (line.share[supplierId] ?? 0) * rate
+    }
+  }
+  return total
+}
+
 export const latestBid = (ev: SourcingEvent, supplierId: string): Bid | undefined =>
   ev.bids.reduce<Bid | undefined>((best, b) => (b.supplierId === supplierId && (!best || b.round > best.round) ? b : best), undefined)
 
 export const bidsOf = (ev: SourcingEvent, supplierId: string) => ev.bids.filter((b) => b.supplierId === supplierId).sort((a, b) => a.round - b.round)
 
 export const responded = (ev: SourcingEvent) => ev.invited.filter((s) => latestBid(ev, s))
+
+/** The terms an agency offers on this event: its latest bid's, else the ones it has now. */
+export const offeredTerms = (ev: SourcingEvent, supplierId: string): ContractTerms => latestBid(ev, supplierId)?.terms ?? termsOf(supplierId)
+
+/** A bid line's rate after the VA its agency offers on this event. */
+export const netOf = (ev: SourcingEvent, supplierId: string, billRate: number) => afterVa(billRate, offeredTerms(ev, supplierId).vaPct)
+
+/** An agency's terms now: the ones on its most recently approved bid that came with terms, else its contract's. */
+export function termsNow(events: SourcingEvent[], supplierId: string): ContractTerms {
+  const approved = events
+    .filter((e) => e.approved[supplierId] && latestBid(e, supplierId)?.terms)
+    .sort((a, b) => b.approved[supplierId].localeCompare(a.approved[supplierId]))[0]
+  return approved ? latestBid(approved, supplierId)!.terms! : termsOf(supplierId)
+}
 
 export const openCounters = (ev: SourcingEvent, supplierId?: string) => ev.messages.filter((m) => m.open && (!supplierId || m.supplierId === supplierId))
 
@@ -80,8 +108,13 @@ export const STAGE_LABEL: Record<Stage, string> = { collecting: "Collecting bids
 /** The rate a line is bought at from an agency: its latest bid, or what it charges today if it hasn't bid. */
 const rateFor = (ev: SourcingEvent, line: SourcingLine, supplierId: string) => latestBid(ev, supplierId)?.lines[line.id]?.billRate ?? line.baseline[supplierId]
 
-/** Spend a year on today's rates, on the latest bids at today's shares, and with every hour at the lowest bid. */
-export function spendOf(ev: SourcingEvent, supplierId?: string) {
+/**
+ * Spend a year on today's rates, on the latest bids at today's shares, and with every hour at the best bid. It's after
+ * VA, which is what Compass really pays, unless `gross` asks for what the agencies bill.
+ */
+export function spendOf(ev: SourcingEvent, supplierId?: string, gross = false) {
+  const was = (s: string, r: number) => (gross ? r : afterVa(r, termsOf(s).vaPct))
+  const offered = (s: string, r: number) => (gross ? r : netOf(ev, s, r))
   let baseline = 0
   let proposed = 0
   let lowest = 0
@@ -89,23 +122,26 @@ export function spendOf(ev: SourcingEvent, supplierId?: string) {
     const agencies = Object.keys(line.baseline).filter((s) => !supplierId || s === supplierId)
     for (const s of agencies) {
       const hours = line.hours * (line.share[s] ?? 0)
-      baseline += hours * line.baseline[s]
-      proposed += hours * (rateFor(ev, line, s) ?? line.baseline[s])
+      baseline += hours * was(s, line.baseline[s])
+      proposed += hours * offered(s, rateFor(ev, line, s) ?? line.baseline[s])
     }
-    const bids = Object.keys(line.baseline)
-      .map((s) => latestBid(ev, s)?.lines[line.id]?.billRate)
-      .filter((r): r is number => r !== undefined)
-    if (!supplierId) lowest += line.hours * (bids.length ? Math.min(...bids) : Math.min(...Object.values(line.baseline)))
+    const bids = Object.keys(line.baseline).flatMap((s) => {
+      const r = latestBid(ev, s)?.lines[line.id]?.billRate
+      return r === undefined ? [] : [offered(s, r)]
+    })
+    if (!supplierId) lowest += line.hours * (bids.length ? Math.min(...bids) : Math.min(...Object.entries(line.baseline).map(([s, r]) => was(s, r))))
   }
   return { baseline, proposed, lowest, savings: baseline - proposed, savingsPct: baseline ? (baseline - proposed) / baseline : 0 }
 }
 
-/** The agency with the lowest bid on a line. */
+/** The agency with the lowest bid on a line after VA. */
 export function bestOn(ev: SourcingEvent, lineId: string) {
-  let best: { supplierId: string; billRate: number } | undefined
+  let best: { supplierId: string; billRate: number; net: number } | undefined
   for (const s of ev.invited) {
     const r = latestBid(ev, s)?.lines[lineId]?.billRate
-    if (r !== undefined && (!best || r < best.billRate)) best = { supplierId: s, billRate: r }
+    if (r === undefined) continue
+    const net = netOf(ev, s, r)
+    if (!best || net < best.net) best = { supplierId: s, billRate: r, net }
   }
   return best
 }
@@ -142,6 +178,7 @@ export function agencyAnswer(ev: SourcingEvent, counter: SourcingMessage, now: s
     at: now,
     by: s.contactName,
     lines: { ...bid.lines, [counter.lineId!]: bidLine(line.proRate, (target / line.proRate - 1) * 100) },
+    ...(bid.terms ? { terms: bid.terms } : {}),
   }
   const text = met ? `We can do ${money(target)} on ${role}. Round ${next.round} is in.` : `We can come down to ${money(target)} on ${role}. Below that we can't cover pay and burden.`
   return {
@@ -169,6 +206,15 @@ export const nextNumber = (events: SourcingEvent[], today: string) => {
 /* ---------------------------------- Seed ---------------------------------- */
 
 const at = (date: string, hour: number) => new Date(`${date}T${String(hour).padStart(2, "0")}:00:00`).toISOString()
+
+/** What each agency offers for the new term. Instawork's VA goes from 11% to 14% for a three-year renewal. */
+const OFFERED: Record<string, ContractTerms> = {
+  instawork: { vaPct: 14, netDays: 30, years: 3 },
+  crewline: { vaPct: 12, netDays: 45, years: 2 },
+  harbor: { vaPct: 5, netDays: 45, years: 1 },
+  metro: { vaPct: 10, netDays: 15, years: 2 },
+}
+const offerOf = (supplierId: string) => (OFFERED[supplierId] ? { terms: OFFERED[supplierId] } : {})
 
 /** Metro is raising wages to fix its fill rate, so its prices go up while the others sharpen theirs. */
 const WAGE_BUMP: Record<string, number> = { metro: 1.045, harbor: 1.015 }
@@ -205,6 +251,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     at: at(addDaysISO(today, -11 + i), 14 + i),
     by: supplier(s).contactName,
     lines: firstRound(chiLines, cards, "chi", s, cut[s] ?? 3, s === "harbor" ? { bartender: 45, suite: 44.5 } : {}),
+    ...offerOf(s),
   }))
   const bartender = chiLines.find((l) => l.positionId === "bartender")!
   const barback = chiLines.find((l) => l.positionId === "barback")!
@@ -220,6 +267,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     by: "Renee Park",
     lines: { ...harborR1.lines, [bartender.id]: bidLine(harborPay, Math.min(44.5, Math.max(floorOf("harbor"), (harborAsk / harborPay - 1) * 100 + 2))) },
     note: "Revised bartender rate after Compass's counter.",
+    ...offerOf("harbor"),
   }
   const crewAsk = round2(crewR1.lines[barback.id].billRate * 0.97)
   const crewR2: Bid = {
@@ -228,6 +276,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     at: at(addDaysISO(today, -3), 16),
     by: "Devon Brooks",
     lines: { ...crewR1.lines, [barback.id]: bidLine(crewR1.lines[barback.id].proRate, (crewAsk / crewR1.lines[barback.id].proRate - 1) * 100) },
+    ...offerOf("crewline"),
   }
   const chi: SourcingEvent = {
     id: "rfp-chi-27",
@@ -305,7 +354,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     invited: dalInvited,
     bids: dalInvited
       .filter((s) => s !== "harbor")
-      .map((s, i) => ({ supplierId: s, round: 1, at: at(addDaysISO(today, -2 + i), 13), by: supplier(s).contactName, lines: firstRound(dalLines, cards, "dal", s, cut[s] ?? 3) })),
+      .map((s, i) => ({ supplierId: s, round: 1, at: at(addDaysISO(today, -2 + i), 13), by: supplier(s).contactName, lines: firstRound(dalLines, cards, "dal", s, cut[s] ?? 3), ...offerOf(s) })),
     messages: [],
     approved: {},
   }

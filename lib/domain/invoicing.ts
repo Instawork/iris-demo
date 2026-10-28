@@ -1,15 +1,15 @@
-import { addDaysISO, formatDateShort, weekEndISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, formatMonth, weekEndISO, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
 import { billingFindings } from "@/lib/metrics"
-import { PROGRAM, buyer } from "@/lib/reference"
+import { PROGRAM, termsOf } from "@/lib/reference"
 import { billedOf, change, laborAmount, overtimeKey, weekClosed, withOvertime } from "@/lib/timesheets"
 import type { DemoData, Invoice, InvoiceCredit, InvoiceGroup, InvoiceLine, Pro, Timesheet } from "@/lib/types"
 
 /**
  * How approved hours become invoices. Each agency has one invoice per buyer and Saturday to Friday week. It stays open
- * and collects the week's approved hours until the week closes, then Iris issues it on net terms. Hours approved after
- * their week closed go on an invoice of their own, issued right away. Every invoice for a buyer's week also sits in that
- * week's consolidated invoice, which the buyer reviews and pays as one.
+ * and collects the week's approved hours until the week closes, then Iris issues it on the agency's payment terms.
+ * Hours approved after their week closed go on an invoice of their own, issued right away. Every invoice also sits in
+ * the month's consolidated invoice for all of Compass, which breaks down by sector, business and cost center.
  */
 
 /** One line per timesheet, keyed by it, so a line keeps its id as the invoice it's on changes. */
@@ -43,7 +43,20 @@ const inOrder = (a: InvoiceLine, b: InvoiceLine) =>
 /** A week's invoices go out the Saturday after it ends. */
 export const issueDateOf = (weekStart: string) => addDaysISO(weekEndISO(weekStart), 1)
 
-export const weekName = (buyerId: string, weekStart: string) => `${buyer(buyerId).name}, week of ${formatDateShort(weekStart)}`
+/** The month an invoice is consolidated in: the one its week ends in. */
+export const monthOf = (inv: Pick<Invoice, "periodEnd">) => inv.periodEnd.slice(0, 7)
+
+const monthlyGroup = (month: string, createdOn: string): InvoiceGroup => ({
+  id: `ig-${month}`,
+  code: `IG-${month}`,
+  name: `${PROGRAM.name}, ${formatMonth(month)}`,
+  month,
+  createdOn,
+  createdBy: "Iris",
+  invoiceIds: [],
+})
+
+const dueFrom = (supplierId: string, issuedOn: string) => addDaysISO(issuedOn, termsOf(supplierId).netDays)
 
 /**
  * Rebuilds the lines of these invoices from the timesheets on them, so overtime and tips stay current while a week is
@@ -63,25 +76,25 @@ export function rebuildLines(invoices: Invoice[], timesheets: Timesheet[], ids: 
 }
 
 /**
- * Puts these invoices in their buyer's consolidated invoice for the week, creating it when needed. Invoices already in a
- * group, including ones grouped by hand, stay where they are.
+ * Puts these invoices in the month's consolidated invoice, creating it when needed. Invoices already in a group,
+ * including ones grouped by hand, stay where they are.
  */
 export function consolidate(data: Pick<DemoData, "invoices" | "invoiceGroups" | "counters">, ids: Set<string>, today: string) {
-  let ig = data.counters.ig
+  const ig = data.counters.ig
   const groups = new Map(data.invoiceGroups.map((g) => [g.id, g]))
-  const weekly = new Map<string, string>()
-  for (const g of data.invoiceGroups) if (g.weekStart && g.buyerId) weekly.set(`${g.buyerId}|${g.weekStart}`, g.id)
+  const monthly = new Map<string, string>()
+  for (const g of data.invoiceGroups) if (g.month) monthly.set(g.month, g.id)
   const created: string[] = []
   const groupOf = new Map<string, string>()
   for (const inv of data.invoices) {
     if (inv.groupId || !ids.has(inv.id)) continue
-    const key = `${inv.buyerId}|${inv.periodStart}`
-    let id = weekly.get(key)
+    const month = monthOf(inv)
+    let id = monthly.get(month)
     if (!id) {
-      const code = `IG-2026-${String(ig++).padStart(3, "0")}`
-      id = code.toLowerCase()
-      groups.set(id, { id, code, name: weekName(inv.buyerId, inv.periodStart), buyerId: inv.buyerId, weekStart: inv.periodStart, createdOn: today, createdBy: "Iris", invoiceIds: [] })
-      weekly.set(key, id)
+      const g = monthlyGroup(month, today)
+      id = g.id
+      groups.set(id, g)
+      monthly.set(month, id)
       created.push(id)
     }
     const g = groups.get(id)!
@@ -127,7 +140,7 @@ export function invoiceApproved(data: DemoData, ids: Set<string>, today: string,
         periodStart: week,
         periodEnd: weekEndISO(week),
         issuedOn,
-        dueOn: addDaysISO(issuedOn, PROGRAM.paymentTermsDays),
+        dueOn: dueFrom(t.supplierId, issuedOn),
         status: closed ? "unpaid" : "open",
         paidAmount: 0,
         lines: [],
@@ -168,7 +181,7 @@ export function issueOpen(data: DemoData, today: string, now: string, early = fa
   if (!due.length) return undefined
   const ids = new Set(due.map((i) => i.id))
   const numberOf = new Map(due.map((i) => [i.id, i.number]))
-  const issued = due.map((i) => ({ ...i, status: "unpaid" as const, issuedOn: today, dueOn: addDaysISO(today, PROGRAM.paymentTermsDays) }))
+  const issued = due.map((i) => ({ ...i, status: "unpaid" as const, issuedOn: today, dueOn: dueFrom(i.supplierId, today) }))
   const byId = new Map(issued.map((i) => [i.id, i]))
   return {
     patch: {
@@ -246,21 +259,19 @@ export function creditSentBack(data: DemoData, invoiceId: string, by: string, no
   }
 }
 
-/** The weekly consolidated invoices for invoices that were never grouped, for the seed. */
-export function weeklyGroups(invoices: Invoice[], startCounter: number) {
-  let counter = startCounter
+/** The monthly consolidated invoices for invoices that were never grouped, for the seed. */
+export function monthlyGroups(invoices: Invoice[]) {
   const groups = new Map<string, InvoiceGroup>()
   for (const inv of invoices) {
     if (inv.groupId) continue
-    const key = `${inv.buyerId}|${inv.periodStart}`
-    let g = groups.get(key)
+    const month = monthOf(inv)
+    let g = groups.get(month)
     if (!g) {
-      const code = `IG-2026-${String(counter++).padStart(3, "0")}`
-      g = { id: code.toLowerCase(), code, name: weekName(inv.buyerId, inv.periodStart), buyerId: inv.buyerId, weekStart: inv.periodStart, createdOn: issueDateOf(inv.periodStart), createdBy: "Iris", invoiceIds: [] }
-      groups.set(key, g)
+      g = monthlyGroup(month, inv.issuedOn)
+      groups.set(month, g)
     }
     g.invoiceIds.push(inv.id)
     inv.groupId = g.id
   }
-  return { groups: [...groups.values()].reverse(), counter }
+  return [...groups.values()].reverse()
 }
