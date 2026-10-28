@@ -203,7 +203,6 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
     <section id="changes" className="flex scroll-mt-20 flex-col gap-3" data-tour="rate-changes">
       <SectionTitle
         title="Rate changes"
-        description={`${scoped.length} changes, newest first`}
         info="Every change to a rate card is kept with the rate before and after, who made it and how it came in, even if the card is later removed."
         actions={
           <Button variant="ghost" size="sm" className="text-faded" onClick={download}>

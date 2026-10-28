@@ -80,13 +80,9 @@ export function MarketRates() {
     )
 
   const cells = [
-    {
-      label: "Your rates vs the market",
-      value: <VsMarket value={overall} />,
-      sub: "Across every role, weighted by hours",
-    },
-    { label: "Roles priced over the market", value: `${above.length} of ${rows.length}`, sub: above.length ? "Worth a rate renewal" : "Every role at or under the market" },
-    { label: "Benchmark", value: `${agencies} agencies`, sub: `${city(cityId).name} rate cards behind the median` },
+    { label: "Your rates vs the market", value: <VsMarket value={overall} />, info: "Across every role, weighted by hours." },
+    { label: "Roles priced over the market", value: `${above.length} of ${rows.length}` },
+    { label: "Benchmark", value: `${agencies} agencies`, info: `The ${city(cityId).name} rate cards behind each role's median.` },
   ]
 
   return (
@@ -103,9 +99,11 @@ export function MarketRates() {
       <Surface elevated className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         {cells.map((c) => (
           <div key={c.label} className="flex flex-col gap-0.5 px-5 py-4">
-            <span className="text-body-3 text-faded">{c.label}</span>
+            <span className="flex items-center gap-1.5 text-body-3 text-faded">
+              {c.label}
+              {c.info && <InfoTip>{c.info}</InfoTip>}
+            </span>
             <span className="text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular">{c.value}</span>
-            <span className="text-caption-1 text-faded">{c.sub}</span>
           </div>
         ))}
       </Surface>
@@ -134,14 +132,7 @@ export function MarketRates() {
                   onClick={() => setOpen(r.positionId)}
                   className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60"
                 >
-                  <td className="px-3 py-2.5">
-                    <span className="flex flex-col">
-                      <span className="font-medium">{position(r.positionId).name}</span>
-                      <span className="text-caption-1 text-faded">
-                        {r.cards.length} {r.cards.length === 1 ? "agency" : "agencies"} on your program
-                      </span>
-                    </span>
-                  </td>
+                  <td className="px-3 py-2.5 font-medium">{position(r.positionId).name}</td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular">{money(r.you)}</td>
                   <td className="px-3 py-2.5 text-right text-faded tabular">{money(r.market.median)}</td>
                   <td className="px-3 py-2.5">
@@ -181,7 +172,7 @@ function RoleRates({ row, cityId }: { row: Row; cityId: string }) {
   const b = row.market
   const stats = [
     { label: "Market median", value: money(b.median), sub: `${b.agencies} ${city(cityId).name} agencies` },
-    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}`, sub: "Of the market" },
+    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}` },
     { label: "You pay", value: money(row.you), sub: <VsMarket value={vsMarket(row.you, b)} /> },
   ]
   return (
@@ -198,7 +189,7 @@ function RoleRates({ row, cityId }: { row: Row; cityId: string }) {
             <div key={s.label} className="flex flex-col gap-0.5">
               <dt className="text-caption-1 text-faded">{s.label}</dt>
               <dd className="text-body-2 font-semibold tabular">{s.value}</dd>
-              <dd className="text-caption-1 text-faded">{s.sub}</dd>
+              {s.sub && <dd className="text-caption-1 text-faded">{s.sub}</dd>}
             </div>
           ))}
         </dl>

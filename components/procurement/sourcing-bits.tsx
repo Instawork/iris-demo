@@ -31,7 +31,7 @@ export function agencyStatus(ev: SourcingEvent, supplierId: string): { label: st
 
 interface Step {
   label: string
-  detail: string
+  detail?: string
   done: boolean
 }
 
@@ -52,10 +52,10 @@ export function stepsOf(ev: SourcingEvent): Step[] {
       detail: formatDateFull(earlyClose && lastFirstBid ? lastFirstBid : ev.closesOn),
       done: stage !== "collecting",
     },
-    { label: "Negotiation", detail: lastWord && stage !== "collecting" ? `Last word ${formatDateShort(lastWord)}` : "Counter any bid, line by line", done: stage === "awarded" },
+    { label: "Negotiation", detail: lastWord && stage !== "collecting" ? `Last word ${formatDateShort(lastWord)}` : undefined, done: stage === "awarded" },
     {
       label: "Bids approved",
-      detail: awarded ? formatDateFull(awarded) : approved ? `${approved} of ${bidders} approved` : "Approve each agency when it's ready",
+      detail: awarded ? formatDateFull(awarded) : approved ? `${approved} of ${bidders}` : undefined,
       done: stage === "awarded",
     },
     { label: "Live on rate cards", detail: awarded ? `From ${formatDateShort(awarded)}` : `Term starts ${formatDateShort(ev.termStart)}`, done: stage === "awarded" },
@@ -81,7 +81,7 @@ export function Timeline({ ev }: { ev: SourcingEvent }) {
           </span>
           <span className="flex min-w-0 flex-col">
             <span className={cn("text-body-3 font-medium", !s.done && i !== current && "text-faded")}>{s.label}</span>
-            <span className="text-caption-1 text-faded">{s.detail}</span>
+            {s.detail && <span className="text-caption-1 text-faded">{s.detail}</span>}
           </span>
         </li>
       ))}

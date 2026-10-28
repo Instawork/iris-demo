@@ -8,19 +8,17 @@ import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
 import { benchmark } from "@/lib/market"
-import { billingFindings, billingToReview, complianceScore, filledCount, groupPhase, isOpenTo, needsReview } from "@/lib/metrics"
+import { billingFindings, complianceScore, filledCount, groupPhase, isOpenTo, needsReview, billingToReview } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { SUPPLIERS, location, position, supplier } from "@/lib/reference"
-import { eligiblePros, notifiedSuppliers, pickedOffer, useStore } from "@/lib/store"
+import { eligiblePros } from "@/lib/store"
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
-import { reportHref } from "@/lib/reports"
-import { latestBid } from "@/lib/sourcing"
 import { CHECKS } from "@/lib/verification"
 
 /**
- * The guided demo: the five core workflows in the order of the Fieldglass modules, each played as the person who does
- * it. Every step says what's on screen and why it matters, waits for the player to do it, and can do it for them.
+ * The guided demo: the core of a VMS in five parts, each played as the person who does it. Every step waits for the
+ * player to do it, and "Do it for me" plays it through on screen, field by field, so it reads like a person did it.
  */
 
 export type ChapterId = "onboarding" | "shifts" | "compliance" | "timesheets" | "reporting"
@@ -39,7 +37,11 @@ export interface TourContext extends TourPicks {
 export interface TourApi {
   push: (href: string) => void
   remember: (patch: TourPicks) => void
+  /** The context as it is now, for steps that play out over several screens. */
+  now: () => TourContext
 }
+
+type Copy = string | ((ctx: TourContext) => string | undefined)
 
 export interface TourStep {
   kind: "step"
@@ -50,9 +52,9 @@ export interface TourStep {
   path: RegExp
   href: (ctx: TourContext) => string
   title: string | ((ctx: TourContext) => string)
-  body: string | ((ctx: TourContext) => string)
-  /** What the player does. Steps without one are read-only and show Next. */
-  action?: string | ((ctx: TourContext) => string)
+  body?: Copy
+  /** What the player does. When there's nothing to do, the card shows Next. */
+  action?: Copy
   example?: (ctx: TourContext) => string
   /** Elements to spotlight. The first is the one the player acts on. */
   targets: (ctx: TourContext) => (Element | null | undefined)[]
@@ -64,8 +66,8 @@ export interface TourStep {
   success?: (ctx: TourContext) => string
   /** Where to return when the target disappears, like a dialog the player closed. */
   back?: string
-  /** Does the step for the player. */
-  skip: (ctx: TourContext, api: TourApi) => void
+  /** Does the step for the player, on screen. */
+  skip: (ctx: TourContext, api: TourApi) => void | Promise<void>
   onDone?: (ctx: TourContext, api: TourApi) => void
 }
 
@@ -84,42 +86,12 @@ export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep |
 
 export const CHAPTER_ORDER: ChapterId[] = ["onboarding", "shifts", "compliance", "timesheets", "reporting"]
 
-export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon; fieldglass: string }> = {
-  onboarding: {
-    number: 1,
-    label: "Onboarding",
-    short: "Onboarding",
-    icon: Building2,
-    fieldglass: "Onboarding",
-  },
-  shifts: {
-    number: 2,
-    label: "Shift creation",
-    short: "Shifts",
-    icon: CalendarPlus,
-    fieldglass: "Job Posting",
-  },
-  compliance: {
-    number: 3,
-    label: "Assignment and compliance",
-    short: "Compliance",
-    icon: ShieldCheck,
-    fieldglass: "Job Seeker and Attestations",
-  },
-  timesheets: {
-    number: 4,
-    label: "Timesheets",
-    short: "Timesheets",
-    icon: Clock,
-    fieldglass: "Timesheet",
-  },
-  reporting: {
-    number: 5,
-    label: "Reporting",
-    short: "Reporting",
-    icon: ChartColumn,
-    fieldglass: "Reporting",
-  },
+export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon }> = {
+  onboarding: { number: 1, label: "Onboarding and rates", short: "Onboarding", icon: Building2 },
+  shifts: { number: 2, label: "Ordering shifts", short: "Ordering", icon: CalendarPlus },
+  compliance: { number: 3, label: "Compliance", short: "Compliance", icon: ShieldCheck },
+  timesheets: { number: 4, label: "Timesheets", short: "Timesheets", icon: Clock },
+  reporting: { number: 5, label: "Invoices and reporting", short: "Reporting", icon: ChartColumn },
 }
 
 const LEVY = "ws-levy"
@@ -133,98 +105,178 @@ const last = (selector: string) => {
   const all = document.querySelectorAll(selector)
   return all[all.length - 1] ?? null
 }
-const click = (selector: string) => (one(selector) as HTMLElement | null)?.click()
 const later = (fn: () => void, ms = 120) => window.setTimeout(fn, ms)
-const inside = (root: string, selector: string) => one(root)?.querySelector(selector) ?? null
+const inside = (root: string | Element | null | undefined, selector: string) => (typeof root === "string" ? one(root) : root)?.querySelector(selector) ?? null
+const buttonIn = (root: string | Element | null | undefined, text: string) =>
+  [...((typeof root === "string" ? one(root) : root)?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === text) ?? null
+/* -------------------------------- Autopilot -------------------------------- */
 
-/** Types into a field the way a person would, so the form's own state updates. */
-function fill(el: Element | null | undefined, value: string) {
-  if (!(el instanceof HTMLInputElement)) return
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(el, value)
-  el.dispatchEvent(new Event("input", { bubbles: true }))
+/** Bumped when the step changes or the tour ends, so a "Do it for me" in progress stops where it is. */
+let pilot = 0
+const STOPPED = new Error("Tour autopilot stopped")
+export const stopPilot = () => {
+  pilot++
+}
+export const pilotStopped = (error: unknown) => error === STOPPED
+
+const sleep = (ms: number) => {
+  const run = pilot
+  return new Promise<void>((resolve, reject) => window.setTimeout(() => (run === pilot ? resolve() : reject(STOPPED)), ms))
 }
 
-const pressButton = (root: string, text: string, on = false) => {
-  const button = [...(one(root)?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === text)
-  if (button && (on || button.getAttribute("aria-pressed") !== "true")) button.click()
+/** Waits for the next screen, or gives up and hands the step back to the player. */
+async function until<T>(find: () => T | null | undefined | false, ms = 5000): Promise<T> {
+  const end = performance.now() + ms
+  for (;;) {
+    const found = find()
+    if (found) return found
+    if (performance.now() > end) throw STOPPED
+    await sleep(80)
+  }
 }
 
-const tick = (root: string) => {
-  const box = inside(root, 'button[role="checkbox"]')
-  if (box && box.getAttribute("aria-checked") !== "true") (box as HTMLElement).click()
+/** Types into a field a few letters at a time, through the field's own change handler. */
+async function type(el: Element | null | undefined, value: string) {
+  if (!(el instanceof HTMLInputElement)) throw STOPPED
+  if (el.value === value) return
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  el.scrollIntoView({ block: "nearest" })
+  el.focus()
+  const pace = value.length > 20 ? 22 : 38
+  for (let i = 1; i <= value.length; i++) {
+    setValue?.call(el, value.slice(0, i))
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    await sleep(pace)
+  }
+  await sleep(220)
 }
 
-function attach(root: string, name: string) {
+/** Presses a button the way a person would: it lights up for a moment, then clicks. */
+async function press(el: Element | null | undefined) {
+  if (!(el instanceof HTMLElement)) throw STOPPED
+  el.scrollIntoView({ block: "nearest" })
+  el.setAttribute("data-tour-press", "")
+  try {
+    await sleep(360)
+  } finally {
+    el.removeAttribute("data-tour-press")
+  }
+  el.click()
+  await sleep(300)
+}
+
+async function attach(root: string, name: string) {
   const input = inside(root, 'input[type="file"]')
-  if (!(input instanceof HTMLInputElement)) return
+  if (!(input instanceof HTMLInputElement)) throw STOPPED
   const files = new DataTransfer()
   files.items.add(new File(["Iris demo document"], name, { type: "application/pdf" }))
   input.files = files.files
   input.dispatchEvent(new Event("change", { bubbles: true }))
+  await sleep(300)
 }
 
 const serial = (id: string) => Number(id.split("-")[1]) || 0
 const nextDate = () => formatDay(addDaysISO(todayISO(), 2), "MMMM do")
 
 export const askExample = () => `Create 8 bartender shifts at West Loop Arena on ${nextDate()} from 4pm to 11pm`
-const reportAsk = () => "What did Harbor bill at West Loop Arena last week?"
+const reportAsk = () => "What did we spend by agency last week?"
 
 /* -------------------------------- Onboarding ------------------------------- */
 
 const UNIT = '[data-tour="unit-dialog"]'
 const AGENCY = '[data-tour="agency-dialog"]'
-const UNIT_STAGES = ["Unit", "Location", "Roles", "Departments", "Review", "done"]
-const AGENCY_STAGES = ["Agency", "Coverage", "Paperwork", "Rates", "Workers", "Review", "done"]
+const NEXT = '[data-tour="wizard-next"]'
+const SUBMIT = '[data-tour="wizard-submit"]'
+const DONE = '[data-tour="wizard-done"]'
 
 const stageOf = (dialog: string) => one(dialog)?.getAttribute("data-stage") ?? undefined
-const pastStage = (dialog: string, stages: string[], stage: string) => {
-  const current = stageOf(dialog)
-  return !!current && stages.indexOf(current) > stages.indexOf(stage)
-}
-const next = (dialog: string) => later(() => (inside(dialog, '[data-tour="wizard-next"]') as HTMLElement | null)?.click())
 
 const newUnit = (ctx: TourContext) => ctx.data.directory.locations[0]
 const newAgency = (ctx: TourContext) => ctx.data.directory.suppliers[0]
 
-const unitStage = (id: string, stage: string, title: string, body: string, action: string, fillIn: () => void): TourStep => ({
-  kind: "step",
-  id,
-  chapter: "onboarding",
-  wsId: COMPASS,
-  path: /^\/units/,
-  href: () => "/units",
-  title,
-  body,
-  action,
-  targets: () => [one(UNIT)],
-  placement: "right",
-  done: (ctx) => !!newUnit(ctx) || pastStage(UNIT, UNIT_STAGES, stage),
-  back: "units",
-  skip: () => {
-    fillIn()
-    next(UNIT)
-  },
-})
+interface StageCopy {
+  title: string
+  body?: string
+  action: string
+}
 
-const agencyStage = (id: string, stage: string, title: string, body: string, action: string, fillIn: () => void): TourStep => ({
-  kind: "step",
-  id,
-  chapter: "onboarding",
-  wsId: COMPASS,
-  path: /^\/agencies$/,
-  href: () => "/agencies",
-  title,
-  body,
-  action,
-  targets: () => [one(AGENCY)],
-  placement: "right",
-  done: (ctx) => !!newAgency(ctx) || pastStage(AGENCY, AGENCY_STAGES, stage),
-  back: "agencies",
-  skip: () => {
-    fillIn()
-    next(AGENCY)
-  },
-})
+const UNIT_COPY: Record<string, StageCopy> = {
+  Unit: { title: "Name it and give it a cost center", action: "Type Soldier Field and LEV-4450, then Next" },
+  Location: { title: "Where it is", body: "From the ZIP, Iris finds the agencies that cover it.", action: "Type the address and ZIP in grey, then Next" },
+  Roles: { title: "What it orders", action: "Click Food handler card for every role, then Next" },
+  Departments: { title: "Departments, each with a cost center", body: "Concessions, bars and suites bill separately.", action: "Click Next" },
+  Review: { title: "Add it", action: "Click Add unit" },
+}
+
+const unitCopy = (ctx: TourContext): StageCopy => {
+  const stage = stageOf(UNIT)
+  if (stage === "done") return { title: `${newUnit(ctx)?.name ?? "The unit"} is live`, action: "Click Done" }
+  return UNIT_COPY[stage ?? ""] ?? { title: "Add a unit", body: "Each unit, and each department in it, bills to its own cost center.", action: "Click Add a unit" }
+}
+
+/** Plays a wizard stage by stage: fills what the stage asks for, then moves on once the dialog does. */
+async function playWizard(dialog: string, open: string, fillIn: (stage: string) => Promise<void>) {
+  if (!one(dialog)) {
+    await press(one(open))
+    await until(() => one(dialog))
+  }
+  for (let guard = 0; guard < 12; guard++) {
+    const stage = stageOf(dialog)
+    if (!stage) return
+    if (stage === "done") {
+      await sleep(900)
+      await press(inside(dialog, DONE))
+      return
+    }
+    await fillIn(stage)
+    const button = inside(dialog, SUBMIT) ?? inside(dialog, NEXT)
+    await press(button)
+    await until(() => stageOf(dialog) !== stage, 6000)
+  }
+}
+
+const toggleOn = async (root: string, text: string) => {
+  const button = buttonIn(root, text)
+  if (button && button.getAttribute("aria-pressed") !== "true") await press(button)
+}
+
+const AGENCY_COPY: Record<string, StageCopy> = {
+  Agency: { title: "Who they are", body: "It can send workers and hours by CSV, API or both.", action: "Type the name, contact and email in grey, then Next" },
+  Coverage: { title: "Where they work and what they staff", action: "Add Suite Attendant, then Next" },
+  Paperwork: { title: "Insurance and the master agreement", action: "Tick Master services agreement signed, then Next" },
+  Rates: { title: "Its rate card", body: "Rates start at the market. Markups over the 45% cap are blocked.", action: "Click Next" },
+  Workers: { title: "Bring over its workers", body: "Iris checks each worker's documents as they arrive.", action: "Click Use a sample roster, then Next" },
+  Review: { title: "Add it", action: "Click Add agency" },
+}
+
+const agencyCopy = (ctx: TourContext): StageCopy => {
+  const stage = stageOf(AGENCY)
+  if (stage === "done") {
+    const sup = newAgency(ctx)
+    const pros = sup ? ctx.data.pros.filter((p) => p.supplierId === sup.id) : []
+    const waiting = pros.filter((p) => p.compliance.background?.status === "pending").length
+    return {
+      title: `${sup?.name ?? "The agency"} is on Iris`,
+      body: `${plural(pros.length, "worker")} came over${waiting ? `; ${waiting} wait on a background check` : ""}.`,
+      action: "Click Done",
+    }
+  }
+  return AGENCY_COPY[stage ?? ""] ?? { title: "Add an agency", action: "Click Add an agency" }
+}
+
+/* ------------------------------- Procurement ------------------------------- */
+
+const EVENT = "rfp-chi-27"
+const event = (ctx: TourContext) => ctx.data.sourcing?.find((e) => e.id === EVENT)
+const BARTENDER_ROW = '[data-tour="role-row"][data-position="bartender"]'
+const bidRows = () => [...document.querySelectorAll('[role="dialog"] [data-tour="bid-row"][data-position="bartender"]')]
+/** The highest bid on Bartender Compass can still counter. */
+const counterable = () => bidRows().filter((row) => row.querySelector('[data-tour="counter"], [data-tour="send-counter"]')).pop()
+const counteredSince = (ctx: TourContext) => event(ctx)?.messages.find((m) => m.from === "compass" && m.ask !== undefined && m.at >= ctx.base.at)
+const approvedSince = (ctx: TourContext) => Object.values(event(ctx)?.approved ?? {}).filter((at) => at >= ctx.base.at).length
+const approveDialog = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector("h2")?.textContent?.trim() === "Approve bids")
+const approveButton = () => [...(approveDialog()?.querySelectorAll("button") ?? [])].find((b) => /^Approve \d/.test(b.textContent?.trim() ?? ""))
+const closeSheet = () => (one('[data-slot="sheet-content"] [data-slot="sheet-close"]') as HTMLElement | null)?.click()
 
 /* ------------------------------ Shift creation ----------------------------- */
 
@@ -236,15 +288,15 @@ const booked = (ctx: TourContext) => ordersSince(ctx).find((g) => !g.approval &&
 /** The order the player posted from the form, asking for workers by name. */
 const requestedOrder = (ctx: TourContext) => ordersSince(ctx).find((g) => !!g.dispatch?.proIds?.length)
 
-const OFFERS = '[data-tour="offers"]'
 const DISPATCH = '[data-tour="dispatch"]'
+const AGENCY_TAB = `${DISPATCH} [role="tab"][data-value="agency"]`
 const PRO_PICKER = `${DISPATCH} [data-tour="request-pros"]`
-const oneAgency = () => !!one(`${DISPATCH} [role="tab"][data-value="agency"][aria-selected="true"]`)
+const oneAgency = () => !!one(`${AGENCY_TAB}[aria-selected="true"]`)
 const prosPicked = () => document.querySelectorAll(`${PRO_PICKER} li button[aria-pressed="true"]`).length
 
-const hasDraft = (ctx: TourContext, label?: string) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift" && (!label || a.label === label)))
+const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
 
-/* ------------------------ Assignment and compliance ------------------------ */
+/* ------------------------------- Compliance -------------------------------- */
 
 /** An upcoming Levy shift released to Crewline that still has open spots, a West Loop bartender shift if there is one. */
 const assignable = (data: DemoData) =>
@@ -258,10 +310,15 @@ const assignable = (data: DemoData) =>
         a.start.localeCompare(b.start),
     )[0]
 
-const assignGroup = (ctx: TourContext) => ctx.data.groups.find((g) => g.id === ctx.groupId) ?? assignable(ctx.data)
+const shownGroup = (ctx: TourContext) => {
+  const id = ctx.path.match(/^\/shifts\/(sg-\d+)$/)?.[1]
+  return id ? ctx.data.groups.find((g) => g.id === id) : undefined
+}
+
+const ASSIGN_DIALOG = '[data-tour="assign-dialog"]'
 
 const crewlineCheck = (ctx: TourContext) => {
-  const g = assignGroup(ctx)
+  const g = shownGroup(ctx) ?? assignable(ctx.data)
   if (!g) return undefined
   const loc = location(g.locationId)
   const pool = ctx.data.pros.filter((p) => p.supplierId === "crewline" && p.cityId === loc.cityId && p.positionIds.includes(g.positionId))
@@ -270,11 +327,11 @@ const crewlineCheck = (ctx: TourContext) => {
     .map((p) => ({ p, check: canWork(p, g.positionId, g.date, g.locationId) }))
     .filter((x) => !x.check.ok)
     .sort((a, b) => b.p.rating - a.p.rating)[0]
-  return { g, pool: pool.length, ready, blocked }
+  return { pool: pool.length, ready, blocked }
 }
 
 const assignedSince = (ctx: TourContext) => {
-  const g = assignGroup(ctx)
+  const g = shownGroup(ctx)
   return !!g && g.slots.some((s) => !!s.proId && !!s.confirmedAt && s.confirmedAt >= ctx.base.at && ctx.data.pros.find((p) => p.id === s.proId)?.supplierId === "crewline")
 }
 
@@ -290,43 +347,40 @@ const BLOCKING = ["expired", "missing", "pending"]
 
 const blocker = (pro?: Pro) => (pro ? requirementRows(pro).find((r) => BLOCKING.includes(r.state)) : undefined)
 
-/** Documents the agency can add or renew on this Pro. */
-const renewable = (pro?: Pro) => (pro ? requirementRows(pro).filter((r) => r.state !== "complete" && r.state !== "not_required") : [])
-
-/** Another one after the first is renewed, for the document Iris can't verify. */
-const spareDoc = (pro?: Pro, besides?: RequirementId) => renewable(pro).find((r) => r.id !== besides)
-
-/** Metro's Pros kept off shifts, expired documents first, then the ones that also have a second document to renew. */
+/** Metro's workers kept off shifts, expired documents first. */
 const blockedPros = (data: DemoData) =>
   data.pros
     .filter((p) => p.supplierId === "metro" && standingOf(p) === "not_compliant")
-    .map((pro) => ({ pro, expired: requirementRows(pro).some((r) => r.state === "expired"), spare: renewable(pro).length > 1 }))
-    .sort((a, b) => Number(b.expired) - Number(a.expired) || Number(b.spare) - Number(a.spare) || fullName(a.pro).localeCompare(fullName(b.pro)))
+    .map((pro) => ({ pro, expired: requirementRows(pro).some((r) => r.state === "expired") }))
+    .sort((a, b) => Number(b.expired) - Number(a.expired) || fullName(a.pro).localeCompare(fullName(b.pro)))
     .map((x) => x.pro)
 
-const chosenPro = (ctx: TourContext): Pro | undefined => ctx.data.pros.find((p) => p.id === ctx.proId) ?? blockedPros(ctx.data)[0]
+const openPro = (ctx: TourContext) => {
+  const id = ctx.params.get("pro")
+  return id ? ctx.data.pros.find((p) => p.id === id && p.supplierId === "metro") : undefined
+}
+const chosenPro = (ctx: TourContext): Pro | undefined => openPro(ctx) ?? blockedPros(ctx.data)[0]
 
-const docItem = (ctx: TourContext) => (ctx.docId ? chosenPro(ctx)?.compliance[ctx.docId] : undefined)
+const VERIFY = '[data-tour="verify-dialog"]'
 
-const held = (ctx: TourContext) => {
-  const item = docItem(ctx)
-  return item?.status === "pending" && item.verification?.result === "needs_review"
+/** The document Metro renewed during the tour, once Iris has checked it. */
+const verifiedSince = (ctx: TourContext) => {
+  for (const pro of ctx.data.pros) {
+    if (pro.supplierId !== "metro") continue
+    for (const item of Object.values(pro.compliance)) if (item?.verification?.result === "verified" && item.verification.at >= ctx.base.at) return { pro, v: item.verification }
+  }
+  return undefined
 }
 
-const verifyingFor = () => one('[data-tour="verify-dialog"]')?.getAttribute("data-doc-id") ?? undefined
-
-const submitVerify = () => {
-  later(() => tick('[data-tour="verify-dialog"]'), 1300)
-  later(() => click('[data-tour="verify-submit"]'), 1600)
-}
-
-/** Agencies with Pros on the program, best roster first. */
+/** Agencies with workers on the program, best roster first. */
 const scored = (data: DemoData) =>
   SUPPLIERS.map((s) => ({ s, c: complianceScore(data, s.id) }))
     .filter((x) => x.c.active > 0)
     .sort((a, b) => b.c.score - a.c.score)
 
 /* -------------------------------- Timesheets ------------------------------- */
+
+const SCAN = '[data-tour="scan-sheet"]'
 
 /** Harbor's timesheets still with Harbor, and the ones that match Iris's clock exactly. */
 const harborDrafts = (data: DemoData) => {
@@ -335,11 +389,25 @@ const harborDrafts = (data: DemoData) => {
   return { waiting, matching: waiting.filter((t) => matchesClock(t, mine.filter((o) => o.proId === t.proId))) }
 }
 
+const scannedSince = (ctx: TourContext) =>
+  ctx.data.timesheets.filter((t) => t.supplierId === "harbor" && t.history.some((h) => h.at >= ctx.base.at && `${h.note ?? ""} ${h.reason ?? ""}`.includes("sign-in sheet"))).length
+
 const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart)
 
+const SHEET = '[data-tour="timesheet-sheet"]'
+const MOVE = '[data-tour="move-dialog"]'
+
+/** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
+const paddedSheet = (data: DemoData) =>
+  data.timesheets
+    .filter((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && timesheetChecks(t).some((c) => c.id === "above_clock"))
+    .sort(newestFirst)[0]
+
+const correctedSince = (ctx: TourContext) => ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.history.some((h) => h.action === "corrected" && h.at >= ctx.base.at))
+
 /**
- * A clean Levy timesheet on the first page of Needs approval, for a Pro their agency also has another approved role and
- * rate for. A concessions worker who could have gone to the suites as a barback if there is one.
+ * A clean Levy timesheet on the first page of Needs approval, for a worker their agency also has another approved role
+ * and rate for. A concessions worker who could have gone to the suites as a barback if there is one.
  */
 const movable = (data: DemoData) => {
   const pending = data.timesheets.filter((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && !t.movedFrom && !t.movedTo)
@@ -361,15 +429,7 @@ const movable = (data: DemoData) => {
 
 const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.movedFrom && t.history.some((h) => h.action === "moved" && h.at >= ctx.base.at))
 
-const generated = (ctx: TourContext) => ctx.data.invoices.filter((i) => serial(i.id) >= ctx.base.inv && i.status !== "open")
-
-const openInvoices = (ctx: TourContext) => ctx.data.invoices.filter((i) => i.buyerId === "levy-chi" && i.status === "open")
-
-/** Last night's Harbor bartender billed above the clock, while it's still waiting for approval: the newest such timesheet, the one the table lists first. */
-const paddedSheet = (data: DemoData) =>
-  data.timesheets
-    .filter((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && timesheetChecks(t).some((c) => c.id === "above_clock"))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart))[0]
+/* ------------------------------ Invoices, reports ------------------------------ */
 
 /** Waiting on Compass, the ones with hours billed above the clock first. */
 const flagged = (data: DemoData) =>
@@ -377,9 +437,12 @@ const flagged = (data: DemoData) =>
     .filter((i) => needsReview(data, i))
     .sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || b.issuedOn.localeCompare(a.issuedOn) || b.number.localeCompare(a.number))
 
-const tourInvoice = (ctx: TourContext) => ctx.data.invoices.find((i) => i.id === ctx.invoiceId)
+const shownInvoice = (ctx: TourContext) => {
+  const id = ctx.path.match(/^\/invoices\/(inv-[\w-]+)$/)?.[1]
+  return id ? ctx.data.invoices.find((i) => i.id === id) : undefined
+}
 
-/* -------------------------------- Reporting -------------------------------- */
+const reviewedSince = (ctx: TourContext) => ctx.data.invoices.find((i) => !!i.billingReview && i.billingReview.at >= ctx.base.at)
 
 /** Where Iris's latest answer links to its report. */
 const reportLink = (ctx: TourContext) => {
@@ -387,284 +450,152 @@ const reportLink = (ctx: TourContext) => {
   return undefined
 }
 
-const newReport = (ctx: TourContext) => ctx.data.reports.filter((r) => serial(r.id) >= ctx.base.rep).sort((a, b) => serial(b.id) - serial(a.id))[0]
+const COMPOSER = () => document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')
 
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
 
-  /* ------------------------------ 1. Onboarding ------------------------------ */
+  /* ------------------------- 1. Onboarding and rates ------------------------- */
   {
     kind: "chapter",
     id: "chapter-onboarding",
     chapter: "onboarding",
-    title: "Onboarding",
+    title: "Onboarding and rates",
     wsId: COMPASS,
     href: "/units",
-    shows: "Add a unit with its departments, add an agency, and see where its rates come from.",
+    shows: "Add a unit and an agency, then set next year's rates.",
   },
   {
     kind: "step",
-    id: "units",
+    id: "unit",
     chapter: "onboarding",
     wsId: COMPASS,
     path: /^\/units/,
     href: () => "/units",
-    title: "Every unit on the program",
-    body: "Each one is a location with its own cost center.",
-    action: "Click Add a unit",
-    targets: () => [one('[data-tour="add-unit"]'), one('[data-tour="units-table"]')],
-    placement: "bottom",
-    done: (ctx) => !!newUnit(ctx) || !!one(UNIT),
-    skip: () => click('[data-tour="add-unit"]'),
-  },
-  unitStage(
-    "unit-name",
-    "Unit",
-    "Name it and give it a cost center",
-    "Its invoices are charged to this cost center.",
-    "Type Soldier Field and LEV-4450, then Next",
-    () => {
-      fill(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
-      fill(inside(UNIT, 'input[placeholder="LEV-4450"]'), "LEV-4450")
-    },
-  ),
-  unitStage(
-    "unit-location",
-    "Location",
-    "Place it",
-    "From the ZIP, Iris finds the market and the agencies that cover it.",
-    "Type the address and ZIP shown in grey, then Next",
-    () => {
-      fill(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
-      fill(inside(UNIT, 'input[placeholder="60605"]'), "60605")
-    },
-  ),
-  unitStage(
-    "unit-roles",
-    "Roles",
-    "What it orders, and what workers need",
-    "Iris shows how many workers still qualify.",
-    "Click Food handler card for every role, then Next",
-    () => pressButton(UNIT, "Food handler card for every role"),
-  ),
-  unitStage(
-    "unit-departments",
-    "Departments",
-    "Departments, each with its own cost center",
-    "Concessions, bars and suites are billed separately. Iris suggests them for a stadium.",
-    "Check the departments, then Next",
-    () => undefined,
-  ),
-  {
-    kind: "step",
-    id: "unit-review",
-    chapter: "onboarding",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: "Check it and add it",
-    body: "Nothing is saved until you add it.",
-    action: "Click Add unit",
-    targets: () => [one(UNIT)],
-    placement: "right",
-    done: (ctx) => !!newUnit(ctx),
-    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} is live`,
-    back: "units",
-    skip: () => click(`${UNIT} [data-tour="wizard-submit"]`),
-  },
-  {
-    kind: "step",
-    id: "unit-live",
-    chapter: "onboarding",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} can book now`,
-    body: "Its first order goes straight to the agencies that cover it.",
-    action: "Click Done",
-    targets: () => [one(UNIT)],
+    title: (ctx) => unitCopy(ctx).title,
+    body: (ctx) => unitCopy(ctx).body,
+    action: (ctx) => unitCopy(ctx).action,
+    targets: () => (one(UNIT) ? [one(UNIT)] : [one('[data-tour="add-unit"]')]),
     placement: "right",
     done: (ctx) => !!newUnit(ctx) && !one(UNIT),
-    skip: () => click(`${UNIT} [data-tour="wizard-done"]`),
+    onDone: (_, api) => later(() => api.push("/agencies"), 250),
+    skip: () =>
+      playWizard(UNIT, '[data-tour="add-unit"]', async (stage) => {
+        if (stage === "Unit") {
+          await type(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
+          await type(inside(UNIT, 'input[placeholder="LEV-4450"]'), "LEV-4450")
+        }
+        if (stage === "Location") {
+          await type(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
+          await type(inside(UNIT, 'input[placeholder="60605"]'), "60605")
+        }
+        if (stage === "Roles") await toggleOn(UNIT, "Food handler card for every role")
+        if (stage === "Departments") await sleep(700)
+      }),
   },
   {
     kind: "step",
-    id: "open-agencies",
-    chapter: "onboarding",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: "Next, add an agency",
-    body: "Agencies have their own page.",
-    action: "Open Agencies in the menu",
-    targets: () => [one('nav a[href="/agencies"], aside a[href="/agencies"]')],
-    placement: "right",
-    done: (ctx) => ctx.path.startsWith("/agencies"),
-    skip: (_, api) => api.push("/agencies"),
-  },
-  {
-    kind: "step",
-    id: "agencies",
-    chapter: "onboarding",
-    wsId: COMPASS,
-    path: /^\/agencies$/,
-    href: () => "/agencies",
-    title: "Every agency on the program",
-    body: "Insurance, rates and workers for each one.",
-    action: "Click Add an agency",
-    targets: () => [one('[data-tour="add-agency"]'), one('[data-tour="agencies-table"]')],
-    placement: "bottom",
-    done: (ctx) => !!newAgency(ctx) || !!one(AGENCY),
-    skip: () => click('[data-tour="add-agency"]'),
-  },
-  agencyStage(
-    "agency-who",
-    "Agency",
-    "Who they are",
-    "The contact gets the agency's first sign-in. It can send workers and hours by CSV, API or both.",
-    "Type the name, contact and email shown in grey, then Next",
-    () => {
-      fill(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
-      fill(inside(AGENCY, 'input[placeholder="Alex Rivera"]'), "Alex Rivera")
-      fill(inside(AGENCY, 'input[placeholder="alex@northwindstaff.com"]'), "alex@northwindstaff.com")
-    },
-  ),
-  agencyStage(
-    "agency-coverage",
-    "Coverage",
-    "Where they work and what they staff",
-    "Each market and role becomes a row on the rate card.",
-    "Add Suite Attendant, then Next",
-    () => pressButton(AGENCY, "Suite Attendant"),
-  ),
-  agencyStage(
-    "agency-paperwork",
-    "Paperwork",
-    "Insurance and the master agreement",
-    "Next stays off until the master agreement is signed.",
-    "Tick Master services agreement signed, then Next",
-    () => tick(AGENCY),
-  ),
-  agencyStage(
-    "agency-rates",
-    "Rates",
-    "The rate card",
-    "Rates start at the Chicago market. Markups over the 45% cap are blocked.",
-    "Check the rates, then Next",
-    () => undefined,
-  ),
-  agencyStage(
-    "agency-roster",
-    "Workers",
-    "Bring over its workers",
-    "Upload the roster the agency sent. Iris checks each worker's documents as they arrive.",
-    "Click Use a sample roster, then Next",
-    () => pressButton(AGENCY, "Use a sample roster"),
-  ),
-  {
-    kind: "step",
-    id: "agency-review",
+    id: "agency",
     chapter: "onboarding",
     wsId: COMPASS,
     path: /^\/agencies$/,
     href: () => "/agencies",
-    title: "Check it and add it",
-    body: "Adding it creates the agency, its rates and its workers at once.",
-    action: "Click Add agency",
-    targets: () => [one(AGENCY)],
-    placement: "right",
-    done: (ctx) => !!newAgency(ctx),
-    success: (ctx) => `${newAgency(ctx)?.name ?? "The agency"} is on Iris`,
-    back: "agencies",
-    skip: () => click(`${AGENCY} [data-tour="wizard-submit"]`),
-  },
-  {
-    kind: "step",
-    id: "agency-live",
-    chapter: "onboarding",
-    wsId: COMPASS,
-    path: /^\/agencies$/,
-    href: () => "/agencies",
-    title: "Live, with its exceptions already caught",
-    body: (ctx) => {
-      const sup = newAgency(ctx)
-      const pros = sup ? ctx.data.pros.filter((p) => p.supplierId === sup.id) : []
-      const waiting = pros.filter((p) => p.compliance.background?.status === "pending").length
-      return `${plural(pros.length, "worker")} came over${waiting ? `; ${waiting} wait on background checks` : ""}.`
-    },
-    action: "Click Done",
-    targets: () => [one(AGENCY)],
+    title: (ctx) => agencyCopy(ctx).title,
+    body: (ctx) => agencyCopy(ctx).body,
+    action: (ctx) => agencyCopy(ctx).action,
+    targets: () => (one(AGENCY) ? [one(AGENCY)] : [one('[data-tour="add-agency"]')]),
     placement: "right",
     done: (ctx) => !!newAgency(ctx) && !one(AGENCY),
-    onDone: (_, api) => later(() => api.push("/procurement/rfp-chi-27"), 900),
-    skip: (_, api) => {
-      click(`${AGENCY} [data-tour="wizard-done"]`)
-      later(() => api.push("/procurement/rfp-chi-27"), 300)
+    onDone: (_, api) => later(() => api.push(`/procurement/${EVENT}`), 250),
+    skip: () =>
+      playWizard(AGENCY, '[data-tour="add-agency"]', async (stage) => {
+        if (stage === "Agency") {
+          await type(inside(AGENCY, 'input[placeholder="Northwind Event Staffing"]'), "Northwind Event Staffing")
+          await type(inside(AGENCY, 'input[placeholder="Alex Rivera"]'), "Alex Rivera")
+          await type(inside(AGENCY, 'input[placeholder="alex@northwindstaff.com"]'), "alex@northwindstaff.com")
+          await toggleOn(AGENCY, "API connection")
+        }
+        if (stage === "Coverage") await toggleOn(AGENCY, "Suite Attendant")
+        if (stage === "Paperwork") {
+          const box = inside(AGENCY, 'button[role="checkbox"]')
+          if (box?.getAttribute("aria-checked") !== "true") await press(box)
+        }
+        if (stage === "Rates") await sleep(700)
+        if (stage === "Workers") await press(buttonIn(AGENCY, "Use a sample roster"))
+      }),
+  },
+  {
+    kind: "step",
+    id: "counter",
+    chapter: "onboarding",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: () => (bidRows().length ? "Counter the highest bid" : "Next year's rates, against the market"),
+    body: () => (bidRows().length ? "Iris suggests the ask from the market and the other bids." : `Each role's bids next to what ${benchmark("chi", "bartender").agencies} Chicago agencies charge.`),
+    action: () => (one('[data-tour="send-counter"]') ? "Click Send" : bidRows().length ? "Click Counter, then Send" : "Open Bartender"),
+    targets: () => (bidRows().length ? [counterable()] : [one(BARTENDER_ROW)]),
+    placement: "left",
+    anchor: () => (bidRows().length ? one('[data-slot="sheet-content"]') : undefined),
+    done: (ctx) => !!counteredSince(ctx),
+    success: (ctx) => `Counter sent to ${supplier(counteredSince(ctx)!.supplierId).shortName}`,
+    onDone: () => later(closeSheet, 1000),
+    skip: async () => {
+      if (!bidRows().length) {
+        await press(one(BARTENDER_ROW))
+        await until(() => counterable())
+        await sleep(500)
+      }
+      const row = counterable()
+      if (!row?.querySelector('[data-tour="send-counter"]')) await press(inside(row, '[data-tour="counter"]'))
+      await press(await until(() => inside(row, '[data-tour="send-counter"]')))
     },
   },
   {
     kind: "step",
-    id: "rate-renewal",
+    id: "approve",
     chapter: "onboarding",
     wsId: COMPASS,
-    path: /^\/procurement\/rfp-chi-27/,
-    href: () => "/procurement/rfp-chi-27",
-    title: "Next year's rates, benchmarked and negotiated",
-    body: (ctx) => {
-      const ev = ctx.data.sourcing?.find((e) => e.id === "rfp-chi-27")
-      const line = ev?.lines.find((l) => l.positionId === "bartender")
-      const bid = ev && line ? latestBid(ev, "harbor")?.lines[line.id] : undefined
-      const was = line?.baseline.harbor
-      const cut = bid && was && bid.billRate < was ? ` After a counter, Harbor's Bartender came down from ${money(was)} to ${money(bid.billRate)}.` : ""
-      return `Every role's bids sit against what ${benchmark("chi", "bartender").agencies} Chicago agencies charge.${cut} Approved bids go live on the rate cards.`
-    },
-    targets: () => [one('[data-tour="role-row"][data-position="bartender"]')],
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: "Approve the rest",
+    body: "Approved bids go live on each agency's rate card.",
+    action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
+    targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
     placement: "bottom",
+    anchor: () => approveDialog(),
+    done: (ctx) => approvedSince(ctx) > 0,
+    success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
+    onDone: (_, api) => later(() => api.push("/procurement?tab=rates"), 1100),
+    skip: async () => {
+      if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
+      await sleep(500)
+      await press(await until(() => approveButton()))
+    },
+  },
+  {
+    kind: "step",
+    id: "market",
+    chapter: "onboarding",
+    wsId: COMPASS,
+    path: /^\/procurement$/,
+    href: () => "/procurement?tab=rates",
+    title: "Every rate, against the market",
+    body: "Open a role to rank your agencies on it.",
+    targets: () => [one('[data-tour="market-rates"]')],
+    placement: "top",
     skip: () => undefined,
   },
-  /* ---------------------------- 2. Shift creation ---------------------------- */
+
+  /* --------------------------- 2. Ordering shifts ---------------------------- */
   {
     kind: "chapter",
     id: "chapter-shifts",
     chapter: "shifts",
-    title: "Shift creation",
+    title: "Ordering shifts",
     wsId: LEVY,
-    href: "/rates?role=bartender",
-    shows: "Pick the best offer for a role, book shifts in a sentence, and send one to a single agency.",
-  },
-  {
-    kind: "step",
-    id: "pick-offer",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/rates/,
-    href: () => "/rates?role=bartender",
-    title: "Each role's offers, cheapest first",
-    body: "The agency you pick sees that role's shifts first. The rest follow by rate.",
-    action: "Pick who sees Bartender shifts first",
-    targets: () => [one(`${OFFERS} [data-position="bartender"]`)],
-    placement: "bottom",
-    done: (ctx) => !!pickedOffer(ctx.data, "levy-chi", "chi", "bartender"),
-    success: (ctx) => `${supplier(pickedOffer(ctx.data, "levy-chi", "chi", "bartender")!).shortName} sees Levy's bartender shifts first`,
-    onDone: (_, api) => later(() => api.push("/"), 1100),
-    skip: (ctx, api) => {
-      const best = notifiedSuppliers(ctx.data, "levy-chi", "chi", "bartender")[0]
-      if (best) void useStore.getState().pickOffer("levy-chi", "chi", "bartender", best.supplier.id)
-      api.push("/")
-    },
-  },
-  {
-    kind: "step",
-    id: "predict-orders",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Orders Iris expects",
-    body: "Iris drafts the recurring orders it sees coming.",
-    targets: () => [one('[data-tour="predictions"]')],
-    placement: "top",
-    skip: () => undefined,
+    href: "/",
+    shows: "Book shifts in a sentence, or send them to one agency.",
   },
   {
     kind: "step",
@@ -673,15 +604,17 @@ export const SCRIPT: TourItem[] = [
     wsId: LEVY,
     path: /^\/$/,
     href: () => "/",
-    title: "Ask in a sentence",
-    body: "Role, venue, date, time and headcount in plain English.",
+    title: "Order in a sentence",
     action: "Send it with Enter",
     example: askExample,
-    targets: () => [document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')],
+    targets: () => [COMPOSER()],
     placement: "top",
     done: (ctx) => hasDraft(ctx) || !!booked(ctx),
     success: () => "Draft ready",
-    skip: () => compose(COMPOSER_ID, askExample(), true),
+    skip: async (_, api) => {
+      compose(COMPOSER_ID, askExample(), true)
+      await until(() => hasDraft(api.now()), 15000)
+    },
   },
   {
     kind: "step",
@@ -690,138 +623,39 @@ export const SCRIPT: TourItem[] = [
     wsId: LEVY,
     path: /^\/$/,
     href: () => "/",
-    title: "Check the draft",
-    body: "Priced from each agency's rate, best offer first. Nothing is booked yet.",
+    title: "Check it, then book it",
+    body: "Priced from the rate cards. The best offer sees it first.",
     action: "Click Create and send",
     targets: () => [last('[data-tour="agent-draft"]')],
     placement: "right",
     done: (ctx) => !!booked(ctx),
-    success: () => "Shift posted",
+    success: () => "Shifts posted",
+    onDone: (_, api) => later(() => api.push("/shifts/new"), 1100),
     back: "ask",
-    skip: () => (last('[data-tour="agent-create-shift"]') as HTMLElement | null)?.click(),
-  },
-  {
-    kind: "step",
-    id: "open",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Open the shift you booked",
-    body: "It's live.",
-    action: "Click View created shift",
-    targets: (ctx) => {
-      const g = booked(ctx)
-      return [g ? one(`[data-tour="agent-link"][href="/shifts/${g.id}"]`) : last('[data-tour="agent-link"]')]
-    },
-    placement: "bottom",
-    done: (ctx) => {
-      const g = booked(ctx)
-      return !!g && ctx.path === `/shifts/${g.id}`
-    },
-    skip: (ctx, api) => {
-      const g = booked(ctx)
-      api.push(g ? `/shifts/${g.id}` : "/shifts")
+    skip: async (_, api) => {
+      await press(last('[data-tour="agent-create-shift"]'))
+      await until(() => booked(api.now()))
     },
   },
   {
     kind: "step",
-    id: "watch",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/shifts\/sg-/,
-    href: (ctx) => {
-      const g = booked(ctx)
-      return g ? `/shifts/${g.id}` : "/shifts"
-    },
-    title: "Best offer first",
-    body: (ctx) => {
-      const g = booked(ctx)
-      const name = g ? supplier(g.supplierId).shortName : "Levy's pick"
-      return g && filledCount(g) >= g.slots.length ? `${name} filled it, so the other agencies never saw it.` : `${name} has it first. The next agencies, by rate, see only what's left.`
-    },
-    targets: () => [one('[data-tour="release"]'), one('[data-tour="roster"]')],
-    placement: "bottom",
-    status: (ctx) => {
-      const g = booked(ctx)
-      if (!g) return undefined
-      const filled = filledCount(g)
-      return filled >= g.slots.length ? `All ${g.slots.length} spots filled` : `${filled} of ${g.slots.length} spots filled`
-    },
-    skip: () => undefined,
-  },
-  {
-    kind: "step",
-    id: "form-open",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/shifts/,
-    href: (ctx) => {
-      const g = booked(ctx)
-      return g ? `/shifts/${g.id}` : "/shifts"
-    },
-    title: "Or send it to one agency",
-    body: "An order can go to a single agency, even to workers you name.",
-    action: "Click New shift",
-    targets: () => [one('[data-tour="book"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.path === "/shifts/new",
-    skip: (_, api) => api.push("/shifts/new"),
-  },
-  {
-    kind: "step",
-    id: "form-review",
+    id: "one-agency",
     chapter: "shifts",
     wsId: LEVY,
     path: /^\/shifts\/new/,
     href: () => "/shifts/new",
-    title: "Keep the defaults",
-    body: "Levy's usual order is filled in.",
-    action: "Click Review",
-    targets: () => [one('[data-tour="booking-review"]')],
-    placement: "top",
-    done: () => !!one(DISPATCH),
-    skip: () => click('[data-tour="booking-review"]'),
-  },
-  {
-    kind: "step",
-    id: "form-agency",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/shifts\/new/,
-    href: () => "/shifts/new",
-    title: "One agency, workers by name",
-    body: "Only that agency sees it. Ask for workers you know and it fills the rest.",
-    action: "Click One agency, ask for workers by name, and pick two",
-    targets: () => [one(DISPATCH)],
+    title: () => (one(DISPATCH) ? "One agency, workers by name" : "Or send it to one agency"),
+    body: () => (one(DISPATCH) ? "Only that agency sees it. Named workers are booked first." : "Levy's usual order is filled in."),
+    action: () =>
+      !one(DISPATCH)
+        ? "Click Review"
+        : !oneAgency()
+          ? "Click One agency"
+          : !prosPicked()
+            ? "Click Request workers by name, and pick two"
+            : `Click ${one('[data-tour="booking-post"]')?.textContent?.trim() || "Post"}`,
+    targets: () => (!one(DISPATCH) ? [one('[data-tour="booking-review"]')] : prosPicked() ? [one('[data-tour="booking-post"]'), one(DISPATCH)] : [one(DISPATCH)]),
     placement: "left",
-    done: () => oneAgency() && prosPicked() >= 1,
-    status: () => (prosPicked() ? `${plural(prosPicked(), "worker")} picked` : undefined),
-    back: "form-review",
-    skip: () => {
-      click(`${DISPATCH} [role="tab"][data-value="agency"]`)
-      later(() => click(`${DISPATCH} [data-tour="request-workers"]`), 200)
-      const pick = (left: number) => {
-        if (left <= 0) return
-        const row = [...document.querySelectorAll<HTMLButtonElement>(`${PRO_PICKER} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
-        row?.click()
-        if (row) later(() => pick(left - 1), 200)
-      }
-      later(() => pick(2 - prosPicked()), 450)
-    },
-  },
-  {
-    kind: "step",
-    id: "form-post",
-    chapter: "shifts",
-    wsId: LEVY,
-    path: /^\/shifts\/new/,
-    href: () => "/shifts/new",
-    title: "Post it",
-    body: "Named workers are booked first. The agency fills the rest.",
-    action: () => `Click ${one('[data-tour="booking-post"]')?.textContent?.trim() || "Post"}`,
-    targets: () => [one('[data-tour="booking-post"]')],
-    placement: "top",
     done: (ctx) => !!requestedOrder(ctx),
     success: (ctx) => {
       const g = requestedOrder(ctx)
@@ -829,341 +663,133 @@ export const SCRIPT: TourItem[] = [
       const placed = g ? g.slots.filter((s) => !!s.proId && asked.has(s.proId)).length : 0
       return placed ? `Booked ${plural(placed, "requested worker")}` : "Posted"
     },
-    back: "form-agency",
-    skip: () => click('[data-tour="booking-post"]'),
+    skip: async () => {
+      if (!one(DISPATCH)) await press(one('[data-tour="booking-review"]'))
+      await until(() => one(AGENCY_TAB))
+      if (!oneAgency()) await press(one(AGENCY_TAB))
+      if (!one(PRO_PICKER)) await press(await until(() => one(`${DISPATCH} [data-tour="request-workers"]`)))
+      await until(() => one(PRO_PICKER))
+      while (prosPicked() < 2) {
+        const row = [...document.querySelectorAll<HTMLButtonElement>(`${PRO_PICKER} li button:not(:disabled)`)].find((b) => b.getAttribute("aria-pressed") !== "true")
+        if (!row) break
+        await press(row)
+      }
+      await press(one('[data-tour="booking-post"]'))
+    },
   },
-  /* ----------------------- 3. Assignment and compliance ---------------------- */
+
+  /* ------------------------------ 3. Compliance ------------------------------ */
   {
     kind: "chapter",
     id: "chapter-compliance",
     chapter: "compliance",
-    title: "Assignment and compliance",
+    title: "Compliance",
     wsId: CREWLINE,
     href: "/shifts",
-    shows: "Assign a worker to a Levy shift.",
+    shows: "Only workers who are cleared can be assigned.",
   },
   {
     kind: "step",
-    id: "released",
+    id: "assign",
     chapter: "compliance",
     wsId: CREWLINE,
     path: /^\/shifts/,
     href: () => "/shifts",
-    title: "Shifts released to Crewline",
+    title: (ctx) => (one(ASSIGN_DIALOG) ? "Who can work it, and why not" : shownGroup(ctx) ? "Assign from Crewline's roster" : "Shifts released to Crewline"),
     body: (ctx) => {
+      if (one(ASSIGN_DIALOG)) {
+        const c = crewlineCheck(ctx)
+        return c ? `${c.ready} of ${c.pool} can work it.${c.blocked ? ` ${fullName(c.blocked.p)}: "${c.blocked.check.reason}".` : ""}` : undefined
+      }
+      if (shownGroup(ctx)) return undefined
       const g = assignable(ctx.data)
-      return g ? `${location(g.locationId).name} needs ${plural(g.slots.length - filledCount(g), position(g.positionId).name.toLowerCase())} on ${formatDay(g.date, "EEEE")}.` : "Crewline sees only shifts released to it."
+      return g ? `${location(g.locationId).name} needs ${plural(g.slots.length - filledCount(g), position(g.positionId).name.toLowerCase())} on ${formatDay(g.date, "EEEE")}.` : undefined
     },
-    action: "Open the highlighted shift",
+    action: (ctx) => (one(ASSIGN_DIALOG) ? "Pick a worker marked Ready, then Assign" : shownGroup(ctx) ? "Click Assign workers" : "Open the highlighted shift"),
     targets: (ctx) => {
+      if (one(ASSIGN_DIALOG)) return [one(ASSIGN_DIALOG)]
+      if (shownGroup(ctx)) return [one('[data-tour="assign"]')]
       const g = assignable(ctx.data)
       return [g && one(`tr[data-row-id="${g.id}"]`)]
     },
-    placement: "bottom",
-    done: (ctx) => {
-      const id = ctx.path.match(/^\/shifts\/(sg-\d+)$/)?.[1]
-      const g = id ? ctx.data.groups.find((x) => x.id === id) : undefined
-      return !!g && isOpenTo(g, "crewline") && filledCount(g) < g.slots.length
-    },
-    onDone: (ctx, api) => api.remember({ groupId: ctx.path.split("/")[2] }),
-    skip: (ctx, api) => {
-      const g = assignable(ctx.data)
-      if (!g) return
-      api.remember({ groupId: g.id })
-      api.push(`/shifts/${g.id}`)
-    },
-  },
-  {
-    kind: "step",
-    id: "assign-open",
-    chapter: "compliance",
-    wsId: CREWLINE,
-    path: /^\/shifts\/sg-/,
-    href: (ctx) => `/shifts/${assignGroup(ctx)?.id ?? ""}`,
-    title: "Assign from Crewline's roster",
-    body: "The agency assigns its own workers.",
-    action: "Click Assign workers",
-    targets: () => [one('[data-tour="assign"]')],
-    placement: "bottom",
-    done: () => !!one('[data-tour="assign-dialog"]'),
-    skip: () => click('[data-tour="assign"]'),
-  },
-  {
-    kind: "step",
-    id: "assign-check",
-    chapter: "compliance",
-    wsId: CREWLINE,
-    path: /^\/shifts\/sg-/,
-    href: (ctx) => `/shifts/${assignGroup(ctx)?.id ?? ""}`,
-    title: "Who can work it, and why not",
-    body: (ctx) => {
-      const c = crewlineCheck(ctx)
-      if (!c) return "Iris shows who can work it, and why not."
-      return `${c.ready} of ${c.pool} can work it.${c.blocked ? ` ${fullName(c.blocked.p)}: "${c.blocked.check.reason}".` : ""}`
-    },
-    action: "Pick a worker marked Ready, then Assign",
-    targets: () => [one('[data-tour="assign-dialog"]')],
     placement: "right",
     done: assignedSince,
     success: () => "Assigned",
-    back: "assign-open",
-    skip: () => {
-      click('[data-tour="assign-dialog"] [data-tour="assign-row"][data-ready]')
-      later(() => click('[data-tour="assign-submit"]'))
+    skip: async (_, api) => {
+      if (!shownGroup(api.now())) {
+        const g = assignable(api.now().data)
+        await press(g && one(`tr[data-row-id="${g.id}"]`))
+        await until(() => one('[data-tour="assign"]'))
+        await sleep(400)
+      }
+      if (!one(ASSIGN_DIALOG)) await press(one('[data-tour="assign"]'))
+      await press(await until(() => one(`${ASSIGN_DIALOG} [data-tour="assign-row"][data-ready]`)))
+      await press(one('[data-tour="assign-submit"]'))
     },
   },
   {
     kind: "chapter",
     id: "chapter-documents",
     chapter: "compliance",
-    title: "Assignment and compliance",
+    title: "Compliance",
     wsId: METRO,
-    href: "/",
-    shows: "Renew an expired document, then submit one that fails the check.",
+    href: "/professionals?filter=not_compliant",
+    shows: "Renew an expired document. Iris checks it with the issuer.",
   },
   {
     kind: "step",
-    id: "flagged-pros",
-    chapter: "compliance",
-    wsId: METRO,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Iris flags it first",
-    body: (ctx) => `${plural(blockedPros(ctx.data).length, "worker")} can't work until a document is current.`,
-    action: "Open the to-do",
-    targets: () => [one('[data-tour="todo-documents"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.path === "/professionals",
-    skip: (_, api) => api.push("/professionals?filter=not_compliant"),
-  },
-  {
-    kind: "step",
-    id: "pick-pro",
+    id: "renew",
     chapter: "compliance",
     wsId: METRO,
     path: /^\/professionals$/,
     href: () => "/professionals?filter=not_compliant",
-    title: "Expired means off the schedule",
+    title: (ctx) => (one(VERIFY) ? "Metro attests it. Iris checks it" : openPro(ctx) ? "Renew it" : "Expired means off the schedule"),
     body: (ctx) => {
+      if (one(VERIFY)) return `Iris confirms it with ${CHECKS[(one(VERIFY)?.getAttribute("data-doc-id") as RequirementId) ?? "background"].providers[0]}.`
+      if (openPro(ctx)) return undefined
       const pro = chosenPro(ctx)
       const doc = blocker(pro)
-      return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : "Open a worker Iris is keeping off shifts."
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : undefined
     },
-    action: "Click the highlighted worker",
+    action: (ctx) => (one(VERIFY) ? "Attach any file, tick the attestation, then Verify" : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
     targets: (ctx) => {
+      if (one(VERIFY)) return [one(VERIFY)]
+      const pro = openPro(ctx)
+      if (pro) {
+        const doc = blocker(pro)
+        return [doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')]
+      }
       if (ctx.params.get("filter") !== "not_compliant") return [one('[role="tab"][data-value="not_compliant"]')]
-      const pro = chosenPro(ctx)
-      return [(pro && one(`tr[data-row-id="${pro.id}"]`)) || one("tbody tr[data-row-id]")]
-    },
-    placement: "bottom",
-    done: (ctx) => {
-      const id = ctx.params.get("pro")
-      const pro = id ? ctx.data.pros.find((p) => p.id === id) : undefined
-      return !!pro && pro.supplierId === "metro" && standingOf(pro) === "not_compliant"
-    },
-    onDone: (ctx, api) => api.remember({ proId: ctx.params.get("pro") ?? undefined }),
-    skip: (ctx, api) => {
-      const pro = chosenPro(ctx)
-      if (!pro) return
-      api.remember({ proId: pro.id })
-      api.push(`/professionals?filter=not_compliant&pro=${pro.id}`)
-    },
-  },
-  {
-    kind: "step",
-    id: "renew-open",
-    chapter: "compliance",
-    wsId: METRO,
-    path: /^\/professionals$/,
-    href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
-    title: "Renew it",
-    body: (ctx) => {
-      const doc = blocker(chosenPro(ctx))
-      return `Renew the ${doc ? DOC[doc.id] : "document"}.`
-    },
-    action: "Click the highlighted button",
-    targets: (ctx) => {
-      const doc = blocker(chosenPro(ctx))
-      return [doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')]
+      const first = chosenPro(ctx)
+      return [(first && one(`tr[data-row-id="${first.id}"]`)) || one("tbody tr[data-row-id]")]
     },
     placement: "left",
-    anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
-    done: (ctx) => {
-      const doc = blocker(chosenPro(ctx))
-      return !!doc && verifyingFor() === doc.id
-    },
-    onDone: (ctx, api) => api.remember({ docId: blocker(chosenPro(ctx))?.id }),
-    back: "pick-pro",
-    skip: (ctx, api) => {
-      const doc = blocker(chosenPro(ctx))
-      if (!doc) return
-      api.remember({ docId: doc.id })
-      click(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`)
-    },
-  },
-  {
-    kind: "step",
-    id: "renew-verify",
-    chapter: "compliance",
-    wsId: METRO,
-    path: /^\/professionals$/,
-    href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
-    title: "Attest it, and Iris checks with the issuer",
-    body: (ctx) => `Metro attests it. Iris confirms it with ${ctx.docId ? CHECKS[ctx.docId].providers[0] : "the issuer"}.`,
-    action: "Attach any file, tick the attestation, then Verify and clear",
-    targets: () => [one('[data-tour="verify-dialog"]')],
-    placement: "right",
-    done: (ctx) => {
-      const v = docItem(ctx)?.verification
-      return v?.result === "verified" && v.at >= ctx.base.at
-    },
+    anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
+    done: (ctx) => !!verifiedSince(ctx) && !one(VERIFY),
     success: (ctx) => {
-      const pro = chosenPro(ctx)
-      const v = docItem(ctx)?.verification
-      return pro && standingOf(pro) === "compliant" ? `Verified with ${v?.checkedWith ?? "the issuer"}. ${pro.firstName} is cleared to work` : `Verified with ${v?.checkedWith ?? "the issuer"}`
+      const found = verifiedSince(ctx)
+      return found && standingOf(found.pro) === "compliant" ? `Verified with ${found.v.checkedWith}. ${found.pro.firstName} can work again` : `Verified with ${found?.v.checkedWith ?? "the issuer"}`
     },
-    back: "renew-open",
-    skip: (ctx) => {
-      attach('[data-tour="verify-dialog"]', `${ctx.docId ?? "document"}.pdf`)
-      submitVerify()
+    skip: async (ctx, api) => {
+      let pro = openPro(ctx)
+      if (!pro) {
+        pro = chosenPro(ctx)
+        if (!pro) return
+        const row = one(`tr[data-row-id="${pro.id}"]`)
+        if (row) await press(row)
+        else api.push(`/professionals?filter=not_compliant&pro=${pro.id}`)
+      }
+      const doc = blocker(pro)
+      if (!one(VERIFY)) await press(await until(() => (doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]'))))
+      await until(() => one(VERIFY))
+      await sleep(400)
+      await attach(VERIFY, `${doc?.id ?? "document"}.pdf`)
+      await sleep(1100)
+      const box = inside(VERIFY, 'button[role="checkbox"]')
+      if (box?.getAttribute("aria-checked") !== "true") await press(box)
+      await press(one('[data-tour="verify-submit"]'))
+      await until(() => !one(VERIFY), 8000)
     },
-  },
-  {
-    kind: "step",
-    id: "held-open",
-    chapter: "compliance",
-    wsId: METRO,
-    path: /^\/professionals$/,
-    href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals"),
-    title: "When a document doesn't check out",
-    body: (ctx) => {
-      const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      return `Now the ${spare ? DOC[spare.id] : "next document"}, attested without proof.`
-    },
-    action: "Click the highlighted button",
-    targets: (ctx) => {
-      const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      return [spare && one(`[data-tour="doc-action"][data-doc-id="${spare.id}"]`)]
-    },
-    placement: "left",
-    anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
-    done: (ctx) => {
-      const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      return !spare || verifyingFor() === spare.id
-    },
-    onDone: (ctx, api) => {
-      const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      if (spare) api.remember({ docId: spare.id })
-    },
-    skip: (ctx, api) => {
-      const spare = spareDoc(chosenPro(ctx), ctx.docId)
-      if (!spare) return
-      api.remember({ docId: spare.id })
-      click(`[data-tour="doc-action"][data-doc-id="${spare.id}"]`)
-    },
-  },
-  {
-    kind: "step",
-    id: "held-verify",
-    chapter: "compliance",
-    wsId: METRO,
-    path: /^\/professionals$/,
-    href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals"),
-    title: "Iris holds it for Compass",
-    body: "The issuer has no record of it, so Iris holds it for Compass.",
-    action: (ctx) => `Type 4471 as the ${ctx.docId ? CHECKS[ctx.docId].reference.label.toLowerCase() : "reference"}, tick the attestation, then verify`,
-    targets: () => [one('[data-tour="verify-dialog"]')],
-    placement: "right",
-    done: (ctx) => held(ctx) || !ctx.docId,
-    success: (ctx) => `${docItem(ctx)?.verification?.reason ?? "The issuer has no record of it"}. Held for Compass`,
-    back: "held-open",
-    skip: () => {
-      fill(inside('[data-tour="verify-dialog"]', '[data-tour="verify-reference"]'), "4471")
-      submitVerify()
-    },
-  },
-  {
-    kind: "chapter",
-    id: "chapter-review",
-    chapter: "compliance",
-    title: "Assignment and compliance",
-    wsId: COMPASS,
-    href: "/",
-    shows: "Review the failed document and see each agency's score.",
-  },
-  {
-    kind: "step",
-    id: "review-todo",
-    chapter: "compliance",
-    wsId: COMPASS,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Only what Iris couldn't verify",
-    body: "Verified documents clear themselves. Only this one reached Priya.",
-    action: "Open the to-do",
-    targets: () => [one('[data-tour="todo-verify"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.wsId === COMPASS && !!one('[data-tour="doc-accept"]'),
-    skip: (ctx, api) => api.push(ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
-  },
-  {
-    kind: "step",
-    id: "review-decide",
-    chapter: "compliance",
-    wsId: COMPASS,
-    path: /^\/professionals$/,
-    href: (ctx) => (ctx.proId ? `/professionals?filter=not_compliant&pro=${ctx.proId}` : "/professionals?filter=not_compliant"),
-    title: "Accept it or send it back",
-    body: (ctx) => {
-      const v = docItem(ctx)?.verification
-      return `${v?.reason ? `The issuer: "${v.reason}". ` : ""}Accept it, or send it back to Metro.`
-    },
-    action: "Click Accept, or Send back with a note",
-    targets: () => [one('[data-tour="doc-accept"]')],
-    placement: "left",
-    anchor: () => one('[data-tour="doc-accept"]')?.closest('[role="dialog"]'),
-    done: (ctx) => !!ctx.docId && !held(ctx),
-    success: (ctx) => (docItem(ctx)?.status === "complete" ? "Accepted by Compass" : "Sent back to Metro"),
-    onDone: (_, api) => later(() => api.push("/professionals?filter=not_compliant"), 1100),
-    skip: (ctx, api) => {
-      if (ctx.proId && ctx.docId) void useStore.getState().reviewDocument(ctx.proId, ctx.docId, "accept")
-      api.push("/professionals?filter=not_compliant")
-    },
-  },
-  {
-    kind: "step",
-    id: "scores-open",
-    chapter: "compliance",
-    wsId: COMPASS,
-    path: /^\/professionals/,
-    href: () => "/professionals",
-    title: "One score per roster",
-    body: "Each agency gets a compliance score.",
-    action: "Open Agencies in the menu",
-    targets: () => [one('nav a[href="/agencies"], aside a[href="/agencies"]')],
-    placement: "right",
-    done: (ctx) => ctx.path === "/agencies",
-    skip: (_, api) => api.push("/agencies"),
-  },
-  {
-    kind: "step",
-    id: "scores",
-    chapter: "compliance",
-    wsId: COMPASS,
-    path: /^\/agencies$/,
-    href: () => "/agencies",
-    title: "Compliance, scored",
-    body: (ctx) => {
-      const list = scored(ctx.data)
-      const lead = "Mostly the share of workers cleared to work today."
-      if (list.length < 2) return lead
-      const top = list[0]
-      const low = list[list.length - 1]
-      return `${lead} ${top.s.shortName} leads at ${top.c.score}; ${low.s.shortName} trails at ${low.c.score}.`
-    },
-    targets: () => [one('[data-tour="agencies-table"]')],
-    placement: "top",
-    skip: () => undefined,
   },
 
   /* ------------------------------ 4. Timesheets ------------------------------ */
@@ -1174,36 +800,28 @@ export const SCRIPT: TourItem[] = [
     title: "Timesheets",
     wsId: HARBOR,
     href: "/timesheets",
-    shows: "Hours that match the clock submit themselves. Paper sheets get read in.",
+    shows: "Drafted from the clock, or read off a paper sheet.",
   },
   {
     kind: "step",
-    id: "agency-drafts",
+    id: "paper",
     chapter: "timesheets",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: "Already drafted",
-    body: (ctx) => {
-      const { waiting, matching } = harborDrafts(ctx.data)
-      return `Iris drafts every timesheet from its clock.${waiting.length ? ` ${matching.length} of ${waiting.length} match exactly.` : ""}`
+    title: () => (one('[data-tour="scan-apply"]') ? "Matched to workers, checked against the clock" : one(SCAN) ? "Iris reads it" : "Venue still on paper?"),
+    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
+    targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
+    placement: "right",
+    done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
+    success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
+    skip: async () => {
+      if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
+      if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
+      const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
+      await sleep(1200)
+      await press(apply)
     },
-    targets: () => [one("table")],
-    placement: "top",
-    skip: () => undefined,
-  },
-  {
-    kind: "step",
-    id: "paper-sheet",
-    chapter: "timesheets",
-    wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "Paper sign-in sheets",
-    body: "Venue still on a clipboard? Scan the sheet. Iris matches each line to a worker and flags hours that differ from the clock.",
-    targets: () => [one('[data-tour="scan-sheet-open"]')],
-    placement: "bottom",
-    skip: () => undefined,
   },
   {
     kind: "step",
@@ -1212,14 +830,17 @@ export const SCRIPT: TourItem[] = [
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: "Let the clean ones go in",
-    body: "Matching timesheets go to the buyer on their own. Exceptions stay with Harbor.",
-    action: "Turn on Auto-submit timesheets that match the clock",
+    title: "Already drafted from the clock",
+    body: (ctx) => {
+      const { waiting, matching } = harborDrafts(ctx.data)
+      return waiting.length ? `${matching.length} of ${waiting.length} match it exactly.` : undefined
+    },
+    action: "Turn on Auto-submit",
     targets: () => [one('[data-tour="auto-submit"]')],
     placement: "bottom",
     done: (ctx) => !!ctx.data.settings?.autoSubmit?.includes("harbor"),
-    success: () => "Timesheets that match the clock now submit themselves",
-    skip: () => void useStore.getState().setAutoSubmit("harbor", true),
+    success: () => "Matching timesheets now submit themselves",
+    skip: () => press(inside('[data-tour="auto-submit"]', '[role="switch"]')),
   },
   {
     kind: "chapter",
@@ -1227,288 +848,151 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     title: "Timesheets",
     wsId: LEVY,
-    href: "/",
-    shows: "Approve last night's hours and split one by role.",
+    href: "/timesheets",
+    shows: "Approve the hours, and split one by role.",
   },
   {
     kind: "step",
-    id: "hours-todo",
-    chapter: "timesheets",
-    wsId: LEVY,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Hours, checked before you see them",
-    body: "Every billed hour is checked against Iris's clock.",
-    action: "Open the to-do",
-    targets: () => [one('[data-tour="todo-approve"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.path === "/timesheets" && !one('[data-tour="auto-submit"]'),
-    skip: (_, api) => api.push("/timesheets"),
-  },
-  {
-    kind: "step",
-    id: "review-hours",
+    id: "hours",
     chapter: "timesheets",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: "The one that doesn't match",
+    title: () => (one(SHEET) ? "Approve at the clock's hours" : "Checked against the clock"),
     body: (ctx) => {
+      if (one(SHEET)) return undefined
       const t = paddedSheet(ctx.data)
-      return t && t.clock ? `A Harbor bartender billed ${t.hours} hours; the clock shows ${clockHours(t.clock)}.` : "Flagged timesheets come first."
+      return t?.clock ? `A Harbor bartender billed ${t.hours} hours. The clock shows ${clockHours(t.clock)}.` : undefined
     },
-    action: "Open the flagged timesheet",
-    targets: () => [one(".tour-flagged")],
-    placement: "bottom",
-    done: () => !!one('[data-tour="timesheet-sheet"]'),
-    skip: () => click(".tour-flagged"),
-  },
-  {
-    kind: "step",
-    id: "approve",
-    chapter: "timesheets",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "Approve at the clock's hours",
-    body: "Approve at the clock's hours, or correct or reject it.",
-    action: "Click Approve at the clock's hours",
-    targets: () => [one('[data-tour="accept-proposal"]')],
+    action: () => (one(SHEET) ? "Click Approve at the clock's hours" : "Open the flagged timesheet"),
+    targets: () => (one(SHEET) ? [one('[data-tour="accept-proposal"]')] : [one(".tour-flagged")]),
     placement: "left",
-    anchor: () => one('[data-tour="timesheet-sheet"]'),
-    done: (ctx) => ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.history.some((h) => h.action === "corrected")),
+    anchor: () => one(SHEET),
+    done: correctedSince,
     success: () => "Corrected to the clock and approved",
-    back: "review-hours",
-    skip: () => click('[data-tour="accept-proposal"]'),
+    onDone: (_, api) => later(() => api.push("/timesheets"), 1000),
+    skip: async () => {
+      if (!one(SHEET)) await press(one(".tour-flagged"))
+      await press(await until(() => one('[data-tour="accept-proposal"]')))
+    },
   },
   {
     kind: "step",
-    id: "move-pick",
+    id: "split",
     chapter: "timesheets",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: "Someone changed roles",
+    title: () => (one(MOVE) ? "Pick the role and when they switched" : one(SHEET) ? "Split it by role" : "Someone switched roles mid-shift"),
     body: (ctx) => {
+      if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
+      if (one(SHEET)) return undefined
       const m = movable(ctx.data)
-      return m ? `Say ${m.pro.firstName} moved from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : "Open a timesheet to split it by role."
+      return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
     },
-    action: "Open the highlighted timesheet",
+    action: () => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : "Open the highlighted timesheet"),
     targets: (ctx) => {
+      if (one(MOVE)) return [one(MOVE)]
+      if (one(SHEET)) return [one('[data-tour="split-role"]')]
       const m = movable(ctx.data)
       return [m && one(`tr[data-row-id="${m.t.id}"]`)]
     },
-    placement: "bottom",
-    done: (ctx) => {
-      const t = ctx.data.timesheets.find((x) => x.id === ctx.params.get("ts"))
-      return !!t && t.status === "pending_approval" && !t.movedFrom && !t.movedTo && !timesheetChecks(t).length && !!one('[data-tour="split-role"]')
-    },
-    onDone: (ctx, api) => api.remember({ sheetId: ctx.params.get("ts") ?? undefined }),
-    skip: (ctx, api) => {
-      const m = movable(ctx.data)
-      if (!m) return
-      api.remember({ sheetId: m.t.id })
-      api.push(`/timesheets?ts=${m.t.id}`)
-    },
-  },
-  {
-    kind: "step",
-    id: "move-split",
-    chapter: "timesheets",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
-    title: "Split it by role",
-    body: "So each role bills at its own rate, to its own department.",
-    action: "Click Split by role",
-    targets: () => [one('[data-tour="split-role"]')],
-    placement: "top",
-    anchor: () => one('[data-tour="timesheet-sheet"]'),
-    done: () => !!one('[data-tour="move-dialog"]'),
-    back: "move-pick",
-    skip: () => click('[data-tour="split-role"]'),
-  },
-  {
-    kind: "step",
-    id: "move-confirm",
-    chapter: "timesheets",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: (ctx) => (ctx.sheetId ? `/timesheets?ts=${ctx.sheetId}` : "/timesheets"),
-    title: "Pick the role and the minute",
-    body: "Only roles they're cleared for, at the agency's rates. The timesheet splits at that time, and each part bills to its department's cost center.",
-    action: "Pick a role, set when they switched, then Move",
-    targets: () => [one('[data-tour="move-dialog"]')],
-    placement: "right",
+    placement: "left",
+    anchor: () => (one(MOVE) ? undefined : one(SHEET)),
     done: (ctx) => !!movedSince(ctx),
     success: (ctx) => {
       const t = movedSince(ctx)
-      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name} then ${position(t.positionId).name}` : "Split by role"
+      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
     },
-    onDone: (_, api) => api.push("/timesheets"),
-    back: "move-split",
-    skip: (_, api) => {
-      const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-tour="move-dialog"] li button:not(:disabled)')]
-      ;(rows.find((b) => b.textContent?.includes("Barback")) ?? rows[0])?.click()
-      later(() => {
-        click('[data-tour="move-submit"]')
-        later(() => api.push("/timesheets"), 900)
-      }, 200)
+    onDone: (_, api) => later(() => api.push("/timesheets"), 1000),
+    skip: async (ctx, api) => {
+      if (!one(SHEET)) {
+        const m = movable(ctx.data)
+        if (!m) return
+        const row = one(`tr[data-row-id="${m.t.id}"]`)
+        if (row) await press(row)
+        else api.push(`/timesheets?ts=${m.t.id}`)
+      }
+      if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
+      await until(() => one(MOVE))
+      await sleep(400)
+      const rows = [...document.querySelectorAll<HTMLButtonElement>(`${MOVE} li button:not(:disabled)`)]
+      await press(rows.find((b) => b.textContent?.includes("Barback")) ?? rows[0])
+      await press(one('[data-tour="move-submit"]'))
     },
   },
-  {
-    kind: "step",
-    id: "approve-clean",
-    chapter: "timesheets",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "Approve the clean ones together",
-    body: "These match the clock and the schedule.",
-    action: "Click Approve",
-    targets: () => [one('[data-tour="approve-clean"]')],
-    placement: "bottom",
-    done: (ctx) => !ctx.data.timesheets.some((t) => t.buyerId === "levy-chi" && t.status === "pending_approval" && !timesheetChecks(t).length),
-    success: (ctx) =>
-      generated(ctx).length
-        ? `Approved. Iris invoiced last week's hours on ${generated(ctx).map((i) => i.number).join(" and ")}`
-        : `Approved. They're on ${plural(openInvoices(ctx).length, "open invoice")} for the week`,
-    skip: () => click('[data-tour="approve-clean"]'),
-  },
+
+  /* ------------------------- 5. Invoices and reporting ------------------------ */
   {
     kind: "chapter",
-    id: "chapter-invoices",
-    chapter: "timesheets",
-    title: "Timesheets",
+    id: "chapter-reporting",
+    chapter: "reporting",
+    title: "Invoices and reporting",
     wsId: COMPASS,
-    href: "/",
-    shows: "Send back hours an invoice billed above the clock.",
+    href: "/invoices?filter=flagged",
+    shows: "Catch hours billed past the clock, then ask for a number.",
   },
   {
     kind: "step",
-    id: "anomalies",
-    chapter: "timesheets",
-    wsId: COMPASS,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Invoices Iris flagged",
-    body: "Invoices are checked against the clock and other agencies' rates.",
-    action: "Open the to-do",
-    targets: () => [one('[data-tour="todo-anomalies"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.path === "/invoices",
-    skip: (_, api) => api.push("/invoices?filter=flagged"),
-  },
-  {
-    kind: "step",
-    id: "open-invoice",
-    chapter: "timesheets",
+    id: "invoice",
+    chapter: "reporting",
     wsId: COMPASS,
     path: /^\/invoices/,
     href: () => "/invoices?filter=flagged",
-    title: "Open the top one",
+    title: (ctx) => (shownInvoice(ctx) ? "Send back what the clock doesn't support" : "Every invoice, checked against the clock"),
     body: (ctx) => {
-      const inv = flagged(ctx.data)[0]
-      return inv ? `${inv.number} from ${supplier(inv.supplierId).shortName} bills hours above the clock.` : "Open a flagged invoice."
+      const inv = shownInvoice(ctx)
+      if (inv) {
+        const f = billingFindings(ctx.data, inv.id)[0]
+        return f ? `${f.hours} hours past the clock. Ask ${supplier(inv.supplierId).shortName} to credit ${money(f.amount)}.` : undefined
+      }
+      const top = flagged(ctx.data)[0]
+      return top ? `${top.number} from ${supplier(top.supplierId).shortName} bills hours above the clock.` : undefined
     },
-    action: "Click the highlighted invoice",
+    action: (ctx) => (shownInvoice(ctx) ? "Click Send back for a credit" : "Open the highlighted invoice"),
     targets: (ctx) => {
-      if (ctx.path !== "/invoices") return []
+      if (shownInvoice(ctx)) return [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')]
       if (ctx.params.get("filter") !== "flagged") return [one('[role="tab"][data-value="flagged"]')]
       const top = flagged(ctx.data)[0]
       return [(top && one(`tbody tr[data-row-id="${top.id}"]`)) || one("tbody tr[data-row-id]")]
     },
     placement: "bottom",
-    done: (ctx) => {
-      const id = ctx.path.match(/^\/invoices\/(inv-[\w-]+)$/)?.[1]
-      const inv = id ? ctx.data.invoices.find((i) => i.id === id) : undefined
-      return !!inv && needsReview(ctx.data, inv)
-    },
-    onDone: (ctx, api) => api.remember({ invoiceId: ctx.path.split("/")[2] }),
-    skip: (ctx, api) => {
-      const inv = flagged(ctx.data)[0]
-      if (!inv) return
-      api.remember({ invoiceId: inv.id })
-      api.push(`/invoices/${inv.id}`)
-    },
-  },
-  {
-    kind: "step",
-    id: "send-back",
-    chapter: "timesheets",
-    wsId: COMPASS,
-    path: /^\/invoices\/inv-/,
-    href: (ctx) => (ctx.invoiceId ? `/invoices/${ctx.invoiceId}` : "/invoices?filter=flagged"),
-    title: "Send back what the clock doesn't support",
-    body: (ctx) => {
-      const inv = tourInvoice(ctx)
-      const f = inv ? billingFindings(ctx.data, inv.id)[0] : undefined
-      return inv && f ? `${f.hours} hours past the clock. Ask ${supplier(inv.supplierId).shortName} to credit ${money(f.amount)}.` : "Send back what the clock doesn't support."
-    },
-    action: "Click Send back for a credit",
-    targets: () => [one('[data-tour="send-back"]') ?? one('[data-tour="billing-review"]')],
     anchor: () => one('[data-tour="billing-review"]'),
-    placement: "bottom",
-    done: (ctx) => {
-      const inv = tourInvoice(ctx)
-      return !inv || !!inv.billingReview || !billingFindings(ctx.data, inv.id).length
-    },
+    done: (ctx) => !!reviewedSince(ctx),
     success: (ctx) => {
-      const inv = tourInvoice(ctx)
-      if (!inv?.billingReview) return "Nothing billed above the clock here"
-      return inv.billingReview.status === "accepted" ? "Accepted as billed" : `Sent back to ${supplier(inv.supplierId).shortName}`
+      const inv = reviewedSince(ctx)
+      return inv?.billingReview?.status === "accepted" ? "Accepted as billed" : `Sent back to ${inv ? supplier(inv.supplierId).shortName : "the agency"} for a credit`
     },
-    back: "open-invoice",
-    skip: (ctx) => {
-      if (ctx.invoiceId) void useStore.getState().decideBilling(ctx.invoiceId, "send_back")
+    onDone: (_, api) => later(() => api.push("/agencies"), 800),
+    skip: async (ctx, api) => {
+      if (!shownInvoice(ctx)) {
+        const top = flagged(ctx.data)[0]
+        if (!top) return
+        const row = one(`tbody tr[data-row-id="${top.id}"]`)
+        if (row) await press(row)
+        else api.push(`/invoices/${top.id}`)
+      }
+      await press(await until(() => one('[data-tour="send-back"]')))
     },
   },
   {
     kind: "step",
-    id: "credit",
-    chapter: "timesheets",
+    id: "scores",
+    chapter: "reporting",
     wsId: COMPASS,
-    path: /^\/invoices\/inv-/,
-    href: (ctx) => (ctx.invoiceId ? `/invoices/${ctx.invoiceId}` : "/invoices?filter=flagged"),
-    title: "The agency credits it",
+    path: /^\/agencies$/,
+    href: () => "/agencies",
+    title: "Every agency, scored on compliance",
     body: (ctx) => {
-      const inv = tourInvoice(ctx)
-      if (inv?.billingReview?.status === "accepted") return "Accepted, so the invoice stays as billed."
-      return `${inv ? supplier(inv.supplierId).shortName : "The agency"} credits it, and the timesheet is revised to the clock.`
+      const list = scored(ctx.data)
+      if (list.length < 2) return undefined
+      const top = list[0]
+      const low = list[list.length - 1]
+      return `${top.s.shortName} leads at ${top.c.score}. ${low.s.shortName} trails at ${low.c.score}.`
     },
-    targets: () => [one('[data-tour="billing-review"]')],
-    placement: "bottom",
-    status: (ctx) => {
-      const inv = tourInvoice(ctx)
-      const r = inv?.billingReview
-      if (!inv || !r) return undefined
-      const sup = supplier(inv.supplierId).shortName
-      return r.status === "credited" ? `${sup} credited ${money(r.amount)}` : r.status === "sent_back" ? `Waiting on ${sup}` : undefined
-    },
-    skip: () => undefined,
-  },
-
-  /* ------------------------------- 5. Reporting ------------------------------ */
-  {
-    kind: "chapter",
-    id: "chapter-reporting",
-    chapter: "reporting",
-    title: "Reporting",
-    wsId: COMPASS,
-    href: "/",
-    shows: "Ask a spend question, schedule it as a report, and check one agency's record.",
-  },
-  {
-    kind: "step",
-    id: "predict-spend",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Spend before the invoices arrive",
-    body: "Where spend runs hot, and which shifts will start short.",
-    targets: () => [one('[data-tour="predictions"]')],
+    targets: () => [one('[data-tour="agencies-table"]')],
     placement: "top",
+    onDone: (_, api) => api.push("/"),
     skip: () => undefined,
   },
   {
@@ -1518,15 +1002,17 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: /^\/$/,
     href: () => "/",
-    title: "Ask for a number",
-    body: "Iris answers and turns the question into a report.",
-    action: "Send it with Enter",
+    title: "Ask for any number",
     example: reportAsk,
-    targets: () => [document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')],
+    action: "Send it with Enter",
+    targets: () => [COMPOSER()],
     placement: "top",
     done: (ctx) => !!reportLink(ctx),
     success: () => "Answered",
-    skip: () => compose(COMPOSER_ID, reportAsk(), true),
+    skip: async (_, api) => {
+      compose(COMPOSER_ID, reportAsk(), true)
+      await until(() => reportLink(api.now()), 15000)
+    },
   },
   {
     kind: "step",
@@ -1536,125 +1022,13 @@ export const SCRIPT: TourItem[] = [
     path: /^\/$/,
     href: () => "/",
     title: "Open it as a report",
-    body: "Same numbers as every other screen.",
+    body: "Save it, or have it emailed every week.",
     action: "Click Open the report",
     targets: () => [last('[data-tour="agent-link"]')],
     placement: "bottom",
     done: (ctx) => ctx.path === "/reports",
     back: "ask-report",
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
-  },
-  {
-    kind: "step",
-    id: "saved-reports",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/reports/,
-    href: (ctx) => reportLink(ctx) ?? "/reports",
-    title: "Saved for the team",
-    body: "Compass's saved reports. A clock icon means it's emailed on a schedule.",
-    targets: () => [one('[data-tour="saved-reports"]')],
-    placement: "right",
-    skip: () => undefined,
-  },
-  {
-    kind: "step",
-    id: "report-period",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/reports/,
-    href: (ctx) => reportLink(ctx) ?? "/reports",
-    title: "Change it",
-    body: "It redraws as you change it.",
-    action: "Set Period to Last 28 days",
-    targets: () => [one('[data-tour="report-builder"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.params.get("period") === "last_28",
-    skip: (ctx, api) => {
-      const params = new URLSearchParams(ctx.params)
-      params.set("period", "last_28")
-      api.push(`/reports?${params}`)
-    },
-  },
-  {
-    kind: "step",
-    id: "report-save",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/reports/,
-    href: (ctx) => reportLink(ctx) ?? "/reports",
-    title: "Save it for the team",
-    body: "Saved reports are shared across Compass.",
-    action: "Click Save report",
-    targets: () => [one('[data-tour="report-save"]')],
-    placement: "bottom",
-    done: (ctx) => !!newReport(ctx),
-    success: (ctx) => `Saved “${newReport(ctx)?.name ?? "the report"}”`,
-    skip: () => click('[data-tour="report-save"]'),
-  },
-  {
-    kind: "step",
-    id: "report-schedule",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/reports/,
-    href: (ctx) => {
-      const r = newReport(ctx)
-      return r ? reportHref(r.spec, r.id) : "/reports"
-    },
-    title: "Have it arrive",
-    body: "Pick how often and who gets it.",
-    action: "Click Email on a schedule and save one",
-    targets: () => [one('[data-tour="report-schedule"]')],
-    placement: "bottom",
-    done: (ctx) => !!newReport(ctx)?.schedule,
-    success: () => "Scheduled",
-    skip: (ctx) => {
-      const r = newReport(ctx)
-      if (r) void useStore.getState().scheduleReport(r.id, { cadence: "weekly", time: "07:00", recipients: ["Priya Raman"] })
-    },
-  },
-
-  {
-    kind: "step",
-    id: "open-harbor",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/(agencies|reports)/,
-    href: () => "/agencies",
-    title: "One agency's record",
-    body: "How each agency performs, from the shifts it has worked.",
-    action: (ctx) => (ctx.path.startsWith("/agencies") ? "Click Harbor" : "Open Agencies in the menu"),
-    targets: (ctx) => [ctx.path.startsWith("/agencies") ? one('tr[data-row-id="harbor"]') : one('nav a[href="/agencies"], aside a[href="/agencies"]')],
-    placement: "bottom",
-    done: (ctx) => ctx.path === "/agencies/harbor",
-    skip: (_, api) => api.push("/agencies/harbor"),
-  },
-  {
-    kind: "step",
-    id: "harbor-rates",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/agencies\/harbor/,
-    href: () => "/agencies/harbor",
-    title: "Performance, rates, workers and paperwork",
-    body: "Harbor's bartender markup is 72%, over the 45% cap.",
-    targets: () => [one('[data-tour="agency-rates"]')],
-    placement: "right",
-    skip: () => undefined,
-  },
-  {
-    kind: "step",
-    id: "rate-log",
-    chapter: "reporting",
-    wsId: COMPASS,
-    path: /^\/agencies\/harbor/,
-    href: () => "/agencies/harbor",
-    title: "Every change to its rates",
-    body: "Every rate change and who made it. Harbor's bartender rate jumped by CSV upload.",
-    targets: () => [one('[data-tour="rate-changes"]')],
-    placement: "top",
-    skip: () => undefined,
   },
 
   { kind: "finale", id: "finale" },
@@ -1663,4 +1037,3 @@ export const SCRIPT: TourItem[] = [
 export const STEPS = SCRIPT.filter((item): item is TourStep => item.kind === "step")
 
 export const indexOf = (id: string) => SCRIPT.findIndex((item) => item.id === id)
-

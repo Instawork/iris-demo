@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
 import { pct } from "@/lib/format"
-import { city } from "@/lib/reference"
 import { benchmark } from "@/lib/market"
 import { latestBid, responded, spendOf } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
@@ -54,11 +53,7 @@ export function ProcurementPage() {
       <PageHeader
         className="pt-4"
         title="Procurement"
-        description={
-          isAgency
-            ? "Compass's invitations to bid, and your rate cards. Approved bids go live on your rate card."
-            : "Benchmark every rate against the market, run sourcing events, and approve the bids that win."
-        }
+        description={isAgency ? "Compass's invitations to bid, and your rate cards." : "Your rates against the market, and the bids that set next year's."}
         actions={
           !isAgency &&
           tab === "events" && (
@@ -137,19 +132,17 @@ function Summary({ events }: { events: SourcingEvent[] }) {
     { baseline: 0, savings: 0, proposed: 0, market: 0 },
   )
   const cells = [
-    { label: "Spend being negotiated", value: moneyYear(t.baseline), sub: `A year, across ${events.length} open event${events.length === 1 ? "" : "s"}` },
+    { label: "Spend being negotiated", value: moneyYear(t.baseline), info: `A year, across ${events.length} open event${events.length === 1 ? "" : "s"}.` },
     {
       label: "Projected savings",
       value: t.savings > 0 ? moneyYear(t.savings) : "—",
-      sub: t.baseline && t.savings > 0 ? `A year, ${pct(t.savings / t.baseline, 1)} below today's rates` : "Waiting on bids",
       positive: t.savings > 0,
-      info: "The latest bids against today's rates, at each agency's share of the hours.",
+      info: `A year${t.baseline && t.savings > 0 ? `, ${pct(t.savings / t.baseline, 1)} below today's rates` : ""}: the latest bids against today's rates, at each agency's share of the hours.`,
     },
     {
       label: "Latest bids vs the market",
       value: t.market ? <VsMarket value={t.proposed / t.market - 1} /> : "—",
-      sub: "Against each market's median rate",
-      info: "Each role's bids against what agencies across that market bill for it, weighted by hours.",
+      info: "Each role's bids against the median of what agencies across that market bill for it, weighted by hours.",
     },
   ]
   return (
@@ -161,7 +154,6 @@ function Summary({ events }: { events: SourcingEvent[] }) {
             {c.info && <InfoTip>{c.info}</InfoTip>}
           </span>
           <span className={cn("text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular", c.positive && "text-positive-fg")}>{c.value}</span>
-          <span className="text-caption-1 text-faded">{c.sub}</span>
         </div>
       ))}
     </Surface>
@@ -192,10 +184,7 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
     supplierId
       ? { label: "Your billings", value: `${moneyYear(spend.baseline)} a year` }
       : { label: "Bids in", value: `${bids} of ${ev.invited.length}` },
-    {
-      label: days >= 0 ? "Bids due" : "Bids closed",
-      value: days >= 0 ? `${formatDateShort(ev.closesOn)} · ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} left`}` : formatDateShort(ev.closesOn),
-    },
+    { label: days >= 0 ? "Bids due" : "Bids closed", value: days === 0 ? "Today" : formatDateShort(ev.closesOn) },
     ...(supplierId
       ? []
       : [{ label: "Projected savings", value: bids ? (spend.savings > 0 ? `${moneyYear(spend.savings)} a year` : "None yet") : "—", positive: spend.savings > 0 && bids > 0 }]),
@@ -210,9 +199,6 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
         <div className="flex min-w-0 flex-col gap-1">
           <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
           <span className="text-featured-3 leading-snug font-semibold">{ev.title}</span>
-          <span className="text-body-3 text-faded">
-            {city(ev.cityId).name} · {ev.lines.length} roles · {ev.invited.length} agencies
-          </span>
         </div>
         {mine ? (
           <StatusBadge tone={mine.tone} size="sm" dot>
@@ -240,11 +226,9 @@ function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
   const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
   return (
     <Link href={`/procurement/${ev.id}`} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-hover/60">
-      <span className="flex min-w-0 flex-1 flex-col">
+      <span className="flex min-w-0 flex-1 items-baseline gap-3">
+        <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
         <span className="truncate font-medium">{ev.title}</span>
-        <span className="text-caption-1 text-faded">
-          <span className="font-mono">{ev.number}</span> · {ev.category} · {ev.lines.length} roles
-        </span>
       </span>
       <span className="hidden flex-col items-end sm:flex">
         <span className="text-caption-1 text-faded">Approved</span>

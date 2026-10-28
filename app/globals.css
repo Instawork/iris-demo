@@ -435,6 +435,20 @@
   }
 }
 
+/* What the guided tour's "Do it for me" is about to press. */
+[data-tour-press] {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 7px color-mix(in oklch, var(--brand) 55%, transparent);
+  animation: tour-press 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes tour-press {
+  60% {
+    transform: scale(0.97);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

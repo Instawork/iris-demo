@@ -53,16 +53,12 @@ export function EventPage({ id }: { id: string }) {
     <>
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pt-4">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <span className="text-caption-1 text-faded">
-            <span className="font-mono">{ev.number}</span> · {ev.category}
-          </span>
+          <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
           <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-featured-1 font-semibold">
             {ev.title}
+            <InfoTip className="size-[18px] [&>svg]:size-4">{`${marketName(ev)}, ${ev.lines.length} roles, ${ev.invited.length} agencies. Term ${termLabel(ev)}.`}</InfoTip>
             <StageBadge ev={ev} />
           </h1>
-          <p className="text-body-3 text-faded">
-            {marketName(ev)} · {ev.lines.length} roles · {ev.invited.length} agencies · Term {termLabel(ev)}
-          </p>
         </div>
         {!isAgency && ev.status === "open" && <ApproveBids ev={ev} />}
       </header>
@@ -110,7 +106,7 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
         <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
           <SurfaceHeader
             title="Bids"
-            description={`Latest round, against the ${city(ev.cityId).name} market`}
+            info={`Each role's latest bids against the ${city(ev.cityId).name} market. Open a role to see every bid and counter it.`}
             actions={
               <PillTabs
                 size="sm"
@@ -154,36 +150,17 @@ function Savings({ ev }: { ev: SourcingEvent }) {
   const s = spendOf(ev)
   const bids = responded(ev).length
   const market = ev.lines.reduce((sum, l) => sum + l.hours * benchmark(ev.cityId, l.positionId).median, 0)
-  const rows = [
-    { label: "Today's rates", value: s.baseline },
-    { label: "Latest bids", value: bids ? s.proposed : undefined },
-    { label: "At the market median", value: market, info: `Every role's hours at what the ${city(ev.cityId).name} market bills for it.` },
-  ]
   return (
-    <Surface elevated className="flex flex-col gap-4 p-5">
-      <div className="flex flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 text-body-3 text-faded">
-          {ev.status === "awarded" ? "Savings approved" : "Projected savings"}
-          <InfoTip>Latest bids against today&apos;s rates, at each agency&apos;s share of the hours.</InfoTip>
-        </span>
-        <span className={cn("text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular", s.savings > 0 && "text-positive-fg")}>
-          {bids ? (s.savings > 0 ? moneyYear(s.savings) : "None yet") : "—"}
-        </span>
-        <span className="text-caption-1 text-faded">
-          {bids ? (s.savings > 0 ? `A year, ${pct(s.savingsPct, 1)} below today's rates` : "The bids so far don't beat today's rates") : "Waiting on the first bid"}
-        </span>
-      </div>
-      <dl className="flex flex-col gap-2 border-t border-border/70 pt-4 text-body-3">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between gap-3">
-            <dt className="flex items-center gap-1.5 text-faded">
-              {r.label}
-              {r.info && <InfoTip>{r.info}</InfoTip>}
-            </dt>
-            <dd className="font-medium tabular">{r.value === undefined ? "—" : moneyYear(r.value)}</dd>
-          </div>
-        ))}
-      </dl>
+    <Surface elevated className="flex flex-col gap-0.5 p-5">
+      <span className="flex items-center gap-1.5 text-body-3 text-faded">
+        {ev.status === "awarded" ? "Savings approved" : "Projected savings"}
+        <InfoTip>
+          {`A year${s.savings > 0 ? `, ${pct(s.savingsPct, 1)} below today's rates` : ""}. Today's rates come to ${moneyYear(s.baseline)}${bids ? `, the latest bids to ${moneyYear(s.proposed)}` : ""}, and the ${city(ev.cityId).name} market median to ${moneyYear(market)}.`}
+        </InfoTip>
+      </span>
+      <span className={cn("text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular", s.savings > 0 && "text-positive-fg")}>
+        {bids ? (s.savings > 0 ? moneyYear(s.savings) : "None yet") : "—"}
+      </span>
     </Surface>
   )
 }
@@ -228,12 +205,13 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
                   className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60"
                 >
                   <td className="px-3 py-2.5">
-                    <span className="flex flex-col">
+                    <span className="flex items-center gap-2">
                       <span className="font-medium">{position(line.positionId).name}</span>
-                      <span className="text-caption-1 text-faded">
-                        {bids.length} {bids.length === 1 ? "bid" : "bids"}
-                        {asked && <span className="text-warning-fg"> · countered</span>}
-                      </span>
+                      {asked && (
+                        <StatusBadge tone="warning" size="sm">
+                          Countered
+                        </StatusBadge>
+                      )}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 text-right text-faded tabular">{today ? money(today) : "—"}</td>
@@ -266,9 +244,8 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
+      <div className="border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
         <BenchmarkLegend />
-        {ev.status === "open" && <span className="text-caption-1 text-faded">Open a role to see every bid and counter</span>}
       </div>
     </>
   )
@@ -418,8 +395,8 @@ function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string
 function MarketBlock({ b, today, marks, cityId }: { b: Benchmark; today?: number; marks: Mark[]; cityId: string }) {
   const stats = [
     { label: "Market median", value: money(b.median), sub: `${b.agencies} ${city(cityId).name} agencies` },
-    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}`, sub: "Of the market" },
-    { label: "You pay today", value: today ? money(today) : "—", sub: today ? <VsMarket value={vsMarket(today, b)} /> : "No rate yet" },
+    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}` },
+    { label: "You pay today", value: today ? money(today) : "—", sub: today ? <VsMarket value={vsMarket(today, b)} /> : undefined },
   ]
   return (
     <section className="flex flex-col gap-4 border-b border-border bg-page-faded/50 px-6 py-5">
@@ -428,7 +405,7 @@ function MarketBlock({ b, today, marks, cityId }: { b: Benchmark; today?: number
           <div key={s.label} className="flex flex-col gap-0.5">
             <dt className="text-caption-1 text-faded">{s.label}</dt>
             <dd className="text-body-2 font-semibold tabular">{s.value}</dd>
-            <dd className="text-caption-1 text-faded">{s.sub}</dd>
+            {s.sub && <dd className="text-caption-1 text-faded">{s.sub}</dd>}
           </div>
         ))}
       </dl>

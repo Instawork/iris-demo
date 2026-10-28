@@ -148,7 +148,7 @@ export function UnitDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl" data-tour="unit-dialog" data-stage={created ? "done" : STEPS[step]}>
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is live` : "Add a unit"}</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className={cn(!created && "sr-only")}>
             {created ? "It can book shifts now." : "One location with its own cost center: a venue, a campus, a hospital."}
           </DialogDescription>
         </DialogHeader>

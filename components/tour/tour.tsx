@@ -16,6 +16,8 @@ import {
   SCRIPT,
   STEPS,
   indexOf,
+  pilotStopped,
+  stopPilot,
   type ChapterId,
   type Placement,
   type TourApi,
@@ -49,7 +51,7 @@ interface Box {
 
 type View =
   | { mode: "pending" }
-  | { mode: "ready"; boxes: Box[]; anchor?: Box; modal: boolean }
+  | { mode: "ready"; boxes: Box[]; anchor?: Box; modal: boolean; copy: string }
   | { mode: "lost" }
   | { mode: "away" }
   | { mode: "paused" }
@@ -82,7 +84,10 @@ const sameBoxes = (a: Box[], b: Box[]) => a.length === b.length && a.every((r, i
 const sameView = (a: View, b: View) =>
   a.mode === b.mode &&
   (a.mode !== "ready" ||
-    (b.mode === "ready" && a.modal === b.modal && sameBoxes(a.boxes, b.boxes) && sameBoxes(a.anchor ? [a.anchor] : [], b.anchor ? [b.anchor] : [])))
+    (b.mode === "ready" && a.modal === b.modal && a.copy === b.copy && sameBoxes(a.boxes, b.boxes) && sameBoxes(a.anchor ? [a.anchor] : [], b.anchor ? [b.anchor] : [])))
+
+const text = (copy: TourStep["body"], ctx: TourContext) => (typeof copy === "function" ? copy(ctx) : copy)
+const titleOf = (step: TourStep, ctx: TourContext) => (typeof step.title === "function" ? step.title(ctx) : step.title)
 
 /** The dialog or sheet on top, if any. The tour's own cards don't count. */
 const topModal = () => {
@@ -210,6 +215,9 @@ function StepScreen({ step }: { step: TourStep }) {
   const [view, setView] = useState<{ step: string; view: View }>({ step: step.id, view: { mode: "pending" } })
   const enteredAt = useTour((s) => s.enteredAt)
   const [celebrate, setCelebrate] = useState<{ step: string; at?: string; message: string; kept: boolean }>()
+  /** The visit of the step "Do it for me" is playing, and the one that's already done and closing. */
+  const [piloting, setPiloting] = useState<string>()
+  const closing = useRef<string>(undefined)
   const vp = useViewport()
   const [cardRef, cardSize] = useSize<HTMLDivElement>()
 
@@ -222,7 +230,7 @@ function StepScreen({ step }: { step: TourStep }) {
     let checkedAt = 0
     let ranAt = 0
     const scrolled = new WeakMap<Element, { times: number; at: number }>()
-    const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch) }
+    const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch), now: contextNow }
     const update = (next: View) => setView((prev) => (prev.step === step.id && sameView(prev.view, next) ? prev : { step: step.id, view: next }))
 
     const tick = () => {
@@ -234,6 +242,7 @@ function StepScreen({ step }: { step: TourStep }) {
         checkedAt = t
         if (step.done?.(ctx)) {
           finished = true
+          closing.current = useTour.getState().enteredAt
           step.onDone?.(ctx, api)
           if (!step.success) {
             useTour.getState().finish(step.id, "done")
@@ -272,7 +281,8 @@ function StepScreen({ step }: { step: TourStep }) {
       const modal = topModal()
       if (modal && !modal.contains(primary)) return update({ mode: "paused" })
       const anchor = step.anchor?.()
-      update({ mode: "ready", boxes: els.map(boxOf), anchor: anchor ? boxOf(anchor) : undefined, modal: !!modal })
+      const copy = [titleOf(step, ctx), text(step.body, ctx), text(step.action, ctx)].join("|")
+      update({ mode: "ready", boxes: els.map(boxOf), anchor: anchor ? boxOf(anchor) : undefined, modal: !!modal, copy })
     }
 
     const frame = () => {
@@ -288,6 +298,7 @@ function StepScreen({ step }: { step: TourStep }) {
       cancelAnimationFrame(raf)
       window.clearInterval(fallback)
       window.clearTimeout(timer)
+      stopPilot()
     }
   }, [step, router])
 
@@ -301,10 +312,29 @@ function StepScreen({ step }: { step: TourStep }) {
   const anchor = mode === "ready" ? ready?.boxes[0] : undefined
   const pos = place(mode === "ready" ? (ready?.anchor ?? anchor) : undefined, cardSize, step.placement, vp.w, vp.h, anchor)
 
-  const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch) }
+  const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch), now: contextNow }
   const finish = (how: "done" | "skipped") => useTour.getState().finish(step.id, how)
-  const skip = () => {
-    step.skip(contextNow(), api)
+  const next = () => {
+    step.onDone?.(contextNow(), api)
+    finish("done")
+  }
+  const visit = enteredAt
+  const flying = piloting === visit
+  const skip = async () => {
+    setPiloting(visit)
+    try {
+      await step.skip(contextNow(), api)
+      // The server confirms what was done a moment later. Give the step that long to notice and show its success.
+      const until = performance.now() + (step.done ? 3000 : 300)
+      while (performance.now() < until && closing.current !== visit && useTour.getState().enteredAt === visit) await new Promise((resolve) => window.setTimeout(resolve, 100))
+    } catch (error) {
+      if (!pilotStopped(error)) throw error
+      return
+    } finally {
+      setPiloting((p) => (p === visit ? undefined : p))
+    }
+    if (useTour.getState().enteredAt !== visit || closing.current === visit) return
+    step.onDone?.(contextNow(), api)
     finish("skipped")
   }
   const goThere = () => {
@@ -328,7 +358,7 @@ function StepScreen({ step }: { step: TourStep }) {
         style={{ pointerEvents: showCard && mine ? "auto" : "none" }}
       >
         {pointer && <Pointer edge={pos.edge!} at={pos.at!} />}
-        <StepCard step={step} ctx={ctx} mode={mode} done={done} onNext={() => finish("done")} onSkip={skip} />
+        <StepCard step={step} ctx={ctx} mode={mode} done={done} flying={flying} onNext={next} onSkip={() => void skip()} />
       </motion.div>
       <AnimatePresence>{mine && mode === "away" && <PausedPill step={step} ctx={ctx} onResume={goThere} />}</AnimatePresence>
     </>
@@ -385,15 +415,31 @@ function PausedPill({ step, ctx, onResume }: { step: TourStep; ctx: TourContext;
   )
 }
 
-function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; ctx: TourContext; mode: View["mode"]; done?: string; onNext: () => void; onSkip: () => void }) {
+function StepCard({
+  step,
+  ctx,
+  mode,
+  done,
+  flying,
+  onNext,
+  onSkip,
+}: {
+  step: TourStep
+  ctx: TourContext
+  mode: View["mode"]
+  done?: string
+  flying: boolean
+  onNext: () => void
+  onSkip: () => void
+}) {
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
   const n = STEPS.indexOf(step) + 1
-  const action = typeof step.action === "function" ? step.action(ctx) : step.action
+  const action = text(step.action, ctx)
   const following = SCRIPT[indexOf(step.id) + 1]
   const wrapsChapter = !following || following.kind === "finale" || (following.kind === "chapter" && following.chapter !== step.chapter)
-  const title = typeof step.title === "function" ? step.title(ctx) : step.title
-  const body = typeof step.body === "function" ? step.body(ctx) : step.body
+  const title = titleOf(step, ctx)
+  const body = text(step.body, ctx)
   const status = step.status?.(ctx)
   const lost = mode === "lost"
 
@@ -452,11 +498,20 @@ function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; c
                 {status}
               </p>
             )}
-            {!lost && action && !step.example && (
+            {flying ? (
+              <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
+                <WandSparkles className="size-3.5 shrink-0 animate-pulse" />
+                Iris is doing it
+              </p>
+            ) : (
+              !lost &&
+              action &&
+              !step.example && (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
                 <MousePointerClick className="size-3.5 shrink-0" />
                 {action}
               </p>
+              )
             )}
           </motion.div>
         )}
@@ -464,7 +519,7 @@ function StepCard({ step, ctx, mode, done, onNext, onSkip }: { step: TourStep; c
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
         <Progress current={n - 1} chapter={step.chapter} />
         <span className="ml-auto flex items-center gap-1">
-          {done ? null : !step.action ? (
+          {done || flying ? null : !action && !step.example ? (
             <CardButton onClick={onNext}>
               Next <ArrowRight className="size-3.5" />
             </CardButton>
@@ -637,7 +692,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
         <Glow />
         <span className="relative text-[12px] font-medium text-muted-foreground">Guided demo</span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
-          Five workflows, end to end
+          The program, end to end
         </h2>
       </div>
       <ol className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
@@ -659,7 +714,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
         })}
       </ol>
       <div className="mx-7 mt-4 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
-        You play each side of the program:
+        You play each side:
         <SideBadge kind="buyer" size="sm" />
         <SideBadge kind="supplier" size="sm" />
         <SideBadge kind="compass" size="sm" />
@@ -685,7 +740,7 @@ function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () =
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
         <span className="relative text-[12px] font-medium text-muted-foreground">
-          Part {meta.number} of {CHAPTER_ORDER.length} · Fieldglass {meta.fieldglass}
+          Part {meta.number} of {CHAPTER_ORDER.length}
         </span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] text-balance">
           {item.title}
@@ -694,11 +749,8 @@ function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () =
       </div>
       <div className="mx-7 flex items-center gap-3 rounded-xl border border-border px-4 py-3" style={{ backgroundColor: `color-mix(in oklch, ${side.color} 7%, transparent)` }}>
         <WorkspaceAvatar ws={ws} size="lg" />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[14px] font-semibold">
-            You&apos;re {ws.kind === "compass" ? "Compass corporate" : `${ws.kind === "buyer" ? "the buyer" : "the agency"}: ${ws.name}`}
-          </span>
-          <span className="text-[13px] text-pretty text-muted-foreground">{side.does}</span>
+        <span className="min-w-0 flex-1 text-[14px] font-semibold">
+          You&apos;re {ws.kind === "compass" ? "Compass corporate" : `${ws.kind === "buyer" ? "the buyer" : "the agency"}: ${ws.name}`}
         </span>
         <SideBadge kind={ws.kind} />
       </div>

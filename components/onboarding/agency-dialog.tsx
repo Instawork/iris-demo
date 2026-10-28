@@ -192,7 +192,7 @@ export function AgencyDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl" data-tour="agency-dialog" data-stage={created ? "done" : STEPS[step]}>
         <DialogHeader>
           <DialogTitle>{created ? `${form.name.trim()} is on Iris` : "Add an agency"}</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className={cn(!created && "sr-only")}>
             {created
               ? `${short} can sign in and take shifts from the buyers that approved it.`
               : "Everything Compass needs before an agency gets its first shift."}
