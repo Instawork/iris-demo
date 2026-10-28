@@ -252,12 +252,77 @@ export interface RateChange {
   cityId: string
   positionId: string
   action: "added" | "changed" | "removed"
-  /** Where it came from: typed in, a CSV upload, the agency's system, onboarding, or an answer to Compass's review. */
-  source: "manual" | "upload" | "api" | "onboarding" | "review"
+  /** Where it came from: typed in, a CSV upload, the agency's system, onboarding, an answer to Compass's review, or an approved bid. */
+  source: "manual" | "upload" | "api" | "onboarding" | "review" | "award"
   from?: RateValues
   to?: RateValues
   uploadId?: string
   note?: string
+}
+
+/** One thing being priced in a sourcing event: a role in the event's market, with the hours Compass expects to buy. */
+export interface SourcingLine {
+  id: string
+  positionId: string
+  /** Estimated hours a year. */
+  hours: number
+  /** Each invited agency's bill rate when the event opened, the baseline its bid is measured against. */
+  baseline: Record<string, number>
+  /** Each invited agency's share of the hours today. */
+  share: Record<string, number>
+}
+
+export interface BidLine {
+  proRate: number
+  markupPct: number
+  billRate: number
+}
+
+/** One round of an agency's prices. The latest round is its bid. */
+export interface Bid {
+  supplierId: string
+  round: number
+  at: string
+  by: string
+  lines: Record<string, BidLine>
+  note?: string
+}
+
+export interface SourcingMessage {
+  id: string
+  at: string
+  by: string
+  supplierId: string
+  from: "compass" | "agency"
+  text: string
+  lineId?: string
+  /** A counter: the bill rate Compass asked for. */
+  ask?: number
+  /** A counter stays open until the agency answers it. */
+  open?: boolean
+}
+
+/** A sourcing event: invited agencies bid on a set of lines, Compass negotiates, and approved bids become rate cards. */
+export interface SourcingEvent {
+  id: string
+  number: string
+  title: string
+  category: string
+  cityId: string
+  status: "open" | "awarded"
+  createdBy: string
+  openedAt: string
+  /** Bids are due by this date. */
+  closesOn: string
+  termStart: string
+  termEnd: string
+  lines: SourcingLine[]
+  invited: string[]
+  bids: Bid[]
+  messages: SourcingMessage[]
+  /** Agency id to when Compass approved its bid. */
+  approved: Record<string, string>
+  awardedAt?: string
 }
 
 /** Compass asking an agency to review a rate that runs above what the other agencies charge for the same city and role. */
@@ -668,6 +733,8 @@ export interface DemoData {
   rateCards: RateCard[]
   /** Every rate card change, newest first. */
   rateLog: RateChange[]
+  /** Sourcing events, newest first. Approved bids land on the rate cards above. */
+  sourcing?: SourcingEvent[]
   groups: ShiftGroup[]
   timesheets: Timesheet[]
   invoices: Invoice[]

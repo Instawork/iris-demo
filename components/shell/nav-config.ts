@@ -4,6 +4,7 @@ import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
 import { awaitingApproval, filledCount, groupPhase, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
 import { PROGRAM } from "@/lib/reference"
+import { latestBid, openCounters } from "@/lib/sourcing"
 import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
 
@@ -36,6 +37,9 @@ const timesheetsBadge = (data: DemoData, ws: Workspace) => {
   if (ws.kind === "supplier") return data.timesheets.filter((t) => t.supplierId === ws.supplierId && withAgency(t)).length
   return 0
 }
+
+const invitationsBadge = (data: DemoData, ws: Workspace) =>
+  (data.sourcing ?? []).filter((e) => e.status === "open" && e.invited.includes(ws.supplierId!) && !e.approved[ws.supplierId!] && (!latestBid(e, ws.supplierId!) || openCounters(e, ws.supplierId).length)).length
 
 /** The same pages for everyone. Each page shows that persona's data and actions. */
 export function navFor(ws: Workspace): NavItem[] {
@@ -88,18 +92,16 @@ export function navFor(ws: Workspace): NavItem[] {
             : "Every timesheet, with the clock beside what was billed",
       badge: kind === "compass" ? undefined : timesheetsBadge,
     },
-    {
-      id: "rates",
-      label: "Rate Cards",
-      href: "/rates",
-      icon: BadgeDollarSign,
-      tooltip:
-        kind === "supplier"
-          ? "Your pay rate, markup and bill rate by city"
-          : kind === "buyer"
-            ? "Every agency's rate for each role. Pick the best offer."
-            : "Every agency's rates by role, and every change to them",
-    },
+    kind === "buyer"
+      ? { id: "rates", label: "Rate Cards", href: "/rates", icon: BadgeDollarSign, tooltip: "Every agency's rate for each role. Pick the best offer." }
+      : {
+          id: "procurement",
+          label: "Procurement",
+          href: "/procurement",
+          icon: BadgeDollarSign,
+          tooltip: kind === "supplier" ? "Bid invitations from Compass, and your rate cards" : "Sourcing events, bids and every agency's rate cards",
+          badge: kind === "supplier" ? invitationsBadge : undefined,
+        },
     {
       id: "professionals",
       label: "Workers",
@@ -151,6 +153,7 @@ export const SECTION_LABELS: Record<string, string> = {
   timesheets: "Timesheets",
   professionals: "Workers",
   rates: "Rate Cards",
+  procurement: "Procurement",
   invoices: "Invoices",
   reports: "Reports",
   uploads: "Uploads",

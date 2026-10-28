@@ -1,9 +1,10 @@
-import { PROGRAM_TIME_ZONE } from "@/lib/dates"
+import { PROGRAM_TIME_ZONE, todayISO } from "@/lib/dates"
 import type { Notice } from "@/lib/domain/commands"
 import { advance } from "@/lib/domain/simulate"
 import { diffData, isEmptyChange, type Changes } from "@/lib/domain/sync"
 import { findWorkspace, syncDirectory } from "@/lib/reference"
 import { DATA_VERSION, generateDemoData } from "@/lib/seed"
+import { seedSourcing } from "@/lib/sourcing"
 import type { DemoData } from "@/lib/types"
 import { hasDatabase, loadTenantRow, saveTenantRow } from "@/server/db"
 
@@ -157,6 +158,7 @@ declare global {
 async function load(id: string) {
   const row = hasDatabase() ? await loadTenantRow(id) : null
   if (row && row.data.version === DATA_VERSION && row.data.groups?.length) {
+    row.data.sourcing ??= seedSourcing(row.data, todayISO())
     const tenant = new Tenant(id, row.version, row.data)
     tenant.start()
     return tenant

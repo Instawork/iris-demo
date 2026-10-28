@@ -31,11 +31,13 @@ import {
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
+import { CATEGORY, activeCard, bidLine, buildLines, fiscalYear, latestBid, nextNumber, openCounters, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { billedOf, canEditBilled, change, duringShift, hoursFor, matchesClock, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
+  BidLine,
   ComplianceItem,
   DemoData,
   Department,
@@ -52,6 +54,8 @@ import type {
   RosterStatus,
   SavedReport,
   ShiftGroup,
+  SourcingEvent,
+  SourcingMessage,
   Supplier,
   Timesheet,
   Upload,
@@ -1134,6 +1138,145 @@ function deleteRateCard(data: DemoData, ctx: CommandContext, input: { id: string
   return done(data, null, { rateCards: data.rateCards.filter((c) => c.id !== card.id) })
 }
 
+/* --------------------------------- Sourcing -------------------------------- */
+
+const sourcingEvent = (data: DemoData, id: unknown) => need((data.sourcing ?? []).find((e) => e.id === id), "That event doesn't exist")
+const withSourcing = (data: DemoData, ev: SourcingEvent): Patch => ({ sourcing: (data.sourcing ?? []).map((e) => (e.id === ev.id ? ev : e)) })
+
+/** Compass opens a sourcing event: the roles in a market it wants priced, the agencies it invites, and when bids are due. */
+function createSourcingEvent(data: DemoData, ctx: CommandContext, input: { cityId: string; positionIds: string[]; supplierIds: string[]; closesOn: string; title?: string }): Outcome<string> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass runs sourcing events.")
+  const market = need(findCity(str(input?.cityId, "Market")), "That market doesn't exist")
+  const positionIds = [...new Set(strList(input.positionIds, "Roles", 50))].filter((id) => findPosition(id))
+  if (!positionIds.length) fail("Pick at least one role.")
+  const supplierIds = [...new Set(strList(input.supplierIds, "Agencies", 50))].filter((id) => findSupplier(id))
+  if (!supplierIds.length) fail("Invite at least one agency.")
+  const today = todayISO()
+  const closesOn = typeof input.closesOn === "string" && DATE.test(input.closesOn) && input.closesOn > today ? input.closesOn : fail("Bids are due after today.")
+  const events = data.sourcing ?? []
+  const fy = fiscalYear(today)
+  const ev: SourcingEvent = {
+    id: `rfp-${events.length + 1}-${Date.parse(ctx.now).toString(36)}`,
+    number: nextNumber(events, today),
+    title: optStr(input.title, 120) ?? `${fy.label} rate renewal · ${market.name}`,
+    category: CATEGORY,
+    cityId: market.id,
+    status: "open",
+    createdBy: actorName(ctx),
+    openedAt: ctx.now,
+    closesOn,
+    termStart: fy.start,
+    termEnd: fy.end,
+    lines: buildLines(data.rateCards, market.id, positionIds, supplierIds),
+    invited: supplierIds,
+    bids: [],
+    messages: [],
+    approved: {},
+  }
+  return {
+    ...done(
+      data,
+      ev.id,
+      { sourcing: [ev, ...events] },
+      event(data, { text: `${actorName(ctx)} opened ${ev.number}, ${ev.title}, to ${supplierIds.length} ${supplierIds.length === 1 ? "agency" : "agencies"}`, actor: actorName(ctx), tone: "primary" }, ctx.now),
+    ),
+    notices: supplierIds.map((s) => ({ text: `Compass invited you to bid on ${ev.title}`, tone: "info" as const, supplierId: s })),
+  }
+}
+
+/** An agency sends its prices, a new round each time. Sending answers any counter Compass has open with it. */
+function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string; lines: Record<string, { proRate: number; markupPct: number }>; note?: string }): Outcome<number> {
+  const ev = sourcingEvent(data, input?.eventId)
+  const supplierId = ctx.ws.supplierId
+  if (ctx.ws.kind !== "supplier" || !supplierId || !ev.invited.includes(supplierId)) forbid("Only an invited agency can bid on this event.")
+  if (ev.status === "awarded" || ev.approved[supplierId!]) fail("Your rates on this event are already approved.")
+  const sent = input.lines && typeof input.lines === "object" ? input.lines : fail("Price at least one role.")
+  const lines: Record<string, BidLine> = {}
+  for (const line of ev.lines) {
+    const v = sent[line.id]
+    if (!v) continue
+    const role = position(line.positionId).name
+    lines[line.id] = bidLine(num(v.proRate, `${role} pay rate`, 1, 500), num(v.markupPct, `${role} markup`, 0, PROGRAM.maxMarkupPct))
+  }
+  if (!Object.keys(lines).length) fail("Price at least one role.")
+  const prior = latestBid(ev, supplierId!)
+  const round = (prior?.round ?? 0) + 1
+  const by = actorName(ctx)
+  const note = optStr(input.note, 1000)
+  const sup = supplier(supplierId!).shortName
+  const answered = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
+  const text = note ?? (round > 1 ? `Round ${round} is in.` : undefined)
+  const message: SourcingMessage[] = text ? [{ id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId: supplierId!, from: "agency", text }] : []
+  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, lines, note }], messages: [...answered, ...message] }
+  return {
+    ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
+    notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],
+  }
+}
+
+/** Compass asks an agency for a lower rate on one line. Agencies nobody is playing answer on their own. */
+function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string; lineId: string; ask: number; note?: string }): Outcome<null> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass counters a bid.")
+  const ev = sourcingEvent(data, input?.eventId)
+  if (ev.status === "awarded") fail("This event is closed.")
+  const supplierId = str(input.supplierId, "Agency")
+  const line = need(ev.lines.find((l) => l.id === input.lineId), "That line isn't on this event")
+  const current = need(latestBid(ev, supplierId)?.lines[line.id], "That agency hasn't priced this role yet.")
+  if (ev.approved[supplierId]) fail("This agency's rates are already approved.")
+  const ask = round2(num(input.ask, "Ask", 1, 1000))
+  if (ask >= current.billRate) fail(`Ask for less than the ${money(current.billRate)} they bid.`)
+  const role = position(line.positionId).name
+  const by = actorName(ctx)
+  const text = optStr(input.note, 1000) ?? `Can you get ${role} to ${money(ask)}?`
+  const messages = ev.messages.map((m) => (m.open && m.supplierId === supplierId && m.lineId === line.id ? { ...m, open: false } : m))
+  const message: SourcingMessage = { id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId, from: "compass", text, lineId: line.id, ask, open: true }
+  return {
+    ...done(data, null, withSourcing(data, { ...ev, messages: [...messages, message] })),
+    notices: [{ text: `Compass countered your ${role} rate on ${ev.title}: ${money(ask)}`, tone: "warning", supplierId }],
+  }
+}
+
+/** Compass approves agencies' latest bids. Their prices go live on their rate cards, and the event closes once every bid is approved. */
+function approveBids(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierIds: string[] }): Outcome<number> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass approves bids.")
+  const ev = sourcingEvent(data, input?.eventId)
+  if (ev.status === "awarded") fail("This event is already approved.")
+  const ids = [...new Set(strList(input.supplierIds, "Agencies", 50))].filter((s) => latestBid(ev, s) && !ev.approved[s])
+  if (!ids.length) fail("There's no bid to approve.")
+  const waiting = ids.filter((s) => openCounters(ev, s).length)
+  if (waiting.length) fail(`${joinNames(waiting.map((s) => supplier(s).shortName))} still owes you an answer on a counter.`)
+  let rateCards = data.rateCards
+  let rate = data.counters.rate
+  const today = todayISO()
+  for (const s of ids) {
+    const bid = latestBid(ev, s)!
+    for (const line of ev.lines) {
+      const b = bid.lines[line.id]
+      if (!b) continue
+      const existing = activeCard(rateCards, s, ev.cityId, line.positionId) ?? rateCards.find((c) => c.supplierId === s && c.cityId === ev.cityId && c.positionId === line.positionId)
+      const values = { proRate: b.proRate, markupPct: b.markupPct, billRate: b.billRate, status: "active" as const, effectiveFrom: today, updatedAt: ctx.now }
+      rateCards = existing
+        ? rateCards.map((c) => (c.id === existing.id ? { ...c, ...values } : c))
+        : [{ id: `rate-${rate++}`, supplierId: s, cityId: ev.cityId, positionId: line.positionId, zips: [...city(ev.cityId).zips], zipsAutoFilled: true, source: "manual", ...values }, ...rateCards]
+    }
+  }
+  const approved = { ...ev.approved, ...Object.fromEntries(ids.map((s) => [s, ctx.now])) }
+  const closed = responded(ev).every((s) => approved[s])
+  const next: SourcingEvent = { ...ev, approved, ...(closed ? { status: "awarded" as const, awardedAt: ctx.now } : {}) }
+  const by = actorName(ctx)
+  const names = joinNames(ids.map((s) => supplier(s).shortName))
+  return {
+    ...done(
+      data,
+      ids.length,
+      withSourcing(data, next),
+      { rateCards, counters: { rate } },
+      event(data, { text: `${by} approved ${names} on ${ev.number}. Their ${city(ev.cityId).name} rates are live.`, actor: by, tone: "positive" }, ctx.now),
+    ),
+    notices: ids.map((s) => ({ text: `Compass approved your ${ev.title} rates. They're live on your rate card.`, tone: "success" as const, supplierId: s })),
+  }
+}
+
 /* ------------------------------ Professionals ------------------------------ */
 
 const REQUIREMENT_IDS: RequirementId[] = ["background", "i9", "orientation", "foodHandler", "alcohol"]
@@ -1674,6 +1817,10 @@ export const COMMANDS = {
   closeWeekNow,
   upsertRateCard,
   deleteRateCard,
+  createSourcingEvent,
+  submitBid,
+  counterBid,
+  approveBids,
   completeRequirement,
   verifyRequirement,
   reviewDocument,
@@ -1702,6 +1849,7 @@ const RATE_SOURCE: Partial<Record<CommandName, RateChange["source"]>> = {
   resolveUpload: "upload",
   answerRateReview: "review",
   onboardAgency: "onboarding",
+  approveBids: "award",
 }
 
 /** Whatever a command did to rate cards goes in the rate log, with who did it and how. */
@@ -1713,7 +1861,12 @@ function withRateLog<R>(name: CommandName, before: DemoData, outcome: Outcome<R>
     by: actorName(ctx),
     firstId: after.counters.rlog,
     source: (card) => RATE_SOURCE[name] ?? (card.source === "api" ? "api" : "manual"),
-    note: (card) => (name === "answerRateReview" && card.rateReview?.status === "lowered" ? (card.rateReview.answer ?? "Lowered to the market after Compass's review") : undefined),
+    note: (card) =>
+      name === "answerRateReview" && card.rateReview?.status === "lowered"
+        ? (card.rateReview.answer ?? "Lowered to the market after Compass's review")
+        : name === "approveBids"
+          ? (after.sourcing ?? []).find((e) => e.cityId === card.cityId && e.approved[card.supplierId] === ctx.now)?.number
+          : undefined,
   })
   if (!entries.length) return outcome
   return { ...outcome, data: merge(after, { rateLog: [...entries, ...after.rateLog], counters: { rlog: after.counters.rlog + entries.length } }) }

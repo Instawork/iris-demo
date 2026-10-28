@@ -29,6 +29,7 @@ const SOURCE: Record<RateChange["source"], string> = {
   api: "Agency's system",
   onboarding: "Onboarding",
   review: "Rate review",
+  award: "Procurement",
 }
 
 const delta = (c: RateChange) => (c.from && c.to && c.from.billRate ? c.to.billRate / c.from.billRate - 1 : undefined)
@@ -103,7 +104,7 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
                 </>
               )}
             </span>
-            {c.note && <span className="max-w-72 text-caption-1 whitespace-normal text-faded">“{c.note}”</span>}
+            {c.note && c.source !== "award" && <span className="max-w-72 text-caption-1 whitespace-normal text-faded">“{c.note}”</span>}
           </span>
         )
       },
@@ -140,6 +141,7 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
         <span className="flex flex-col">
           <span>{SOURCE[c.source]}</span>
           {c.uploadId && <span className="font-mono text-caption-1 text-faded">{c.uploadId.toUpperCase()}</span>}
+          {c.source === "award" && c.note && <span className="font-mono text-caption-1 text-faded">{c.note}</span>}
         </span>
       ),
     },

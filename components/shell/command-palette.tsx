@@ -56,12 +56,13 @@ const ACTIONS: Record<PersonaKind, Action[]> = {
   supplier: [
     { id: "fill", label: "Fill open spots", icon: UserRoundCheck, href: "/shifts" },
     { id: "submit", label: "Submit hours", icon: Clock, href: "/timesheets" },
-    { id: "rates", label: "Update your rates", icon: BadgeDollarSign, href: "/rates" },
+    { id: "rates", label: "Update your rates", icon: BadgeDollarSign, href: "/procurement?tab=rates" },
     { id: "upload", label: "Upload a CSV", icon: Upload, upload: true },
   ],
   compass: [
     { id: "flagged", label: "Review anomalous invoices", icon: FileText, href: "/invoices?filter=flagged" },
-    { id: "rates", label: "Compare agency rates", icon: BadgeDollarSign, href: "/rates" },
+    { id: "sourcing", label: "Run a sourcing event", icon: BadgeDollarSign, href: "/procurement" },
+    { id: "rates", label: "Compare agency rates", icon: BadgeDollarSign, href: "/procurement?tab=rates" },
     { id: "compliance", label: "Check worker compliance", icon: ShieldCheck, href: "/professionals" },
     { id: "upload", label: "Upload business activity", icon: Upload, upload: true },
   ],

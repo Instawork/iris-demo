@@ -75,6 +75,10 @@ interface StoreState {
   /** Asks the agency to review the rates on this invoice that run above the market, and clears it for payment. Resolves to the number of rates. */
   requestRateReview: (id: string, note?: string) => Promise<number>
   answerRateReview: (cardId: string, decision: "lower" | "keep", note?: string) => Promise<boolean>
+  createSourcingEvent: (input: { cityId: string; positionIds: string[]; supplierIds: string[]; closesOn: string; title?: string }) => Promise<string | undefined>
+  submitBid: (eventId: string, lines: Record<string, { proRate: number; markupPct: number }>, note?: string) => Promise<number | undefined>
+  counterBid: (eventId: string, supplierId: string, lineId: string, ask: number, note?: string) => Promise<boolean>
+  approveBids: (eventId: string, supplierIds: string[]) => Promise<number>
   /** Sends lines billed above Iris's clock back to the agency for a credit, or accepts them as billed. */
   decideBilling: (id: string, decision: "send_back" | "accept", note?: string) => Promise<boolean>
   /** The agency credits what Compass sent back. Resolves to the amount credited. */
@@ -306,6 +310,10 @@ export const useStore = create<StoreState>()((set, get) => {
     reviewInvoice: async (id, note) => void (await send("reviewInvoice", { id, note })),
     requestRateReview: async (id, note) => (await send("requestRateReview", { id, note })) ?? 0,
     answerRateReview: async (cardId, decision, note) => (await send("answerRateReview", { id: cardId, decision, note })) !== undefined,
+    createSourcingEvent: async (input) => send("createSourcingEvent", input),
+    submitBid: async (eventId, lines, note) => send("submitBid", { eventId, lines, note }),
+    counterBid: async (eventId, supplierId, lineId, ask, note) => (await send("counterBid", { eventId, supplierId, lineId, ask, note })) !== undefined,
+    approveBids: async (eventId, supplierIds) => (await send("approveBids", { eventId, supplierIds })) ?? 0,
     decideBilling: async (id, decision, note) => (await send("decideBilling", { id, decision, note })) !== undefined,
     creditInvoice: async (id) => send("creditInvoice", { id }),
     closeWeekNow: async () => (await send("closeWeekNow", {} as never)) ?? [],

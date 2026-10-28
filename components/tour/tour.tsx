@@ -114,6 +114,7 @@ const PAGE: Record<string, string> = {
   shifts: "Shifts",
   timesheets: "Timesheets",
   rates: "Rate Cards",
+  procurement: "Procurement",
   professionals: "Workers",
   invoices: "Invoices",
   reports: "Reports",

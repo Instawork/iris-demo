@@ -5,8 +5,9 @@ import { invoiceApproved, issueOpen } from "@/lib/domain/invoicing"
 import { filledCount, groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { location, position, supplier } from "@/lib/reference"
+import { agencyAnswer } from "@/lib/sourcing"
 import { change, hoursFor, matchesClock, overtimeKey, partAt, splitForMove, weekClosed, withOvertime } from "@/lib/timesheets"
-import type { ClockRecord, DemoData, ShiftGroup, Slot, Timesheet } from "@/lib/types"
+import type { ClockRecord, DemoData, ShiftGroup, Slot, SourcingMessage, Timesheet } from "@/lib/types"
 
 /** How fast each agency staffs a shift when nobody is playing it: odds per tick, Pros per burst, and the share it can fill. */
 const PACE: Record<string, { chance: number; burst: [number, number]; cap: number }> = {
@@ -33,7 +34,8 @@ export function advance(data: DemoData, options: AdvanceOptions): { data: DemoDa
   const closed = closeShifts(filled.data, options)
   const invoiced = closeWeeks(closed.data, options.now)
   const credits = answerSendBacks(invoiced.data, options)
-  return { data: credits.data, notices: [...filled.notices, ...closed.notices, ...invoiced.notices, ...credits.notices] }
+  const counters = answerCounters(credits.data, options)
+  return { data: counters.data, notices: [...filled.notices, ...closed.notices, ...invoiced.notices, ...credits.notices, ...counters.notices] }
 }
 
 /* ------------------------------- Timesheets ------------------------------- */
@@ -241,6 +243,30 @@ function answerSendBacks(data: DemoData, { now, simulated }: AdvanceOptions): { 
     notices.push(...(out.notices ?? []))
   }
   return { data: next, notices }
+}
+
+/** Seconds a simulated agency takes to answer a counter. */
+const COUNTER_AFTER_SECONDS = 9
+
+/** Agencies nobody is playing answer Compass's counters on their own: meet the ask, come down to their floor, or hold. */
+function answerCounters(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+  const events = data.sourcing ?? []
+  const due = (m: SourcingMessage) => m.open && simulated(m.supplierId) && now.getTime() - Date.parse(m.at) >= COUNTER_AFTER_SECONDS * 1000
+  if (!events.some((e) => e.status === "open" && e.messages.some(due))) return { data, notices: [] }
+  const notices: Notice[] = []
+  const nowISO = now.toISOString()
+  const sourcing = events.map((ev) => {
+    if (ev.status !== "open") return ev
+    let next = ev
+    for (const counter of ev.messages.filter(due)) {
+      const answer = agencyAnswer(next, counter, nowISO)
+      if (!answer) continue
+      next = answer.event
+      notices.push({ text: answer.text, tone: "info", workspaceIds: ["ws-compass"] })
+    }
+    return next
+  })
+  return { data: { ...data, sourcing }, notices }
 }
 
 /* --------------------------------- Filling -------------------------------- */

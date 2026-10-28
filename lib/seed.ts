@@ -7,6 +7,7 @@ import { CITIES, LOCATIONS, POSITIONS, PROGRAM, SUPPLIERS, city, emptyDirectory,
 import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
 import { seedRateLog } from "@/lib/rate-log"
 import { defaultReports } from "@/lib/reports"
+import { seedSourcing } from "@/lib/sourcing"
 import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
   ActivityEvent,
@@ -585,6 +586,7 @@ export function generateDemoData(today = todayISO()): DemoData {
     pros,
     rateCards,
     rateLog,
+    sourcing: seedSourcing({ rateCards }, today),
     groups,
     timesheets: sheets,
     invoices,

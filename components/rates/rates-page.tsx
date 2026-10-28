@@ -57,12 +57,12 @@ export function ZipCell({ card }: { card: RateCard }) {
 }
 
 /** Each supplier's price list by city. Suppliers upload their own; buyers see bill rates; Compass sees everything side by side. */
-export function RatesPage() {
+export function RatesPage({ embedded = false }: { embedded?: boolean }) {
   const { ws } = useWorkspace()
-  return ws.kind === "supplier" ? <MyRates /> : <RateComparison />
+  return ws.kind === "supplier" ? <MyRates embedded={embedded} /> : <RateComparison embedded={embedded} />
 }
 
-function MyRates() {
+function MyRates({ embedded }: { embedded: boolean }) {
   const data = useData()
   const { ws } = useWorkspace()
   const openUpload = useUi((s) => s.openUpload)
@@ -151,28 +151,26 @@ function MyRates() {
       ),
     )
 
+  const actions = (
+    <>
+      <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3 text-faded" onClick={exportCsv}>
+        <Download className="size-4" /> Download
+      </Button>
+      <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => (setEditing(undefined), setDialogOpen(true))}>
+        <Plus className="size-4" /> Add rate
+      </Button>
+      <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => openUpload("rates")}>
+        <FileUp className="size-4" /> Upload CSV
+      </Button>
+    </>
+  )
+
   return (
     <>
-      <PageHeader
-        className="pt-4"
-        title="My Rates"
-        description="Your price list by city. Invoices use your bill rate for the shift's city."
-        actions={
-          <>
-            <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3 text-faded" onClick={exportCsv}>
-              <Download className="size-4" /> Download
-            </Button>
-            <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => (setEditing(undefined), setDialogOpen(true))}>
-              <Plus className="size-4" /> Add rate
-            </Button>
-            <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" onClick={() => openUpload("rates")}>
-              <FileUp className="size-4" /> Upload CSV
-            </Button>
-          </>
-        }
-      />
+      {!embedded && <PageHeader className="pt-4" title="My Rates" description="Your price list by city. Invoices use your bill rate for the shift's city." actions={actions} />}
       {reviews.length > 0 && <RateReviews cards={reviews} />}
-      <RateEquation example={{ pro: 20, markup: sup.profile.markupPct }} />
+      {!embedded && <RateEquation example={{ pro: 20, markup: sup.profile.markupPct }} />}
+      {embedded && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PillTabs
           value={cityId}
@@ -206,7 +204,7 @@ type Metric = "bill" | "pay" | "markup"
  * Role first, so it holds up with any number of agencies: each role shows who sees its shifts first and the spread of
  * rates, and opens into every agency's offer, cheapest first.
  */
-function RateComparison() {
+function RateComparison({ embedded }: { embedded: boolean }) {
   const data = useData()
   const { ws } = useWorkspace()
   const params = useSearchParams()
@@ -290,18 +288,22 @@ function RateComparison() {
       ),
     )
 
+  const download = (
+    <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3 text-faded" onClick={exportCsv}>
+      <Download className="size-4" /> Download
+    </Button>
+  )
+
   return (
     <>
-      <PageHeader
-        className="pt-4"
-        title="Rate Cards"
-        description={isBuyer ? "Each role's rates across your agencies. Pick who sees a role's shifts first." : "Every agency's rates by role and city."}
-        actions={
-          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3 text-faded" onClick={exportCsv}>
-            <Download className="size-4" /> Download
-          </Button>
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          className="pt-4"
+          title="Rate Cards"
+          description={isBuyer ? "Each role's rates across your agencies. Pick who sees a role's shifts first." : "Every agency's rates by role and city."}
+          actions={download}
+        />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="flex flex-wrap items-center gap-3">
           {cities.length > 1 ? (
@@ -324,7 +326,10 @@ function RateComparison() {
             />
           )}
         </span>
-        <SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />
+        <span className="flex items-center gap-2">
+          {embedded && download}
+          <SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />
+        </span>
       </div>
       <Surface elevated className="overflow-hidden" data-tour="offers">
         <div className="grid grid-cols-[minmax(140px,1.2fr)_minmax(150px,1.3fr)_minmax(110px,1fr)_minmax(130px,1fr)_28px] items-center gap-4 border-b border-border bg-page-faded px-4 py-2.5 text-caption-1 font-medium text-faded">
