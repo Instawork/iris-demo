@@ -14,6 +14,7 @@ import { eligiblePros, notifiedSuppliers, pickedOffer, useStore } from "@/lib/st
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { reportHref } from "@/lib/reports"
+import { latestBid } from "@/lib/sourcing"
 import { CHECKS } from "@/lib/verification"
 
 /**
@@ -398,7 +399,7 @@ export const SCRIPT: TourItem[] = [
     title: "Onboarding",
     wsId: COMPASS,
     href: "/units",
-    shows: "Add a unit with its departments, then add an agency.",
+    shows: "Add a unit with its departments, add an agency, and see where its rates come from.",
   },
   {
     kind: "step",
@@ -594,7 +595,31 @@ export const SCRIPT: TourItem[] = [
     targets: () => [one(AGENCY)],
     placement: "right",
     done: (ctx) => !!newAgency(ctx) && !one(AGENCY),
-    skip: () => click(`${AGENCY} [data-tour="wizard-done"]`),
+    onDone: (_, api) => later(() => api.push("/procurement/rfp-chi-27"), 900),
+    skip: (_, api) => {
+      click(`${AGENCY} [data-tour="wizard-done"]`)
+      later(() => api.push("/procurement/rfp-chi-27"), 300)
+    },
+  },
+  {
+    kind: "step",
+    id: "rate-renewal",
+    chapter: "onboarding",
+    wsId: COMPASS,
+    path: /^\/procurement\/rfp-chi-27/,
+    href: () => "/procurement/rfp-chi-27",
+    title: "Next year's rates, negotiated here",
+    body: (ctx) => {
+      const ev = ctx.data.sourcing?.find((e) => e.id === "rfp-chi-27")
+      const line = ev?.lines.find((l) => l.positionId === "bartender")
+      const bid = ev && line ? latestBid(ev, "harbor")?.lines[line.id] : undefined
+      const was = line?.baseline.harbor
+      const cut = bid && was && bid.billRate < was ? ` Harbor's Bartender came down from ${money(was)} to ${money(bid.billRate)}.` : ""
+      return `Agencies bid on every role and Compass counters line by line.${cut} Approved bids go live on their rate cards.`
+    },
+    targets: () => [one('[data-tour="bid-cell"][data-supplier="harbor"][data-position="bartender"]')],
+    placement: "bottom",
+    skip: () => undefined,
   },
   /* ---------------------------- 2. Shift creation ---------------------------- */
   {
