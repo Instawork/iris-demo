@@ -1,10 +1,10 @@
 "use client"
 
-import { ArrowRight, Check } from "lucide-react"
+import { ArrowRight, Check, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { StatusBadge } from "@/components/common/status-badge"
+import { Tip } from "@/components/common/info-tip"
 import { TimeField, snapTime } from "@/components/timesheets/timesheet-bits"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -52,6 +52,7 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
   const [positionId, setPositionId] = useState<string>()
   const [departmentId, setDepartmentId] = useState<string>()
   const [note, setNote] = useState("")
+  const [noting, setNoting] = useState(false)
   const [busy, setBusy] = useState(false)
   if (!pro) return null
 
@@ -67,7 +68,7 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
     .map((c) => ({ card: c, check: canWork(pro, c.positionId, group.date, group.locationId) }))
     .sort((a, b) => Number(b.check.ok) - Number(a.check.ok) || POSITIONS.findIndex((p) => p.id === a.card.positionId) - POSITIONS.findIndex((p) => p.id === b.card.positionId))
   const chosen = roles.find((r) => r.card.positionId === positionId)
-  const department = chosen ? departmentOf(loc.id, departmentId, chosen.card.positionId) : undefined
+  const department = chosen ? (departmentOf(loc.id, departmentId, chosen.card.positionId) ?? currentDepartment) : undefined
   const unchanged = !!chosen && chosen.card.positionId === current && department?.id === currentDepartment?.id
   const where = (role: string, d?: typeof department) => (departments.length && d ? `${position(role).name} in ${d.name}` : position(role).name)
   const outside = parts.length ? !part : spanMinutes(group.start, at) <= 0 || spanMinutes(group.start, at) >= spanMinutes(group.start, group.end)
@@ -84,52 +85,67 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
     onDone()
   }
 
+  const cleared = roles.filter((r) => r.check.ok)
+  const blocked = roles.filter((r) => !r.check.ok)
+
   return (
     <>
       <DialogHeader>
         <DialogTitle>Move {pro.firstName} to another {departments.length ? "role or department" : "role"}</DialogTitle>
         <DialogDescription>
-          {where(current, currentDepartment)} at {loc.name}. From the time you pick, {supplier(pro.supplierId).shortName} bills the new rate{departments.length ? " to the new department" : ""}.
+          {where(current, currentDepartment)} at {loc.name}
         </DialogDescription>
       </DialogHeader>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1.5">
-          <span className="text-caption-1 font-semibold text-faded">New role</span>
+          <span className="flex items-center justify-between gap-3 text-caption-1 font-semibold text-faded">
+            Role
+            {blocked.length > 0 && (
+              <Tip
+                content={
+                  <span className="flex flex-col gap-1">
+                    {[...Map.groupBy(blocked, (r) => r.check.reason ?? "Not cleared")].map(([reason, rs]) => (
+                      <span key={reason}>
+                        <span className="font-semibold">{reason}:</span> {rs.map((r) => position(r.card.positionId).name).join(", ")}
+                      </span>
+                    ))}
+                  </span>
+                }
+              >
+                <span className="cursor-default font-normal text-subtle underline decoration-dotted underline-offset-2">Not cleared for {blocked.length} more</span>
+              </Tip>
+            )}
+          </span>
           <ul className="flex max-h-64 flex-col overflow-y-auto rounded-lg border border-border scrollbar-thin">
-            {roles.map(({ card, check }) => {
+            {cleared.map(({ card }) => {
               const on = positionId === card.positionId
+              const now = card.positionId === current
               return (
                 <li key={card.id} className="border-b border-border/70 last:border-0">
                   <button
                     type="button"
-                    disabled={!check.ok}
                     onClick={() => {
                       setPositionId(card.positionId)
                       setDepartmentId(undefined)
                     }}
                     aria-pressed={on}
-                    className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-3 transition-colors", on ? "bg-primary-faded/70" : "hover:bg-hover", !check.ok && "cursor-not-allowed opacity-60 hover:bg-transparent")}
+                    data-current={now ? "" : undefined}
+                    className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-3 transition-colors", on ? "bg-primary-faded/70" : "hover:bg-hover")}
                   >
                     <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", on ? "border-primary bg-primary text-primary-foreground" : "border-border-strong")}>
                       {on && <Check className="size-3" />}
                     </span>
                     <span className="min-w-0 flex-1 font-medium">
                       {position(card.positionId).name}
-                      {card.positionId === current && <span className="font-normal text-faded"> · current role</span>}
+                      {now && <span className="font-normal text-subtle"> · now</span>}
                     </span>
-                    {check.ok ? (
-                      <span className="tabular text-faded">{money(card.billRate)}/hr</span>
-                    ) : (
-                      <StatusBadge tone={/expired|missing|pending/i.test(check.reason ?? "") ? "critical" : "neutral"} size="sm">
-                        {check.reason}
-                      </StatusBadge>
-                    )}
+                    <span className="tabular text-faded">{money(card.billRate)}/hr</span>
                   </button>
                 </li>
               )
             })}
-            {!roles.length && <li className="px-3 py-4 text-body-3 text-faded">{supplier(pro.supplierId).shortName} has no other rates in {city(loc.cityId).name}.</li>}
+            {!cleared.length && <li className="px-3 py-4 text-body-3 text-faded">{supplier(pro.supplierId).shortName} has no other rates in {city(loc.cityId).name}.</li>}
           </ul>
         </div>
 
@@ -140,47 +156,50 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
               {departments.map((d) => {
                 const on = department?.id === d.id
                 return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setDepartmentId(d.id)}
-                    aria-pressed={on}
-                    className={cn("inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-body-3", on ? "border-foreground/25 bg-foreground/[0.06] font-medium" : "border-border text-faded hover:bg-hover")}
-                  >
-                    {on && <Check className="size-3.5" />}
-                    {d.name}
-                    <span className="font-mono text-caption-1 text-subtle">{d.costCenter}</span>
-                  </button>
+                  <Tip key={d.id} content={`Cost center ${d.costCenter}`}>
+                    <button
+                      type="button"
+                      onClick={() => setDepartmentId(d.id)}
+                      aria-pressed={on}
+                      className={cn("inline-flex h-8 items-center rounded-lg border px-3 text-body-3 transition-colors", on ? "border-primary bg-primary-faded/70 font-medium" : "border-border text-faded hover:bg-hover")}
+                    >
+                      {d.name}
+                    </button>
+                  </Tip>
                 )
               })}
             </div>
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
-          <TimeField label="Starting at" value={at} onChange={setAt} />
-          <label className="flex min-w-0 flex-col gap-1.5">
-            <span className="text-caption-1 font-semibold text-faded">What happened (optional)</span>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Concessions were quiet; the suite bar needed a barback" className="min-h-9 rounded-lg text-body-3" />
-          </label>
+        <div className="flex items-end gap-3">
+          <div className="w-40">
+            <TimeField label="Starting at" value={at} onChange={setAt} />
+          </div>
+          {!noting && (
+            <Button variant="ghost" size="sm" className="mb-0.5 text-faded" onClick={() => setNoting(true)}>
+              <Plus className="size-3.5" /> Add a note
+            </Button>
+          )}
         </div>
-
-        {chosen && !outside && !unchanged && (
-          <p className="flex flex-wrap items-center gap-1.5 rounded-lg bg-page-faded px-3 py-2.5 text-body-3">
-            <span>
-              {where(current, currentDepartment)} at {money(currentRate)}/hr until {formatClockShort(at)}
-            </span>
-            <ArrowRight className="size-3.5 text-faded" />
-            <span className="font-semibold">
-              {where(chosen.card.positionId, department)} at {money(chosen.card.billRate)}/hr
-            </span>
-          </p>
-        )}
-        {unchanged && <p className="text-body-3 text-faded">That&apos;s where {pro.firstName} is now. Pick another role or department.</p>}
-        {outside && <p className="text-body-3 text-critical-fg">Pick a time while {pro.firstName} was working.</p>}
+        {noting && <Textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Concessions were quiet; the suite bar needed a barback" className="-mt-2 min-h-9 rounded-lg text-body-3" />}
       </div>
 
-      <DialogFooter>
+      <DialogFooter className="sm:items-center">
+        <p className={cn("mr-auto text-body-3 tabular", outside ? "text-critical-fg" : "text-faded")}>
+          {outside ? (
+            `Pick a time while ${pro.firstName} was working`
+          ) : unchanged ? (
+            `That's where ${pro.firstName} is now`
+          ) : chosen ? (
+            <span className="inline-flex items-center gap-1.5">
+              {money(currentRate)}
+              <ArrowRight className="size-3.5" />
+              <span className="font-semibold text-foreground">{money(chosen.card.billRate)}/hr</span>
+              from {formatClockShort(at)}
+            </span>
+          ) : null}
+        </p>
         <Button variant="outline" onClick={onDone}>
           Cancel
         </Button>

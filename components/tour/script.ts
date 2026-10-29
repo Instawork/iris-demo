@@ -479,7 +479,7 @@ const movable = (data: DemoData) => {
 const pickRole = async (ctx: TourContext) => {
   const m = movable(ctx.data)
   const want = m ? position(m.card.positionId).name : "Barback"
-  const rows = [...document.querySelectorAll<HTMLButtonElement>(`${MOVE} li button:not(:disabled)`)].filter((b) => !b.textContent?.includes("current role"))
+  const rows = [...document.querySelectorAll<HTMLButtonElement>(`${MOVE} li button:not(:disabled, [data-current])`)]
   await press(rows.find((b) => b.textContent?.includes(want)) ?? rows[0])
 }
 
