@@ -29,6 +29,7 @@ import {
   type TourStep,
 } from "@/components/tour/script"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
 import { workspace } from "@/lib/reference"
@@ -220,14 +221,36 @@ const neighbor = (step: TourStep, by: -1 | 1) => {
   return undefined
 }
 
-/** Moves the tour to any step, back or ahead. Whatever is open closes, and the page and side follow. */
-async function jumpTo(index: number, push: (href: string) => void) {
+/** Stops Iris's cursor and closes the dialog or agent sheet a step left open. */
+function clearStage() {
   stopPilot()
-  const item = SCRIPT[index]
-  if (!item) return
-  if (item.kind !== "step") return useTour.getState().go(index)
   if (topModal()) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
   useUi.getState().setAgentOpen(false)
+}
+
+/** Opens a part's card. Its Continue sets the side and page, so parts can be played in any order. */
+function openPart(chapter: ChapterId) {
+  clearStage()
+  useTour.getState().go(startOf(chapter))
+}
+
+const partBeside = (chapter: ChapterId, by: -1 | 1): ChapterId | undefined => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(chapter) + by]
+
+/** 1 to 5 pick that part, and Shift with an arrow the part before or after `chapter`. */
+const partKey = (e: KeyboardEvent, chapter?: ChapterId): ChapterId | undefined => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ownsArrows(e.target)) return undefined
+  const n = Number(e.key)
+  if (!e.shiftKey && Number.isInteger(n) && n >= 1 && n <= CHAPTER_ORDER.length) return CHAPTER_ORDER[n - 1]
+  if (!e.shiftKey || !chapter || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return undefined
+  return partBeside(chapter, e.key === "ArrowLeft" ? -1 : 1)
+}
+
+/** Moves the tour to any step, back or ahead. Whatever is open closes, and the page and side follow. */
+async function jumpTo(index: number, push: (href: string) => void) {
+  const item = SCRIPT[index]
+  if (!item) return
+  clearStage()
+  if (item.kind !== "step") return useTour.getState().go(index)
   const store = useStore.getState()
   const switching = store.workspaceId !== item.wsId ? store.setWorkspace(item.wsId) : undefined
   const href = item.href(contextNow())
@@ -420,9 +443,9 @@ function StepScreen({ step }: { step: TourStep }) {
               : undefined
   /** While the card shows, Enter is the tour's even with nothing to press, so it can't reach a button on the page. */
   const holdsEnter = mine && (showCard || mode === "away")
-  const keys = useRef({ back: () => jump(back), ahead, primary, holdsEnter })
+  const keys = useRef({ back: () => jump(back), ahead, primary, holdsEnter, chapter: step.chapter })
   useEffect(() => {
-    keys.current = { back: () => jump(back), ahead, primary, holdsEnter }
+    keys.current = { back: () => jump(back), ahead, primary, holdsEnter, chapter: step.chapter }
   })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -431,6 +454,12 @@ function StepScreen({ step }: { step: TourStep }) {
         e.preventDefault()
         e.stopPropagation()
         if (!e.repeat) keys.current.primary?.()
+        return
+      }
+      const part = partKey(e, keys.current.chapter)
+      if (part) {
+        e.preventDefault()
+        if (!e.repeat) openPart(part)
         return
       }
       if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || ownsArrows(e.target)) return
@@ -565,7 +594,6 @@ function StepCard({
 }) {
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
-  const n = STEPS.indexOf(step) + 1
   const action = handoff ? `Click ${handoff}` : text(step.action, ctx)
   const following = SCRIPT[indexOf(step.id) + 1]
   const wrapsChapter = !following || following.kind === "finale" || (following.kind === "chapter" && following.chapter !== step.chapter)
@@ -575,10 +603,6 @@ function StepCard({
   const lost = mode === "lost"
   const [parts, setParts] = useState(false)
   const played = useTour((s) => s.done)
-  const jump = (chapter: ChapterId) => {
-    stopPilot()
-    useTour.getState().go(startOf(chapter))
-  }
 
   return (
     <div
@@ -620,7 +644,7 @@ function StepCard({
                 <li key={id}>
                   <button
                     type="button"
-                    onClick={() => jump(id)}
+                    onClick={() => openPart(id)}
                     className={cn(
                       "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px] font-medium transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
                       current ? "text-background" : "text-background/70",
@@ -718,7 +742,7 @@ function StepCard({
           <StepArrow label="Previous step" disabled={!canBack} onClick={onBack}>
             <ChevronLeft className="size-4" />
           </StepArrow>
-          <Progress current={n - 1} chapter={step.chapter} />
+          <PartBars chapter={step.chapter} filled={partFilled(step)} />
           <StepArrow label={done ? "Next" : "Skip to the next step"} onClick={onAhead}>
             <ChevronRight className="size-4" />
           </StepArrow>
@@ -781,22 +805,54 @@ function StepArrow({ label, disabled, onClick, children }: { label: string; disa
   )
 }
 
-/** One bar per part. The part being played fills as its steps go by. */
-function Progress({ current, chapter }: { current: number; chapter: ChapterId }) {
+/** How far through its part a step is, counting the step itself. */
+const partFilled = (step: TourStep) => {
+  const part = STEPS.filter((s) => s.chapter === step.chapter)
+  return (part.indexOf(step) + 1) / part.length
+}
+
+/** One bar per part, each a way into it. The part being played is the long one, and fills as its steps go by. */
+function PartBars({ chapter, filled, light }: { chapter: ChapterId; filled?: number; /** On a light card rather than the dark step card. */ light?: boolean }) {
   const at = CHAPTER_ORDER.indexOf(chapter)
-  const part = STEPS.filter((s) => s.chapter === chapter)
-  const k = part.indexOf(STEPS[current])
+  const before = light ? "bg-foreground/40 group-hover/part:bg-foreground/60" : "bg-brand"
+  const after = light ? "bg-foreground/15 group-hover/part:bg-foreground/35" : "bg-background/20 group-hover/part:bg-background/45"
   return (
-    <span className="flex items-center gap-1.5" aria-hidden>
-      {CHAPTER_ORDER.map((id, c) =>
-        id === chapter ? (
-          <span key={id} className="relative h-1 w-10 overflow-hidden rounded-full bg-background/20">
-            <span className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-300" style={{ width: `${((k + 1) / part.length) * 100}%` }} />
-          </span>
-        ) : (
-          <span key={id} className={cn("h-1 w-2.5 rounded-full", c < at ? "bg-brand" : "bg-background/20")} />
-        ),
-      )}
+    <span className="flex items-center" role="group" aria-label="Parts">
+      {CHAPTER_ORDER.map((id, c) => {
+        const part = CHAPTERS[id]
+        const here = id === chapter
+        return (
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => !here && openPart(id)}
+                aria-label={`Part ${part.number}: ${part.label}`}
+                aria-current={here ? "step" : undefined}
+                className={cn("group/part flex h-6 items-center rounded-md px-[2px] outline-none focus-visible:ring-2 focus-visible:ring-brand/60", here && "cursor-default")}
+              >
+                {here && light ? (
+                  <span className="h-1 w-10 rounded-full bg-foreground" />
+                ) : here ? (
+                  <span className="relative h-1 w-10 overflow-hidden rounded-full bg-background/20">
+                    <span className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-300" style={{ width: `${(filled ?? 0) * 100}%` }} />
+                  </span>
+                ) : (
+                  <span className={cn("h-1 w-3 rounded-full transition-[height,background-color] group-hover/part:h-1.5", c < at ? before : after)} />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              sideOffset={6}
+              className={cn("z-[70] font-medium", !light && "bg-background text-foreground [&_svg]:bg-background [&_svg]:fill-background")}
+            >
+              <span className="tabular opacity-55">0{part.number}</span>
+              {part.label}
+            </TooltipContent>
+          </Tooltip>
+        )
+      })}
     </span>
   )
 }
@@ -844,7 +900,26 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     primary.current = item.kind === "intro" ? () => start() : item.kind === "chapter" ? () => void play(item) : exit
   })
   useEffect(() => {
+    const here = item.kind === "chapter" ? item.chapter : undefined
     const onKey = (e: KeyboardEvent) => {
+      if (item.kind !== "intro" && !e.repeat) {
+        const arrow = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0
+        const part =
+          partKey(e, here) ??
+          (arrow && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+            ? here
+              ? partBeside(here, arrow)
+              : arrow < 0
+                ? CHAPTER_ORDER.at(-1)
+                : undefined
+            : undefined)
+        if (part) {
+          e.preventDefault()
+          e.stopPropagation()
+          openPart(part)
+          return
+        }
+      }
       if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat || e.isComposing) return
       if (e.target instanceof Element && e.target.closest("[data-tour-layer]")) return
       e.preventDefault()
@@ -853,7 +928,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     }
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
-  }, [])
+  }, [item])
 
   return (
     <motion.div
@@ -958,8 +1033,9 @@ function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () =
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
-        <span className="relative text-[12px] font-medium text-muted-foreground">
+        <span className="relative z-10 -my-1 flex items-center justify-between gap-3 text-[12px] font-medium text-muted-foreground">
           Part {meta.number} of {CHAPTER_ORDER.length}
+          <PartBars chapter={item.chapter} light />
         </span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] text-balance">
           {item.title}
@@ -998,17 +1074,20 @@ function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () =
       </div>
       <ul className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         {CHAPTER_ORDER.map((id, i) => (
-          <motion.li
-            key={id}
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}
-            className="flex items-center gap-3 px-4 py-2.5"
-          >
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
-              <Check className="size-3" strokeWidth={3.2} />
-            </span>
-            <span className="text-[14px] font-semibold">{CHAPTERS[id].label}</span>
+          <motion.li key={id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}>
+            <button
+              type="button"
+              onClick={() => openPart(id)}
+              className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors outline-none hover:bg-hover focus-visible:bg-hover"
+            >
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground">
+                <Check className="size-3" strokeWidth={3.2} />
+              </span>
+              <span className="text-[14px] font-semibold">{CHAPTERS[id].label}</span>
+              <span className="ml-auto hidden items-center gap-1 text-[12.5px] font-medium group-hover:flex group-focus-visible:flex">
+                Play again <ArrowRight className="size-3.5" />
+              </span>
+            </button>
           </motion.li>
         ))}
       </ul>
