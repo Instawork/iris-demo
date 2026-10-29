@@ -416,8 +416,11 @@ const renewTarget = (ctx: TourContext) => {
   return (first && one(`tr[data-row-id="${first.id}"]`)) || one("tbody tr[data-row-id]")
 }
 
-/** Attaches the renewed document and ticks the attestation, leaving Verify. */
+const askedIssuer = () => one(VERIFY)?.getAttribute("data-provider") ?? undefined
+
+/** Attaches a certificate and ticks the attestation. A document Iris asks the issuer for is already one click. */
 async function attest() {
+  if (askedIssuer()) return one('[data-tour="verify-submit"]')
   const doc = one(VERIFY)?.getAttribute("data-doc-id") ?? "document"
   await attach(VERIFY, `${doc}.pdf`)
   await sleep(1100)
@@ -746,15 +749,15 @@ export const SCRIPT: TourItem[] = [
     wsId: METRO,
     path: /^\/professionals$/,
     href: () => "/professionals?filter=not_compliant",
-    title: (ctx) => (one(VERIFY) ? "Metro attests it. Iris checks it" : openPro(ctx) ? "Renew it" : "Expired means off the schedule"),
+    title: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Iris asks ${askedIssuer()}` : "Metro attests it. Iris checks it") : openPro(ctx) ? "Renew it" : "Expired means off the schedule"),
     body: (ctx) => {
-      if (one(VERIFY)) return `Iris confirms it with ${CHECKS[(one(VERIFY)?.getAttribute("data-doc-id") as RequirementId) ?? "background"].providers[0]}.`
+      if (one(VERIFY)) return askedIssuer() ? `Nothing to upload. ${askedIssuer()} already has it.` : `Iris confirms it with ${CHECKS[(one(VERIFY)?.getAttribute("data-doc-id") as RequirementId) ?? "background"].providers[0]}.`
       if (openPro(ctx)) return undefined
       const pro = chosenPro(ctx)
       const doc = blocker(pro)
       return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : undefined
     },
-    action: (ctx) => (one(VERIFY) ? "Attach any file, tick the attestation, then Verify" : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
+    action: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Click Ask ${askedIssuer()}` : "Attach any file, tick the attestation, then Verify") : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
     fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: attest },
     targets: (ctx) => [one(VERIFY) ?? renewTarget(ctx)],
     clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : renewTarget(ctx)),

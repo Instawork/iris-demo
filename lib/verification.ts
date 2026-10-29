@@ -14,6 +14,8 @@ export interface DocumentCheck {
   issuedLabel: string
   /** Renewable documents last this long from the day they're issued. */
   validYears?: number
+  /** Iris asks the issuer directly. A certificate still comes from the agency, as a file. */
+  fromIssuer?: boolean
 }
 
 export const CHECKS: Record<RequirementId, DocumentCheck> = {
@@ -22,16 +24,19 @@ export const CHECKS: Record<RequirementId, DocumentCheck> = {
     reference: { label: "Report ID", placeholder: "STR-4831207", pattern: /^[A-Z]{2,4}-?\d{6,9}$/i },
     issuedLabel: "Completed on",
     validYears: 1,
+    fromIssuer: true,
   },
   i9: {
     providers: ["E-Verify"],
     reference: { label: "E-Verify case number", placeholder: "2026298123456AB", pattern: /^\d{13}[A-Z]{2}$/i },
     issuedLabel: "Confirmed on",
+    fromIssuer: true,
   },
   orientation: {
     providers: ["Compass Learning"],
     reference: { label: "Completion ID", placeholder: "CL-208114", pattern: /^CL-?\d{5,8}$/i },
     issuedLabel: "Completed on",
+    fromIssuer: true,
   },
   foodHandler: {
     providers: ["ServSafe", "StateFoodSafety", "Premier Food Safety"],

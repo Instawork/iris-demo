@@ -17,8 +17,8 @@ import type { Pro, RequirementId } from "@/lib/types"
 import { CHECKS, expiryFor, readDocument } from "@/lib/verification"
 
 /**
- * Renewing a document the way Compass needs it done: the agency attaches it, Iris reads it, the agency attests it,
- * and Iris checks it with whoever issued it before the Pro is cleared. Anything Iris can't confirm waits for Compass.
+ * Clearing a document. When Iris can ask the issuer, that's the whole step: Sterling, E-Verify, or Compass Learning
+ * already has it. A certificate still comes from the agency as a file, which Iris reads and the agency attests.
  */
 
 type Phase = "form" | "reading" | "checking" | "verified" | "held"
@@ -29,8 +29,16 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
   const { ws } = useWorkspace()
   const verifyRequirement = useStore((s) => s.verifyRequirement)
   const check = CHECKS[requirement]
+  const asked = !!check.fromIssuer
   const label = requirementLabel(requirement)
   const today = todayISO()
+  const found = readDocument(requirement, pro.id, today)
+  const [lead] = useState(() => {
+    const onFile = pro.compliance[requirement]
+    return onFile?.expiresOn && onFile.expiresOn <= today
+      ? `${pro.firstName}'s ${label.toLowerCase()} expired ${formatDateFull(onFile.expiresOn)}.`
+      : `${pro.firstName} has no current ${label.toLowerCase()} on file.`
+  })
   const [phase, setPhase] = useState<Phase>("form")
   const [file, setFile] = useState("")
   const [provider, setProvider] = useState(check.providers[0])
@@ -55,6 +63,27 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
     setPhase("form")
   }
 
+  const ask = async () => {
+    setProvider(found.provider)
+    setReference(found.reference)
+    setIssuedOn(found.issuedOn)
+    setExpiresOn(found.expiresOn ?? "")
+    setPhase("checking")
+    const [answer] = await Promise.all([
+      verifyRequirement(pro.id, requirement, { provider: found.provider, reference: found.reference, issuedOn: found.issuedOn, expiresOn: found.expiresOn }),
+      sleep(1400),
+    ])
+    if (!answer) return setPhase("form")
+    if (answer.result === "verified") {
+      setPhase("verified")
+      await sleep(1600)
+      onOpenChange(false)
+      return
+    }
+    setReason(answer.reason ?? "")
+    setPhase("held")
+  }
+
   const submit = async () => {
     setPhase("checking")
     const [answer] = await Promise.all([
@@ -76,13 +105,15 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
 
   return (
     <Dialog open onOpenChange={(open) => phase !== "checking" && onOpenChange(open)}>
-      <DialogContent className="sm:max-w-lg" data-tour="verify-dialog" data-doc-id={requirement}>
-        <DialogHeader>
-          <DialogTitle>
-            {verb} {pro.firstName}&apos;s {label.toLowerCase()}
-          </DialogTitle>
-          <DialogDescription>Attach the document. Iris reads it, you attest it, and Iris checks it with {check.providers.length > 1 ? "whoever issued it" : check.providers[0]} before clearing {pro.firstName}.</DialogDescription>
-        </DialogHeader>
+      <DialogContent className={asked ? "sm:max-w-md" : "sm:max-w-lg"} data-tour="verify-dialog" data-doc-id={requirement} data-provider={asked ? found.provider : undefined}>
+        {!asked && (
+          <DialogHeader>
+            <DialogTitle>
+              {verb} {pro.firstName}&apos;s {label.toLowerCase()}
+            </DialogTitle>
+            <DialogDescription>Attach the document. Iris reads it, you attest it, and Iris checks it with {check.providers.length > 1 ? "whoever issued it" : check.providers[0]} before clearing {pro.firstName}.</DialogDescription>
+          </DialogHeader>
+        )}
 
         {phase === "verified" ? (
           <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -90,7 +121,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
             <p className="text-featured-3 font-semibold">Verified with {provider}</p>
             <p className="text-body-3 text-faded">
               {check.reference.label} {reference.trim()}
-              {check.validYears && expiresOn ? ` · valid to ${formatDateFull(expiresOn)}` : ""}. Attested by {who}.
+              {check.validYears && expiresOn ? ` · ${asked ? "good through" : "valid to"} ${formatDateFull(expiresOn)}` : ""}.{asked ? "" : ` Attested by ${who}.`}
             </p>
           </div>
         ) : phase === "held" ? (
@@ -109,6 +140,29 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
               <Button onClick={() => setPhase("form")}>Fix it and try again</Button>
             </div>
           </div>
+        ) : asked ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Ask {found.provider}</DialogTitle>
+              <DialogDescription>
+                {lead} {found.provider} has the current one.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={phase === "checking"}>
+                Cancel
+              </Button>
+              <Button onClick={ask} disabled={phase !== "form"} data-tour="verify-submit">
+                {phase === "checking" ? (
+                  <>
+                    <Loader2 className="animate-spin" /> Asking {found.provider}…
+                  </>
+                ) : (
+                  <>Ask {found.provider}</>
+                )}
+              </Button>
+            </DialogFooter>
+          </>
         ) : (
           <div className="flex flex-col gap-5">
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border-strong p-4 hover:bg-hover">
