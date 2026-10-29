@@ -102,7 +102,12 @@ export function UnitsPage() {
   const { ws } = useWorkspace()
   const fresh = useSearchParams().get("unit") ?? undefined
   const [query, setQuery] = useState("")
-  const [closed, setClosed] = useState<Set<string>>(() => new Set())
+  const [closed, setClosed] = useState<Set<string>>(() => {
+    const next = new Set(["s:Education"])
+    const added = fresh ? LOCATIONS.find((l) => l.id === fresh) : undefined
+    if (added) next.delete(`s:${buyer(added.buyerId).sector}`)
+    return next
+  })
   const [opened, setOpened] = useState<Set<string>>(() => new Set())
   const q = query.trim().toLowerCase()
 

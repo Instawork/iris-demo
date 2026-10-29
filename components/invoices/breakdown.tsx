@@ -80,7 +80,7 @@ export function Breakdown({ invoices }: { invoices: Invoice[] }) {
     const ids = new Set<string>()
     const walk = (nodes: Node[], depth: number) => {
       for (const n of nodes) {
-        if (depth < LEVELS.length) ids.add(n.id)
+        if (depth < LEVELS.length && n.id !== "s:Education") ids.add(n.id)
         walk(n.children, depth + 1)
       }
     }
