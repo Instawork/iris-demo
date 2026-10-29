@@ -182,7 +182,7 @@ const moveCursor = (el: HTMLElement, x: number, y: number, ms: number) => {
   cursorAt = { x, y }
 }
 
-function restCursor(after = 1200) {
+function restCursor(after = 850) {
   window.clearTimeout(resting)
   resting = window.setTimeout(() => cursor?.removeAttribute("data-on"), after)
 }
