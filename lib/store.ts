@@ -205,15 +205,23 @@ export const useStore = create<StoreState>()((set, get) => {
     }
   }
 
-  async function send<N extends CommandName>(type: N, input: CommandInput<N>, key?: string): Promise<CommandResult<N> | undefined> {
-    let res: Response
-    try {
-      res = await fetch("/api/commands", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, input, key }),
-      })
-    } catch {
+  /** The server keeps each key's result, so a retry after a dropped connection can't apply a command twice. */
+  async function send<N extends CommandName>(type: N, input: CommandInput<N>, key = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`): Promise<CommandResult<N> | undefined> {
+    let res: Response | undefined
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt) await new Promise((r) => window.setTimeout(r, 800 * attempt))
+      try {
+        res = await fetch("/api/commands", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type, input, key }),
+        })
+        if (![502, 503, 504].includes(res.status)) break
+      } catch {
+        res = undefined
+      }
+    }
+    if (!res) {
       toast.error("Iris is offline. Check the connection and try again.")
       return undefined
     }

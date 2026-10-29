@@ -9,7 +9,7 @@ import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
 import { fullName, plural } from "@/lib/format"
 import { benchmark } from "@/lib/market"
 import { standingOf } from "@/lib/pro-profile"
-import { location, position, supplier } from "@/lib/reference"
+import { buyer, location, position, supplier } from "@/lib/reference"
 import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
@@ -202,72 +202,32 @@ const reportAsk = () => "What did we spend by agency last week?"
 
 /* -------------------------------- Onboarding ------------------------------- */
 
-const UNIT = '[data-tour="unit-dialog"]'
-const NEXT = '[data-tour="wizard-next"]'
-const SUBMIT = '[data-tour="wizard-submit"]'
-const DONE = '[data-tour="wizard-done"]'
-
-const stageOf = (dialog: string) => one(dialog)?.getAttribute("data-stage") ?? undefined
+const FORM = '[data-tour="unit-form"]'
+const SUBMIT = '[data-tour="unit-submit"]'
 
 const newUnit = (ctx: TourContext) => ctx.data.directory.locations[0]
-
-interface StageCopy {
-  title: string
-  body?: string
-  action: string
-}
-
-const UNIT_COPY: Record<string, StageCopy> = {
-  Unit: { title: "Name it and give it a cost center", action: "Type Soldier Field and LEV-4450, then Next" },
-  Location: { title: "Where it is", body: "From the ZIP, Iris finds the agencies that cover it.", action: "Type the address and ZIP in grey, then Next" },
-  Roles: { title: "What it orders", action: "Click Food handler card for every role, then Next" },
-  Departments: { title: "Departments, each with a cost center", body: "Concessions, bars and suites bill separately.", action: "Click Next" },
-  Review: { title: "Add it", action: "Click Add unit" },
-}
-
-const unitCopy = (ctx: TourContext): StageCopy => {
-  const stage = stageOf(UNIT)
-  if (stage === "done") return { title: `${newUnit(ctx)?.name ?? "The unit"} is live`, action: "Click Done" }
-  return UNIT_COPY[stage ?? ""] ?? { title: "Add a unit", body: "Each unit, and each department in it, bills to its own cost center.", action: "Click Add a unit" }
-}
-
-/** Plays a wizard stage by stage: fills what the stage asks for, then moves on once the dialog does. */
-async function playWizard(dialog: string, open: string, fillIn: (stage: string) => Promise<void>) {
-  if (!one(dialog)) {
-    await press(one(open))
-    await until(() => one(dialog))
-  }
-  for (let guard = 0; guard < 12; guard++) {
-    const stage = stageOf(dialog)
-    if (!stage) return
-    if (stage === "done") {
-      await sleep(900)
-      await press(inside(dialog, DONE))
-      return
-    }
-    await fillIn(stage)
-    const button = inside(dialog, SUBMIT) ?? inside(dialog, NEXT)
-    await press(button)
-    await until(() => stageOf(dialog) !== stage, 6000)
-  }
-}
+const unitRow = (ctx: TourContext) => (newUnit(ctx) ? one(`tr[data-row-id="${newUnit(ctx)!.id}"]`) : null)
 
 const toggleOn = async (root: string, text: string) => {
   const button = buttonIn(root, text)
   if (button && button.getAttribute("aria-pressed") !== "true") await press(button)
 }
 
-async function unitStage(stage: string) {
-  if (stage === "Unit") {
-    await type(inside(UNIT, 'input[placeholder="Soldier Field"]'), "Soldier Field")
-    await type(inside(UNIT, 'input[placeholder="LEV-4450"]'), "LEV-4450")
+const UNIT_FIELDS: [string, string][] = [
+  ["Soldier Field", "Soldier Field"],
+  ["LEV-4450", "LEV-4450"],
+  ["1410 Special Olympics Dr, Chicago, IL", "1410 Special Olympics Dr, Chicago, IL"],
+  ["60605", "60605"],
+]
+
+/** Types the new unit into the form, leaving Add unit for the player. */
+async function fillUnit() {
+  for (const [placeholder, value] of UNIT_FIELDS) {
+    const input = inside(FORM, `input[placeholder="${placeholder}"]`)
+    if (input instanceof HTMLInputElement && input.value !== value) await type(input, value)
   }
-  if (stage === "Location") {
-    await type(inside(UNIT, 'input[placeholder="1410 Special Olympics Dr, Chicago, IL"]'), "1410 Special Olympics Dr, Chicago, IL")
-    await type(inside(UNIT, 'input[placeholder="60605"]'), "60605")
-  }
-  if (stage === "Roles") await toggleOn(UNIT, "Food handler card for every role")
-  if (stage === "Departments") await sleep(700)
+  await toggleOn(FORM, "Food handler card")
+  return inside(FORM, SUBMIT)
 }
 
 /* ------------------------------- Procurement ------------------------------- */
@@ -459,22 +419,24 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: /^\/units/,
     href: () => "/units",
-    title: (ctx) => unitCopy(ctx).title,
-    body: (ctx) => unitCopy(ctx).body,
-    action: (ctx) => unitCopy(ctx).action,
-    targets: () => (one(UNIT) ? [one(UNIT)] : [one('[data-tour="add-unit"]')]),
-    placement: "right",
-    done: (ctx) => !!newUnit(ctx) && !one(UNIT),
-    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} added`,
+    title: () => (one(FORM) ? "Set up Soldier Field" : "Add a unit"),
+    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
+    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
+    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
+    placement: "bottom",
+    done: (ctx) => !!newUnit(ctx) && !one(FORM),
+    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
     onDone: (_, api) => api.push("/agencies"),
     fill: {
-      when: () => ["Unit", "Location", "Roles"].includes(stageOf(UNIT) ?? ""),
-      run: async () => {
-        await unitStage(stageOf(UNIT) ?? "")
-        return inside(UNIT, NEXT)
-      },
+      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
+      run: fillUnit,
     },
-    skip: () => playWizard(UNIT, '[data-tour="add-unit"]', unitStage),
+    skip: async (ctx, api) => {
+      if (!one(FORM)) api.push("/units/new")
+      await until(() => one(FORM), 8000)
+      await press(await fillUnit())
+      await until(() => !one(FORM), 8000)
+    },
   },
   {
     kind: "step",
@@ -857,7 +819,7 @@ export const SCRIPT: TourItem[] = [
     chapter: "reporting",
     title: "Invoices and reporting",
     wsId: COMPASS,
-    href: "/invoices?tab=groups",
+    href: "/invoices",
     shows: "One invoice a month, and any number you ask for.",
   },
   {
@@ -866,7 +828,7 @@ export const SCRIPT: TourItem[] = [
     chapter: "reporting",
     wsId: COMPASS,
     path: /^\/invoices$/,
-    href: () => "/invoices?tab=groups",
+    href: () => "/invoices",
     title: () => (one(GROUP) ? "Down to each cost center" : "One invoice a month for all of Compass"),
     body: (ctx) => {
       const g = thisMonth(ctx.data)
@@ -885,7 +847,7 @@ export const SCRIPT: TourItem[] = [
     onDone: (_, api) => api.push("/"),
     skip: async (ctx, api) => {
       const g = thisMonth(ctx.data)
-      if (g) api.push(`/invoices?tab=groups&group=${g.id}`)
+      if (g) api.push(`/invoices?group=${g.id}`)
     },
   },
   {
@@ -931,3 +893,6 @@ export const SCRIPT: TourItem[] = [
 export const STEPS = SCRIPT.filter((item): item is TourStep => item.kind === "step")
 
 export const indexOf = (id: string) => SCRIPT.findIndex((item) => item.id === id)
+
+/** Where a part starts: its first card. */
+export const startOf = (chapter: ChapterId) => SCRIPT.findIndex((item) => item.kind === "chapter" && item.chapter === chapter)

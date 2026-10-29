@@ -28,7 +28,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 17
+export const DATA_VERSION = 19
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -565,6 +565,7 @@ export function generateDemoData(today = todayISO()): DemoData {
 
   plantStoryGroups(groups, today)
   plantHoursStory(r, counters, groups, timesheets, pros, rateCards, today, nowISO)
+  plantPaperSheet(r, counters, groups, timesheets, pros, rateCards, today)
   plantOvertime(counters, groups, timesheets, pros, rateCards, today)
   plantSentHome(groups, timesheets, today)
   plantMissingPunch(timesheets, today)
@@ -800,6 +801,81 @@ function plantSentHome(groups: ShiftGroup[], timesheets: Timesheet[], today: str
   t.clock = { ...t.clock!, out, breakMins: 0 }
   const slot = groups.find((g) => g.id === t.groupId)?.slots.find((s) => s.id === t.slotId)
   if (slot) slot.sentHome = true
+}
+
+/**
+ * A Harbor concessions shift two days ago whose hours are still drafts: the venue signed its crew in on paper, so the
+ * agency scans the sheet. Planted so the scan has a shift to read whatever day the demo runs.
+ */
+function plantPaperSheet(r: Random, counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], today: string) {
+  const date = addDaysISO(today, -2)
+  const loc = location("loc-lfs")
+  const card = rateCards.find((c) => c.supplierId === "harbor" && c.cityId === loc.cityId && c.positionId === "concessions" && c.status === "active")
+  if (!card) return
+  const busy = new Set(groups.filter((g) => g.date === date).flatMap((g) => g.slots.flatMap((s) => (s.proId ? [s.proId] : []))))
+  const crew = pros
+    .filter((p) => p.supplierId === "harbor" && p.cityId === loc.cityId && !busy.has(p.id) && canWork(p, "concessions", date).ok)
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, 5)
+  if (crew.length < 3) return
+  const code = `SG-${counters.sg++}`
+  const id = code.toLowerCase()
+  const pos = position("concessions")
+  const group: ShiftGroup = {
+    id,
+    code,
+    buyerId: loc.buyerId,
+    locationId: loc.id,
+    positionId: pos.id,
+    eventName: "Weeknight game",
+    date,
+    start: "16:30",
+    end: "22:30",
+    breakMins: 30,
+    supplierId: "harbor",
+    supplierIds: ["harbor"],
+    billRate: card.billRate,
+    proRate: card.proRate,
+    markupPct: card.markupPct,
+    slots: crew.map((p, i) => ({ id: `${id}-${i + 1}`, proId: p.id, status: "completed" as const, confirmedAt: isoAt(addDaysISO(date, -5), "11:05") })),
+    badges: [],
+    instructions: pos.duties,
+    attire: pos.attire,
+    createdAt: isoAt(addDaysISO(date, -7), "09:40"),
+    createdBy: "Jordan Ellis",
+    source: "booking",
+  }
+  groups.push(group)
+  const created = addHoursISO(isoAt(date, group.end), 0.5)
+  for (const slot of group.slots) {
+    const inAt = hhmmFromMinutes(minutesOf(group.start) + r.int(-8, 6))
+    const outAt = hhmmFromMinutes(minutesOf(group.end) + r.int(-6, 10))
+    timesheets.push({
+      id: `ts-${counters.ts++}`,
+      groupId: group.id,
+      slotId: slot.id,
+      proId: slot.proId!,
+      supplierId: "harbor",
+      buyerId: group.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      date,
+      scheduledStart: group.start,
+      scheduledEnd: group.end,
+      scheduledBreakMins: group.breakMins,
+      clockIn: inAt,
+      clockOut: outAt,
+      breakMins: 30,
+      hours: paidHours(inAt, outAt, 30),
+      otHours: 0,
+      clock: { in: inAt, out: outAt, breakMins: 30, source: "iris_checkin" },
+      billRate: card.billRate,
+      tips: 0,
+      status: "draft",
+      source: "csv",
+      history: [change(created, "Iris", "created", { note: "From the clock" })],
+    })
+  }
 }
 
 /** A Harbor worker forgot to clock out, so the agency's draft is missing its clock-out. */

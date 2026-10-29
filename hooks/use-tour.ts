@@ -31,7 +31,8 @@ interface TourState extends TourPicks {
   done: string[]
   skipped: string[]
   open: () => void
-  begin: (base: TourBase) => void
+  /** Starts the demo at `index`, or at the first part. */
+  begin: (base: TourBase, index?: number) => void
   rebase: (base: TourBase) => void
   go: (index: number) => void
   finish: (id: string, how: "done" | "skipped") => void
@@ -51,7 +52,7 @@ export const useTour = create<TourState>()(
       done: [],
       skipped: [],
       open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined, sheetId: undefined }),
-      begin: (base) => set((s) => ({ base, index: s.index + 1, enteredAt: now() })),
+      begin: (base, index) => set((s) => ({ base, index: index ?? s.index + 1, enteredAt: now() })),
       rebase: (base) => set({ base }),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>

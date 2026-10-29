@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Check, CornerDownLeft, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
+import { ArrowRight, Check, ChevronDown, CornerDownLeft, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { useAgentThreads } from "@/components/agent/agent-store"
@@ -19,6 +19,7 @@ import {
   handedOff,
   indexOf,
   pilotStopped,
+  startOf,
   stopPilot,
   type ChapterId,
   type Placement,
@@ -483,6 +484,11 @@ function StepCard({
   const body = text(step.body, ctx)
   const status = step.status?.(ctx)
   const lost = mode === "lost"
+  const [parts, setParts] = useState(false)
+  const jump = (chapter: ChapterId) => {
+    stopPilot()
+    useTour.getState().go(startOf(chapter))
+  }
 
   return (
     <div
@@ -491,9 +497,17 @@ function StepCard({
       className="overflow-hidden rounded-2xl bg-foreground text-background shadow-overlay ring-1 ring-black/10 dark:ring-white/10"
     >
       <div className="flex items-center gap-2 pt-3 pr-2 pl-4">
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] font-medium whitespace-nowrap text-background/60">
-          <Icon className="size-3.5 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={2.2} />
-          <span className="truncate">{meta.short}</span>
+        <span className="flex min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setParts((v) => !v)}
+            aria-expanded={parts}
+            className="-ml-1.5 flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] font-medium whitespace-nowrap text-background/60 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
+            <Icon className="size-3.5 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={2.2} />
+            <span className="truncate">{meta.short}</span>
+            <ChevronDown className={cn("size-3 shrink-0 transition-transform", parts && "rotate-180")} />
+          </button>
         </span>
         <SideBadge kind={workspace(step.wsId).kind} onDark size="sm" />
         <button
@@ -507,7 +521,29 @@ function StepCard({
       </div>
 
       {/* Swapped at once rather than after an exit: a page mid-navigation can hold an exit open and leave the old step on screen. */}
-        {done ? (
+        {parts ? (
+          <ul className="flex flex-col px-2 pt-2" aria-label="Parts">
+            {CHAPTER_ORDER.map((id) => {
+              const c = CHAPTERS[id]
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
+                    onClick={() => jump(id)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px] font-medium transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
+                      id === step.chapter ? "text-background" : "text-background/70",
+                    )}
+                  >
+                    <c.icon className="size-3.5 shrink-0 text-background/50" strokeWidth={2.2} />
+                    {c.label}
+                    {id === step.chapter && <span className="ml-auto text-[11.5px] text-background/45">Restart</span>}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        ) : done ? (
           <motion.div
             key="done"
             initial={{ opacity: 0, y: 6 }}
@@ -660,14 +696,14 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
   const router = useRouter()
   const exit = () => useTour.getState().exit()
 
-  const start = () => {
+  const start = (chapter?: ChapterId) => {
     useAgentThreads.setState({ threads: {} })
     useUi.setState({ welcomeSeen: { buyer: true, supplier: true, compass: true }, agentOpen: false })
     const baseNow = () => {
       const { counters } = useStore.getState().data
       return { sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() }
     }
-    useTour.getState().begin(baseNow())
+    useTour.getState().begin(baseNow(), chapter && startOf(chapter))
     resetting = useStore
       .getState()
       .resetDemo()
@@ -728,7 +764,7 @@ function Glow() {
   )
 }
 
-function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => void }) {
+function IntroCard({ onStart, onClose }: { onStart: (chapter?: ChapterId) => void; onClose: () => void }) {
   return (
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
@@ -737,6 +773,7 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
           The program, end to end
         </h2>
+        <p className="relative mt-1 text-[15px] text-muted-foreground">Pick a part, or play all five.</p>
       </div>
       <ol className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
         {CHAPTER_ORDER.map((id, i) => {
@@ -747,11 +784,20 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}
-              className="flex items-center gap-3 px-4 py-2.5"
             >
-              <c.icon className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={1.9} />
-              <span className="text-[14px] font-semibold">{c.label}</span>
-              <span className="ml-auto font-mono text-[12px] text-subtle">0{c.number}</span>
+              <button
+                type="button"
+                onClick={() => onStart(id)}
+                data-tour-part={id}
+                className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors outline-none hover:bg-hover focus-visible:bg-hover"
+              >
+                <c.icon className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={1.9} />
+                <span className="text-[14px] font-semibold">{c.label}</span>
+                <span className="ml-auto font-mono text-[12px] text-subtle group-hover:hidden group-focus-visible:hidden">0{c.number}</span>
+                <span className="ml-auto hidden items-center gap-1 text-[12.5px] font-medium group-hover:flex group-focus-visible:flex">
+                  Play <ArrowRight className="size-3.5" />
+                </span>
+              </button>
             </motion.li>
           )
         })}
@@ -766,8 +812,8 @@ function IntroCard({ onStart, onClose }: { onStart: () => void; onClose: () => v
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
           Not now
         </Button>
-        <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onStart} autoFocus>
-          Start <ArrowRight className="size-4" />
+        <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={() => onStart()} autoFocus>
+          Play all <ArrowRight className="size-4" />
         </Button>
       </div>
     </>

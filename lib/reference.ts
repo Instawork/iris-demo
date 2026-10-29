@@ -332,7 +332,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Marcus Lee",
     contactEmail: "enterprise@instawork.com",
     profile: { fillRate: 0.9, hoursToFill: 7, noShowRate: 0.027, compliance: 0.95, payIndex: 1.02, markupPct: 35, share: 0.3 },
-    contract: { vaPct: 11, netDays: 30, years: 3 },
+    contract: { vaPct: 12, netDays: 30, years: 3 },
   },
   {
     id: "metro",

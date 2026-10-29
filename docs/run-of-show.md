@@ -43,14 +43,13 @@ App: https://cruber-demo.replit.app (no passcode)
 
 **The point:** a new unit or agency works across Iris the moment it's saved: booking, release order, compliance, rates and invoices. Nobody re-keys it.
 
-1. As Priya, open **Units**: the seven units across Levy · Chicago and Chartwells · South, each with its cost center, the roles it orders, anything it requires beyond the program, and the agencies that staff it. Then **Agencies**: the four agencies with insurance status (Metro's certificate expires in 9 days, Harbor's in 18), rate cards, how many of their Pros are cleared, and which buyers approved them. Open **Harbor** to show one agency in one place: performance, rates by city (the 72% bartender markup in red), Pros, paperwork, how it connects, and its rate changes.
-2. **Add a unit.**
-   - Unit: Levy · Chicago, Stadium, "Soldier Field", cost center LEV-4450.
-   - Location: "1410 Special Olympics Dr, Chicago, IL", ZIP 60605. Iris names the market and the four agencies with rates there.
-   - Requirements: the program's background check, I-9 and Compass orientation apply everywhere, and bar and food roles add their certificates. Click **Food handler card for every role** and watch the count of Pros who could work there today drop, from 183 to 155 of 187 on fresh data.
-   - Ordering: the stadium roles come preselected. Enter a weekly budget of 12000 and pick Dana Ruiz as the approver. Iris shows the release order Levy already uses: Instawork, Crewline, then Harbor, four hours apart.
-   - Review, then **Add unit**.
-3. Click **Book its first shift as Jordan Ellis**. The New shift form opens as Levy with Soldier Field selected, only its roles on offer, and the food handler card listed beside the role's own documents. Leave it there: Levy holds orders until 72 hours before doors, which block 2 shows.
+1. As Priya, open **Units**: the seven units filed under super sector, sector and regional business (Levy · Chicago and Chartwells · South), each with its cost center, the roles it orders, anything it requires beyond the program, and the agencies that staff it. Search finds any unit or department cost center, like LEV-4420-30. A new unit files itself under its buyer. Then **Agencies**: the four agencies with how many markets each covers, insurance status (Metro's certificate expires in 9 days, Harbor's in 18), average markup, workers and compliance. Open **Harbor** to show one agency in one place: performance, rates by city (the 72% bartender markup in red), Pros, paperwork, how it connects, and its rate changes.
+2. **Add a unit.** One page, with a summary beside it that fills in as you type.
+   - Levy · Chicago, Stadium, "Soldier Field", cost center LEV-4450, "1410 Special Olympics Dr, Chicago, IL", ZIP 60605. Under the ZIP: "Chicago, IL (4 agencies)". The summary shows where it files (Sports & Leisure, Levy, Levy · Chicago) and who staffs it.
+   - Roles: the stadium roles come preselected. Tick **Food handler card** under "Every role here also needs" and watch "Could work here today" drop.
+   - Departments: Concessions, Bars and Suites come with their own cost centers, LEV-4450-10 to -30.
+   - **Add unit**. Iris opens Units with Soldier Field highlighted under Levy · Chicago.
+3. In the confirmation, click **Book a shift**. The New shift form opens as Jordan Ellis with Soldier Field selected, only its roles on offer, and the food handler card listed beside the role's own documents. Leave it there: Levy holds orders until 72 hours before doors, which block 2 shows.
 4. Back as Priya, on **Agencies**, **Add an agency**.
    - Agency: "Northwind Event Staffing", contact "Alex Rivera", alex@northwindstaff.com, sends hours by CSV.
    - Coverage: Chicago. Add Suite Attendant to the preselected roles.
@@ -121,8 +120,8 @@ App: https://cruber-demo.replit.app (no passcode)
 5. Other cases worth a look on fresh data: an Instawork porter at Riverside Convention Center past 40 hours, with overtime split at time and a half; a worker sent home early, billed the four-hour minimum; a Harbor draft missing its clock-out, under **With the agency**.
 6. The chat: "Approve yesterday's hours". Iris approves what matches and holds back what it flagged, naming each one.
 7. As Renee (Harbor): Timesheets, under **Done**, shows Jordan's correction and why.
-8. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453. Each agency's invoices are due on its own payment terms. Every month rolls into one consolidated invoice for all of Compass: **Invoices**, **Consolidated**, open October to break it down by super sector, sector, regional business and cost center. **Download CSV** carries the same columns.
-9. If contracts come up: **Procurement**, **Contracts** lists each agency's spend, VA rebate, payment terms and contract length, with what's offered in the open renewal underneath. In the Chicago renewal, bids rank after VA: on Bartender, Instawork's $27.67 beats Crewline's $27.18 because its 14% VA brings it to $23.80.
+8. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453. Each agency's invoices are due on its own payment terms. Every month rolls into one consolidated invoice for all of Compass: **Invoices**, **All**, open October to break it down by super sector, sector, regional business and cost center. **Download CSV** carries the same columns.
+9. If contracts come up: **Procurement**, **Contracts** lists each agency's spend, VA rebate, payment terms and contract length, with what's offered in the open renewal underneath. In the Chicago renewal, bids rank after VA. Instawork's VA is 12%, the same as Crewline's, so the lower rate wins each role: Crewline's $27.18 on Bartender, Instawork's $23.54 on Concessions Attendant.
 
 **Say:** Fieldglass shows what the agency submitted. Iris shows it next to what actually happened, says what's wrong, and proposes the fix.
 
@@ -163,7 +162,7 @@ App: https://cruber-demo.replit.app (no passcode)
 - **A click seems to do nothing:** reload the page. Everything is saved on the server, so nothing is lost.
 - **The data is in a strange state:** Reset demo data and pick the block up from its first step.
 - **Agencies filling too fast or too slow:** user menu, Demo controls, and turn an agency's automatic staffing off to staff it by hand.
-- **Lost the thread:** the **Guided tour** (top bar) walks all five blocks in this order, as the same people, with **Do it for me** on every step. Starting it resets the demo data for everyone.
+- **Lost the thread:** the **Guided tour** (top bar) walks all five blocks in this order, as the same people, with **Do it for me** on every step. Pick one part to play just that block, or **Play all**. Starting it resets the demo data for everyone. Mid-tour, click the part name at the top of the card to jump to another part.
 
 ## If asked what's real
 

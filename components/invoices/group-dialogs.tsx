@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { Download, Layers, Trash2, Unlink, Wallet } from "lucide-react"
-import { useMemo, useState } from "react"
+import { Download, Trash2, Unlink, Wallet } from "lucide-react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -17,88 +17,8 @@ import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatDateShort, formatMonth } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import { inScope, invoiceBalance, invoiceStatus, invoiceTotal } from "@/lib/metrics"
-import { buyer, position, supplier } from "@/lib/reference"
+import { position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
-
-export function CreateGroupDialog({
-  open,
-  onOpenChange,
-  invoiceIds,
-  onCreated,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  invoiceIds: string[]
-  onCreated: (groupId: string) => void
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <CreateGroupBody invoiceIds={invoiceIds} onClose={() => onOpenChange(false)} onCreated={onCreated} />
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function CreateGroupBody({ invoiceIds, onClose, onCreated }: { invoiceIds: string[]; onClose: () => void; onCreated: (groupId: string) => void }) {
-  const data = useData()
-  const create = useStore((s) => s.createInvoiceGroup)
-  const members = useMemo(() => data.invoices.filter((i) => invoiceIds.includes(i.id)), [data.invoices, invoiceIds])
-  const buyers = [...new Set(members.map((m) => m.buyerId))]
-  const starts = members.map((m) => m.periodStart).sort()
-  const [name, setName] = useState(() => (members.length ? `${buyers.length === 1 ? buyer(buyers[0]).name : "Multi-buyer"}, week of ${formatDateShort(starts[0])}` : ""))
-  const [code] = useState(() => `IG-2026-${String(data.counters.ig).padStart(3, "0")}`)
-  const [moving] = useState(() => members.filter((m) => m.groupId).length)
-  const total = members.reduce((s, i) => s + invoiceTotal(i), 0)
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Group into a consolidated invoice</DialogTitle>
-        <DialogDescription>Review and pay {plural(members.length, "invoice")} as one. Each invoice keeps its own lines.</DialogDescription>
-      </DialogHeader>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-body-3 font-semibold">Name</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} className="h-10 rounded-lg border border-input px-3 text-body-3 outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
-        <span className="text-caption-1 text-faded">
-          Invoice group ID <code className="font-mono">{code}</code>
-        </span>
-      </label>
-      <div className="max-h-56 overflow-y-auto rounded-lg border border-border scrollbar-thin">
-        {members.map((m) => (
-          <div key={m.id} className="flex items-center gap-3 border-b border-border px-3 py-2 text-body-3 last:border-0">
-            <SupplierLogo supplierId={m.supplierId} size="sm" />
-            <span className="flex flex-1 flex-col">
-              <span className="font-semibold">{m.number}</span>
-              <span className="text-caption-1 text-faded">
-                {supplier(m.supplierId).shortName} · {formatDateShort(m.periodStart)} – {formatDateShort(m.periodEnd)}
-              </span>
-            </span>
-            <span className="font-semibold tabular">{money(invoiceTotal(m))}</span>
-          </div>
-        ))}
-      </div>
-      {buyers.length > 1 && <p className="rounded-lg bg-warning-faded px-3 py-2 text-caption-1 text-warning-fg">These invoices are for more than one buyer. Groups are usually per buyer.</p>}
-      {moving > 0 && <p className="rounded-lg bg-tint-faded px-3 py-2 text-caption-1 text-faded">{moving} of these are already in a group and will move to the new one.</p>}
-      <DialogFooter className="items-center sm:justify-between">
-        <span className="text-body-3">
-          Total <span className="font-bold tabular">{money(total)}</span>
-        </span>
-        <Button
-          disabled={!members.length || !name.trim()}
-          onClick={async () => {
-            const id = await create(name.trim(), invoiceIds)
-            if (!id) return
-            toast.success(`${id.toUpperCase()} created`, { description: `${plural(members.length, "invoice")} · ${money(total)}` })
-            onClose()
-            onCreated(id)
-          }}
-        >
-          <Layers className="size-4" /> Create group
-        </Button>
-      </DialogFooter>
-    </>
-  )
-}
 
 export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string; onOpenChange: (open: boolean) => void }) {
   const data = useData()

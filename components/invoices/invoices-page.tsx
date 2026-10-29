@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { AlertTriangle, Download, FileText, Layers, ShieldCheck, Wallet, X } from "lucide-react"
+import { Download, FileText, ShieldCheck, Wallet, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -10,16 +10,15 @@ import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
 import { MultiSelectFilter, ResetFilters, SearchInput } from "@/components/common/filters"
-import { Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
-import { StatusBadge } from "@/components/common/status-badge"
-import { CreateGroupDialog, GroupDetailDialog } from "@/components/invoices/group-dialogs"
-import { AnomalyFlag, DeltaText, INVOICE_STATUS, InvoiceStatusBadge, groupTotals } from "@/components/invoices/invoice-bits"
+import { GroupDetailDialog } from "@/components/invoices/group-dialogs"
+import { AnomalyFlag, DeltaText, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
+import { MonthlyTable } from "@/components/invoices/monthly-table"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort, formatMonth, todayISO } from "@/lib/dates"
+import { formatDateShort, todayISO } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import {
   billingToReview,
@@ -37,12 +36,10 @@ import {
 } from "@/lib/metrics"
 import { BUYERS, SUPPLIERS, buyer, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
-import type { Invoice, InvoiceGroup, PersonaKind } from "@/lib/types"
+import type { Invoice, PersonaKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Tab = "groups" | "invoices"
 type Quick = "all" | "flagged" | "open" | "outstanding" | "paid"
-type GroupRow = InvoiceGroup & ReturnType<typeof groupTotals>
 
 const QUICK: Record<PersonaKind, Quick[]> = {
   compass: ["all", "flagged", "open", "outstanding", "paid"],
@@ -85,13 +82,10 @@ export function InvoicesPage() {
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [buyers, setBuyers] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [createOpen, setCreateOpen] = useState(false)
-  const [toGroup, setToGroup] = useState<string[]>([])
 
   const isCompass = ws.kind === "compass"
-  const canSelect = ws.kind !== "supplier"
+  const canSelect = ws.kind === "buyer"
   const quickOptions = QUICK[ws.kind]
-  const tab: Tab = params.get("tab") === "groups" ? "groups" : "invoices"
   const asked = params.get("filter")
   const quick = quickOptions.find((q) => q === asked) ?? (asked === "overdue" ? "outstanding" : "all")
   const openGroupId = params.get("group") ?? undefined
@@ -121,11 +115,8 @@ export function InvoicesPage() {
     if (quick !== "flagged") return list.sort(newestFirst)
     return list.sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || newestFirst(a, b))
   }, [data, filtered, matches, quick])
-  const groupRows = useMemo<GroupRow[]>(
-    () => data.invoiceGroups.map((g) => ({ ...g, ...groupTotals(g, mine) })).filter((g) => g.members.length > 0),
-    [data.invoiceGroups, mine],
-  )
   const groupOf = useMemo(() => new Map(data.invoiceGroups.map((g) => [g.id, g])), [data.invoiceGroups])
+  const byMonth = ws.kind !== "supplier" && quick === "all"
 
   const hasFilters = !!query || suppliers.length + buyers.length > 0
   const resetFilters = () => {
@@ -216,91 +207,7 @@ export function InvoicesPage() {
     },
   ]
 
-  const groupColumns: Column<GroupRow>[] = [
-    {
-      id: "code",
-      header: "Consolidated invoice",
-      sortValue: (g) => g.code,
-      cell: (g) => (
-        <span className="flex flex-col">
-          <span className="font-semibold">{g.month ? formatMonth(g.month) : g.name}</span>
-          <span className="font-mono text-caption-1 text-faded">{g.code}</span>
-        </span>
-      ),
-    },
-    {
-      id: "invoices",
-      header: "Invoices",
-      sortValue: (g) => g.members.length,
-      cell: (g) => {
-        const toReview = isCompass ? g.members.filter((m) => needsReview(data, m)).length : 0
-        return (
-          <span className="flex items-center gap-2">
-            <span className="flex -space-x-1.5">
-              {[...new Set(g.members.map((m) => m.supplierId))].map((s) => (
-                <SupplierLogo key={s} supplierId={s} size="sm" className="ring-2 ring-card" />
-              ))}
-            </span>
-            {plural(g.members.length, "invoice")}
-            {toReview > 0 && (
-              <Tip content={`${plural(toReview, "anomalous invoice")} waiting for your review`}>
-                <span className="inline-flex items-center gap-1 text-caption-1 font-semibold text-critical-fg">
-                  <AlertTriangle className="size-3.5" /> {toReview}
-                </span>
-              </Tip>
-            )}
-          </span>
-        )
-      },
-    },
-    { id: "period", header: "Period", sortValue: (g) => g.from, cell: (g) => `${formatDateShort(g.from)} – ${formatDateShort(g.to)}` },
-    {
-      id: "amount",
-      header: "Amount",
-      align: "right",
-      sortValue: (g) => g.total,
-      cell: (g) => (
-        <span className="flex flex-col items-end">
-          <span className="font-semibold">{money(g.total)}</span>
-          {g.balance > 0 && g.balance < g.total && <span className="text-caption-1 text-faded">{money(g.balance)} left</span>}
-        </span>
-      ),
-    },
-    { id: "status", header: "Status", sortValue: (g) => g.status, cell: (g) => <StatusBadge tone={INVOICE_STATUS[g.status].tone}>{INVOICE_STATUS[g.status].label}</StatusBadge> },
-    {
-      id: "created",
-      header: "Created",
-      sortValue: (g) => g.createdOn,
-      cell: (g) => (
-        <span className="flex flex-col">
-          <span>{formatDateShort(g.createdOn)}</span>
-          <span className="text-caption-1 text-faded">{g.createdBy}</span>
-        </span>
-      ),
-    },
-  ]
-
   const exportCsv = () => {
-    if (tab === "groups") {
-      downloadCsv(
-        exportName("invoice-groups"),
-        toCsv(
-          groupRows.map((g) => ({
-            invoice_group_id: g.code,
-            name: g.name,
-            invoices: g.members.map((m) => m.number).join(";"),
-            period_start: g.from,
-            period_end: g.to,
-            amount: g.total.toFixed(2),
-            balance: g.balance.toFixed(2),
-            status: g.status,
-            created_on: g.createdOn,
-            created_by: g.createdBy,
-          })),
-        ),
-      )
-      return
-    }
     downloadCsv(
       exportName("invoices"),
       toCsv(
@@ -357,7 +264,7 @@ export function InvoicesPage() {
         title="Invoices"
         description={DESCRIPTION[ws.kind]}
         actions={
-          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={tab === "groups" ? !groupRows.length : !rows.length} onClick={exportCsv}>
+          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={!rows.length} onClick={exportCsv}>
             <Download className="size-4" /> Download CSV
           </Button>
         }
@@ -365,86 +272,70 @@ export function InvoicesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PillTabs
           size="sm"
-          value={tab === "groups" ? "groups" : quick}
+          value={quick}
           onChange={(v) => {
             setSelected(new Set())
-            setParams(v === "groups" ? { tab: "groups", filter: undefined } : { tab: undefined, filter: v === "all" ? undefined : v })
+            setParams({ tab: undefined, filter: v === "all" ? undefined : v })
           }}
-          items={[
-            ...quickOptions
-              .filter((q) => q !== "open" || quick === "open" || filtered.some(matches.open))
-              .map((q) => ({
-                value: q as Quick | "groups",
-                label: QUICK_LABEL[q],
-                count: q === "all" || q === "paid" ? undefined : filtered.filter(matches[q]).length,
-                tooltip: q === "flagged" ? "Anomalous invoices waiting for your review" : undefined,
-              })),
-            ...(groupRows.length || tab === "groups"
-              ? [{ value: "groups" as const, label: "Consolidated", count: groupRows.length, tooltip: "One invoice a month for all of Compass, broken down by sector, business and cost center" }]
-              : []),
-          ]}
+          items={quickOptions
+            .filter((q) => q !== "open" || quick === "open" || filtered.some(matches.open))
+            .map((q) => ({
+              value: q,
+              label: QUICK_LABEL[q],
+              count: q === "all" || q === "paid" ? undefined : filtered.filter(matches[q]).length,
+              tooltip:
+                q === "flagged"
+                  ? "Anomalous invoices waiting for your review"
+                  : q === "all" && ws.kind !== "supplier"
+                    ? "One invoice a month, broken down by sector, business and cost center"
+                    : undefined,
+            }))}
         />
-        {tab === "invoices" && (
-          <span className="text-body-3 text-faded">
-            <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
-          </span>
-        )}
+        <span className="text-body-3 text-faded">
+          <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
+        </span>
       </div>
-      <motion.div key={tab} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
-        {tab === "invoices" ? (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchInput value={query} onChange={setQuery} placeholder="Search invoices" className="w-52" />
-              {ws.kind !== "supplier" && (
-                <MultiSelectFilter
-                  label="Agencies"
-                  options={SUPPLIERS.map((s) => ({ value: s.id, label: s.name, icon: <SupplierLogo supplierId={s.id} size="xs" /> }))}
-                  value={suppliers}
-                  onChange={setSuppliers}
-                />
-              )}
-              {ws.kind !== "buyer" && <MultiSelectFilter label="Buyers" options={BUYERS.map((b) => ({ value: b.id, label: b.name }))} value={buyers} onChange={setBuyers} />}
-              <ResetFilters show={hasFilters} onClick={resetFilters} />
-            </div>
-            <DataTable
-              rows={rows}
-              columns={columns}
-              getRowId={(i) => i.id}
-              selectable={canSelect}
-              selected={selected}
-              onSelectedChange={setSelected}
-              onRowClick={(i) => router.push(`/invoices/${i.id}`)}
-              pageSize={15}
-              empty={invoicesEmpty}
+      <motion.div key={byMonth ? "months" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchInput value={query} onChange={setQuery} placeholder="Search invoices" className="w-52" />
+          {ws.kind !== "supplier" && (
+            <MultiSelectFilter
+              label="Agencies"
+              options={SUPPLIERS.map((s) => ({ value: s.id, label: s.name, icon: <SupplierLogo supplierId={s.id} size="xs" /> }))}
+              value={suppliers}
+              onChange={setSuppliers}
             />
-          </>
+          )}
+          {ws.kind !== "buyer" && <MultiSelectFilter label="Buyers" options={BUYERS.map((b) => ({ value: b.id, label: b.name }))} value={buyers} onChange={setBuyers} />}
+          <ResetFilters show={hasFilters} onClick={resetFilters} />
+        </div>
+        {byMonth ? (
+          <MonthlyTable
+            invoices={rows}
+            groups={data.invoiceGroups}
+            columns={columns}
+            toReview={isCompass ? (i) => needsReview(data, i) : undefined}
+            onOpenMonth={(id) => setParams({ group: id })}
+            onOpenInvoice={(i) => router.push(`/invoices/${i.id}`)}
+            empty={invoicesEmpty}
+          />
         ) : (
           <DataTable
-            rows={groupRows}
-            columns={groupColumns}
-            getRowId={(g) => g.id}
-            onRowClick={(g) => setParams({ group: g.id })}
-            initialSort={{ id: "created", dir: "desc" }}
-            empty={
-              <EmptyState
-                icon={Layers}
-                title="No consolidated invoices yet"
-                description="Iris starts one each month as soon as hours are approved."
-                actions={
-                  canSelect ? (
-                    <Button variant="outline" onClick={() => setParams({ tab: undefined })}>
-                      Go to Invoices
-                    </Button>
-                  ) : undefined
-                }
-              />
-            }
+            rows={rows}
+            columns={columns}
+            getRowId={(i) => i.id}
+            selectable={canSelect}
+            selected={selected}
+            onSelectedChange={setSelected}
+            onRowClick={(i) => router.push(`/invoices/${i.id}`)}
+            pageSize={15}
+            empty={invoicesEmpty}
           />
         )}
       </motion.div>
 
       <AnimatePresence>
-        {chosen.length > 0 && tab === "invoices" && (
+        {payable.length > 0 && !byMonth && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -457,27 +348,15 @@ export function InvoicesPage() {
             </span>
             <Button
               size="sm"
-              className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90"
+              className="h-8 gap-1.5 rounded-lg bg-brand text-brand-foreground hover:bg-brand/90"
               onClick={() => {
-                setToGroup(chosen.map((i) => i.id))
-                setCreateOpen(true)
+                payInvoices(payable.map((i) => i.id))
+                toast.success(`Payment scheduled for ${plural(payable.length, "invoice")}`, { description: `${money(payTotal)} by ACH on ${formatDateShort(todayISO())}` })
+                setSelected(new Set())
               }}
             >
-              <Layers className="size-4" /> Group
+              <Wallet className="size-4" /> Pay {money(payTotal)}
             </Button>
-            {payable.length > 0 && (
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 rounded-lg bg-brand text-brand-foreground hover:bg-brand/90"
-                onClick={() => {
-                  payInvoices(payable.map((i) => i.id))
-                  toast.success(`Payment scheduled for ${plural(payable.length, "invoice")}`, { description: `${money(payTotal)} by ACH on ${formatDateShort(todayISO())}` })
-                  setSelected(new Set())
-                }}
-              >
-                <Wallet className="size-4" /> Pay {money(payTotal)}
-              </Button>
-            )}
             <button type="button" onClick={() => setSelected(new Set())} className="rounded-md p-1 text-background/70 hover:bg-background/10 hover:text-background" aria-label="Clear selection">
               <X className="size-4" />
             </button>
@@ -485,15 +364,6 @@ export function InvoicesPage() {
         )}
       </AnimatePresence>
 
-      <CreateGroupDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        invoiceIds={toGroup}
-        onCreated={(id) => {
-          setSelected(new Set())
-          window.setTimeout(() => setParams({ tab: "groups", group: id }), 150)
-        }}
-      />
       <GroupDetailDialog groupId={openGroupId} onOpenChange={(o) => !o && setParams({ group: undefined })} />
     </>
   )

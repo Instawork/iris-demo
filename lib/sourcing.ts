@@ -207,9 +207,9 @@ export const nextNumber = (events: SourcingEvent[], today: string) => {
 
 const at = (date: string, hour: number) => new Date(`${date}T${String(hour).padStart(2, "0")}:00:00`).toISOString()
 
-/** What each agency offers for the new term. Instawork's VA goes from 11% to 14% for a three-year renewal. */
+/** What each agency offers for the new term. Instawork keeps its 12% VA on a three-year renewal. */
 const OFFERED: Record<string, ContractTerms> = {
-  instawork: { vaPct: 14, netDays: 30, years: 3 },
+  instawork: { vaPct: 12, netDays: 30, years: 3 },
   crewline: { vaPct: 12, netDays: 45, years: 2 },
   harbor: { vaPct: 5, netDays: 45, years: 1 },
   metro: { vaPct: 10, netDays: 15, years: 2 },
