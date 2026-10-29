@@ -290,7 +290,7 @@ export function AgentHome() {
   useEffect(() => {
     const el = scrollRef.current
     if (el && !empty) el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" })
-  }, [agent.messages.length, empty, reduce])
+  }, [agent.messages.length, agent.thinking, empty, reduce])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -327,7 +327,7 @@ export function AgentHome() {
                     Today
                   </Button>
                 </div>
-                <AgentMessages messages={agent.messages} onRun={agent.runAction} onPickFirst={agent.pickFirst} />
+                <AgentMessages messages={agent.messages} thinking={agent.thinking} onRun={agent.runAction} onPickFirst={agent.pickFirst} />
               </div>
             </motion.div>
           )}

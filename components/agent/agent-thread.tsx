@@ -3,9 +3,9 @@
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
-import type { AgentAction, AgentMessage, ShiftDraft } from "@/components/agent/agent-store"
+import type { AgentAction, AgentMessage, ReportAnswer, ShiftDraft } from "@/components/agent/agent-store"
 import { AGENT_FILE_ACCEPT } from "@/components/agent/use-agent"
 import { LogoMark } from "@/components/brand/logo"
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -124,15 +124,132 @@ function DraftCard({ draft, onPick }: { draft: ShiftDraft; onPick?: (supplierId:
   )
 }
 
+/** Iris's mark while a reply is coming: the pupil glances around the iris, settling at each look. */
+function ThinkingMark({ className }: { className?: string }) {
+  const reduce = useReducedMotion()
+  const mask = `iris-pupil-${useId().replace(/[^\w-]/g, "")}`
+  return (
+    <svg viewBox="0 0 32 32" className={cn("size-8 shrink-0", className)} aria-hidden>
+      <rect width="32" height="32" rx="8" className="dark:hidden" fill="var(--logo-tile)" />
+      <mask id={mask}>
+        <rect width="32" height="32" fill="white" />
+        <motion.circle
+          r="4.9"
+          fill="black"
+          initial={{ cx: 17.6, cy: 14.4 }}
+          animate={reduce ? undefined : { cx: [17.6, 17.6, 14.2, 14.2, 14.6, 14.6, 17.8, 17.8, 17.6], cy: [14.4, 14.4, 14.6, 14.6, 17.8, 17.8, 17.4, 17.4, 14.4] }}
+          transition={{ duration: 2.4, ease: [0.34, 1.56, 0.64, 1], repeat: Infinity }}
+        />
+      </mask>
+      <motion.circle
+        cx="16"
+        cy="16"
+        r="9.4"
+        fill="var(--brand)"
+        mask={`url(#${mask})`}
+        animate={reduce ? { opacity: [1, 0.55, 1] } : undefined}
+        transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+      />
+    </svg>
+  )
+}
+
+/** A report answer the way you'd glance at one: the number, how it moved, and who it came from. */
+function ReportCard({ report }: { report: ReportAnswer }) {
+  const reduce = useReducedMotion()
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card text-body-3 shadow-raised">
+      <div className={cn("flex items-end justify-between gap-4 px-4 py-3", report.rows.length > 0 && "border-b border-border")}>
+        <span className="flex min-w-0 flex-col">
+          <span className="text-caption-1 font-medium text-faded">
+            {report.title} · {report.when}
+          </span>
+          <span className="flex items-baseline gap-2">
+            <span className="text-featured-2 font-semibold tabular">{report.total}</span>
+            {report.change && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px text-caption-1 font-medium tabular",
+                  report.change.good === true ? "bg-positive-faded text-positive-fg" : report.change.good === false ? "bg-critical-faded text-critical-fg" : "bg-muted text-faded",
+                )}
+              >
+                {report.change.label}
+              </span>
+            )}
+          </span>
+          {(report.change || report.only) && (
+            <span className="text-caption-1 text-faded">{[report.change?.against, report.only && `Only ${report.only}`].filter(Boolean).join(" · ")}</span>
+          )}
+        </span>
+        {report.extras.length > 0 && (
+          <dl className="flex shrink-0 gap-4 text-right">
+            {report.extras.map((x) => (
+              <div key={x.label} className="flex flex-col">
+                <dt className="text-caption-1 text-faded">{x.label}</dt>
+                <dd className="font-semibold tabular">{x.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+      {report.rows.length === 0 ? null : report.trend ? (
+        <ol className="flex h-36 items-end gap-1.5 px-4 pt-4 pb-3">
+          {report.rows.map((row, index) => (
+            <li key={row.key} className="flex h-full min-w-0 flex-1 flex-col items-center gap-1">
+              <span className="text-caption-2 text-faded tabular">{row.value}</span>
+              <span className="flex min-h-0 w-full flex-1 items-end justify-center">
+                <motion.span
+                  className="block w-full max-w-10 origin-bottom rounded-t-[4px]"
+                  style={{ background: row.color, height: `${Math.max(4, row.share * 100)}%`, opacity: row.partial ? 0.35 : 1 }}
+                  initial={reduce ? false : { scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ duration: 0.5, delay: 0.1 + index * 0.04, ease: EASE }}
+                />
+              </span>
+              <span className="max-w-full truncate text-caption-2 text-faded">{row.label}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <ol className="flex flex-col gap-2.5 px-4 py-3">
+          {report.rows.map((row, index) => (
+            <li key={row.key} className="flex flex-col gap-1">
+              <span className="flex items-center gap-2">
+                {row.supplierId && <SupplierLogo supplierId={row.supplierId} size="sm" />}
+                <span className="min-w-0 truncate font-medium">{row.label}</span>
+                <span className="ml-auto tabular">{row.value}</span>
+                {row.pct && <span className="w-9 text-right text-caption-1 text-faded tabular">{row.pct}</span>}
+              </span>
+              <span className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <motion.span
+                  className="block h-full origin-left rounded-full"
+                  style={{ background: row.color, width: `${Math.max(2, row.share * 100)}%` }}
+                  initial={reduce ? false : { scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 0.6, delay: 0.1 + index * 0.06, ease: EASE }}
+                />
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {report.more ? <p className="border-t border-border px-4 py-2.5 text-caption-1 text-faded">And {report.more} more in the full report</p> : null}
+    </div>
+  )
+}
+
 /** The conversation itself. Agent replies read as prose next to Iris's mark; the user's turns sit in bubbles. */
 export function AgentMessages({
   messages,
   onRun,
   onPickFirst,
+  thinking,
   compact,
 }: {
   messages: AgentMessage[]
   onRun: RunAction
+  /** Iris is working on a reply. */
+  thinking?: boolean
   /** Redrafts an unsent order with another agency first. */
   onPickFirst?: (messageId: number, supplierId: string) => void
   compact?: boolean
@@ -165,7 +282,8 @@ export function AgentMessages({
                   {message.fileName}
                 </span>
               )}
-              <p className="whitespace-pre-wrap text-pretty">{message.text}</p>
+              {message.text && <p className="whitespace-pre-wrap text-pretty">{message.text}</p>}
+              {message.report && <ReportCard report={message.report} />}
               {message.draft && (
                 <DraftCard
                   draft={message.draft}
@@ -182,6 +300,20 @@ export function AgentMessages({
             </div>
           </motion.li>
         ))}
+        {thinking && (
+          <motion.li
+            key="thinking"
+            initial={reduce ? false : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0 } }}
+            transition={{ duration: 0.24, ease: EASE }}
+            className="flex items-center gap-3"
+            role="status"
+          >
+            <ThinkingMark className="size-6" />
+            <span className={cn("text-shimmer font-medium", compact ? "text-body-3" : "text-body-2")}>Thinking</span>
+          </motion.li>
+        )}
       </AnimatePresence>
     </ol>
   )

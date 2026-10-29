@@ -384,6 +384,19 @@
   .mask-fade-x {
     mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
   }
+  .text-shimmer {
+    background: linear-gradient(90deg, var(--faded) 0%, var(--faded) 35%, var(--foreground) 50%, var(--faded) 65%, var(--faded) 100%);
+    background-size: 200% 100%;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 2s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .text-shimmer {
+      animation: none;
+      color: var(--faded);
+    }
+  }
   .skeleton-shimmer {
     background: linear-gradient(90deg, var(--tint-faded) 0%, var(--tint) 40%, var(--tint-faded) 80%);
     background-size: 200% 100%;

@@ -170,7 +170,7 @@ export function keyLabel(dim: ReportDimension, key: string): { label: string; hi
 
 const PALETTE = ["var(--chart-1)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--brand-strong)", "var(--critical)", "var(--warning)", "var(--chart-2)"]
 
-const colorOf = (dim: ReportDimension, key: string, index: number) => (dim === "agency" ? supplier(key).color : PALETTE[index % PALETTE.length])
+export const colorOf = (dim: ReportDimension, key: string, index: number) => (dim === "agency" ? supplier(key).color : PALETTE[index % PALETTE.length])
 
 const nextMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number)
@@ -448,12 +448,18 @@ export function filterNames(key: ReportFilterKey, ids: string[]) {
 }
 
 /** The report in a sentence, for subtitles, the chat and scheduled emails. */
-export function describeSpec(spec: ReportSpec, today = todayISO()): string {
+/** A report's name, its period and what it's filtered to, as separate phrases. */
+export function specParts(spec: ReportSpec, today = todayISO()) {
   const what = joinWords(spec.measures.map((m, i) => (i ? MEASURE[m].label.toLowerCase() : MEASURE[m].label)))
   const by = ` by ${DIMENSION[spec.groupBy].label.toLowerCase()}${spec.splitBy ? ` and ${DIMENSION[spec.splitBy].label.toLowerCase()}` : ""}`
   const when = spec.period === "custom" ? rangeLabel(periodRange(spec, today)) : PERIOD[spec.period].label.toLowerCase()
   const only = FILTERS.filter((f) => spec.filters[f.id]?.length).flatMap((f) => filterNames(f.id, spec.filters[f.id]!))
-  return `${what}${by}, ${when}${only.length ? `. Filtered to ${joinWords(only)}` : ""}`
+  return { title: `${what}${by}`, when, only: only.length ? joinWords(only) : undefined }
+}
+
+export function describeSpec(spec: ReportSpec, today = todayISO()): string {
+  const { title, when, only } = specParts(spec, today)
+  return `${title}, ${when}${only ? `. Filtered to ${only}` : ""}`
 }
 
 /* ---------------------------------- Links ---------------------------------- */

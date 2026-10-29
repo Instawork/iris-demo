@@ -25,6 +25,8 @@ export function useAgent() {
   const { ws } = useWorkspace()
   const messages = useAgentThreads((state) => state.threads[ws.id] ?? NO_MESSAGES)
   const push = useAgentThreads((state) => state.push)
+  const reply = useAgentThreads((state) => state.reply)
+  const thinking = useAgentThreads((state) => !!state.thinking[ws.id])
   const clearThread = useAgentThreads((state) => state.clear)
   const dropActions = useAgentThreads((state) => state.dropActions)
   const setOpen = useUi((state) => state.setAgentOpen)
@@ -32,7 +34,7 @@ export function useAgent() {
   const stageUpload = useUi((state) => state.stageUpload)
   const approving = useRef(new Set<number>())
 
-  const add = useCallback((message: Parameters<typeof push>[1]) => push(ws.id, message), [push, ws.id])
+  const add = useCallback((message: Parameters<typeof push>[1]) => (message.from === "agent" ? void reply(ws.id, message) : push(ws.id, message)), [push, reply, ws.id])
 
   const proposeShift = useCallback(
     (request: ParsedAgentShift) => {
@@ -283,7 +285,7 @@ export function useAgent() {
 
   const clear = useCallback(() => clearThread(ws.id), [clearThread, ws.id])
 
-  return { messages, respond, attach, runAction, draftShift, pickFirst, clear }
+  return { messages, thinking, respond, attach, runAction, draftShift, pickFirst, clear }
 }
 
 /** The draft card for an order: priced at each agency's rate, charged to its department, in release order. */

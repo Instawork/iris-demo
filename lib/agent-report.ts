@@ -2,7 +2,8 @@ import { addDaysISO, todayISO, weekStartISO } from "@/lib/dates"
 import { roleIn } from "@/lib/agent-shift"
 import { scopeOf } from "@/lib/metrics"
 import { BUYERS, CITIES, LOCATIONS, SUPPLIERS, locationsFor } from "@/lib/reference"
-import { changeOf, daysIn, describeSpec, formatValue, isTimeDimension, measureInfo, reportHref, runReport } from "@/lib/reports"
+import type { ReportAnswer } from "@/components/agent/agent-store"
+import { changeOf, colorOf, daysIn, describeSpec, formatValue, isTimeDimension, measureInfo, reportHref, runReport, specParts } from "@/lib/reports"
 import type { DemoData, ReportDimension, ReportFilterKey, ReportMeasure, ReportSpec, Workspace } from "@/lib/types"
 
 /**
@@ -113,34 +114,42 @@ export function parseReportRequest(text: string, ws: Workspace, today = todayISO
   }
 }
 
-/** The answer in two lines, with the whole report a click away. */
-export function reportReply(data: DemoData, spec: ReportSpec, ws: Workspace, today = todayISO()): { text: string; actions: { label: string; kind: "link"; href: string }[] } {
+/** The answer as a card: the headline number, how it moved, and the biggest groups, with the whole report a click away. */
+export function reportReply(data: DemoData, spec: ReportSpec, ws: Workspace, today = todayISO()): { text: string; report?: ReportAnswer; actions: { label: string; kind: "link"; href: string }[] } {
   const result = runReport(data, spec, scopeOf(ws), today)
   const actions = [{ label: "Open the report", kind: "link" as const, href: reportHref(spec) }]
   const m = spec.measures[0]
   const info = measureInfo(m)
   if (!result.rows.length) return { text: `Nothing matches that: ${describeSpec(spec, today)}. Try a longer period or fewer filters.`, actions }
 
-  const change = changeOf(m, result.total[m], result.priorTotal[m])
-  const rest = spec.measures.slice(1).map((x) => `${measureInfo(x).label.toLowerCase()} ${formatValue(x, result.total[x])}`)
-  const first = [
-    `${describeSpec(spec, today)}.`,
-    `${info.additive ? "Total" : "Overall"} ${formatValue(m, result.total[m])}${change ? ` (${change.label} on the ${daysIn(result.range)} days before)` : ""}${rest.length ? `, ${rest.join(", ")}` : ""}.`,
-  ].join("\n")
-
-  let second = ""
-  if (isTimeDimension(spec.groupBy)) {
-    const ranked = result.groups.filter((g) => g.values[m] !== null && !g.partial)
-    const best = [...ranked].sort((a, b) => (b.values[m] ?? 0) - (a.values[m] ?? 0))[0]
-    const low = [...ranked].sort((a, b) => (a.values[m] ?? 0) - (b.values[m] ?? 0))[0]
-    if (best && low && best !== low) second = `Highest: ${best.label} at ${formatValue(m, best.values[m])}. Lowest: ${low.label} at ${formatValue(m, low.values[m])}.`
-  } else {
-    const top = result.groups.filter((g) => g.values[m] !== null).slice(0, 4)
-    const sum = result.total[m] ?? 0
-    second = top
-      .map((g) => `${g.label} ${formatValue(m, g.values[m])}${info.additive && sum > 0 && top.length > 1 ? ` (${Math.round(((g.values[m] ?? 0) / sum) * 100)}%)` : ""}`)
-      .join(" · ")
-    if (result.groups.length > top.length) second += ` · and ${result.groups.length - top.length} more`
+  const delta = changeOf(m, result.total[m], result.priorTotal[m])
+  const time = isTimeDimension(spec.groupBy)
+  const ranked = result.groups.filter((g) => g.values[m] !== null).slice(0, 5)
+  const shown = time ? (result.groups.length > 2 ? result.groups.slice(-8) : []) : ranked.length > 1 ? ranked : []
+  const values = shown.map((g) => Math.abs(g.values[m] ?? 0))
+  const max = Math.max(...values, 0)
+  const floor = time && !info.additive ? Math.max(0, Math.min(...values) - (max - Math.min(...values))) : 0
+  const sum = result.total[m] ?? 0
+  return {
+    text: "",
+    report: {
+      ...specParts(spec, today),
+      total: formatValue(m, result.total[m]),
+      ...(delta ? { change: { label: delta.label, against: `vs the ${daysIn(result.range)} days before`, ...(info.goodWhen ? { good: (info.goodWhen === "up") === delta.delta > 0 } : {}) } } : {}),
+      extras: spec.measures.slice(1).map((x) => ({ label: measureInfo(x).label, value: formatValue(x, result.total[x]) })),
+      rows: shown.map((g) => ({
+        key: g.key,
+        label: time ? g.label.replace(/^Week of /, "").replace(/, so far$/, "") : g.label,
+        value: formatValue(m, g.values[m]),
+        share: max > floor ? (Math.abs(g.values[m] ?? 0) - floor) / (max - floor) : 0,
+        ...(g.partial ? { partial: true } : {}),
+        color: colorOf(spec.groupBy, g.key, 0),
+        ...(!time && info.additive && sum > 0 && shown.length > 1 ? { pct: `${Math.round(((g.values[m] ?? 0) / sum) * 100)}%` } : {}),
+        ...(spec.groupBy === "agency" ? { supplierId: g.key } : {}),
+      })),
+      ...(time ? { trend: true } : {}),
+      ...(!time && shown.length && result.groups.length > shown.length ? { more: result.groups.length - shown.length } : {}),
+    },
+    actions,
   }
-  return { text: [first, second].filter(Boolean).join("\n"), actions }
 }
