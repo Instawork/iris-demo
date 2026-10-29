@@ -118,10 +118,25 @@ const signInAgain = () => {
   window.location.href = new URL(`/sign-in${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`, window.location.origin).href
 }
 
+/** A private publish answers a call whose sign-in lapsed with a redirect to its own login, which only a page load can follow. */
+let reloadOffered = false
+const offerReload = () => {
+  if (reloadOffered) return
+  reloadOffered = true
+  toast.error("Your sign-in timed out. Reload to pick up where you left off.", {
+    duration: Infinity,
+    action: { label: "Reload", onClick: () => window.location.reload() },
+  })
+}
+
 export const useStore = create<StoreState>()((set, get) => {
   const resync = () =>
-    (resyncing ??= fetch("/api/state", { cache: "no-store" })
+    (resyncing ??= fetch("/api/state", { cache: "no-store", redirect: "manual" })
       .then(async (res) => {
+        if (res.type === "opaqueredirect") {
+          offerReload()
+          throw new Error("Iris needs a fresh sign-in")
+        }
         if (res.status === 401) return signInAgain()
         if (!res.ok) throw new Error(`Iris returned ${res.status}`)
         const body = (await res.json()) as { version: number; data: DemoData; workspaceId: string }
@@ -215,6 +230,7 @@ export const useStore = create<StoreState>()((set, get) => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type, input, key }),
+          redirect: "manual",
         })
         if (![502, 503, 504].includes(res.status)) break
       } catch {
@@ -223,6 +239,10 @@ export const useStore = create<StoreState>()((set, get) => {
     }
     if (!res) {
       toast.error("Iris is offline. Check the connection and try again.")
+      return undefined
+    }
+    if (res.type === "opaqueredirect") {
+      offerReload()
       return undefined
     }
     const body = (await res.json().catch(() => ({}))) as { error?: string; result?: CommandResult<N>; version?: number; changes?: Changes; replaced?: boolean }
