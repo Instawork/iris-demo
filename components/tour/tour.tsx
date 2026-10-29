@@ -2,22 +2,21 @@
 
 import { AnimatePresence, motion } from "motion/react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Check, ChevronDown, CornerDownLeft, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
+import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { useAgentThreads } from "@/components/agent/agent-store"
-import { compose } from "@/components/agent/agent-thread"
 import { WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { SIDES, SideBadge } from "@/components/common/side-badge"
-import { COMPOSER_ID } from "@/components/home/agent-home"
 import {
   CHAPTERS,
   CHAPTER_ORDER,
   SCRIPT,
   STEPS,
-  handOff,
+  advance,
   handedOff,
   indexOf,
+  nextClick,
   pilotStopped,
   startOf,
   stopPilot,
@@ -212,6 +211,35 @@ export function Tour() {
 
 /* ---------------------------------- Steps ---------------------------------- */
 
+/** The step before or after this one, skipping the part cards between them. The finale is after the last. */
+const neighbor = (step: TourStep, by: -1 | 1) => {
+  for (let i = indexOf(step.id) + by; i >= 0 && i < SCRIPT.length; i += by) {
+    const item = SCRIPT[i]
+    if (item.kind === "step" || item.kind === "finale") return i
+  }
+  return undefined
+}
+
+/** Moves the tour to any step, back or ahead. Whatever is open closes, and the page and side follow. */
+async function jumpTo(index: number, push: (href: string) => void) {
+  stopPilot()
+  const item = SCRIPT[index]
+  if (!item) return
+  if (item.kind !== "step") return useTour.getState().go(index)
+  if (topModal()) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  useUi.getState().setAgentOpen(false)
+  const store = useStore.getState()
+  const switching = store.workspaceId !== item.wsId ? store.setWorkspace(item.wsId) : undefined
+  const href = item.href(contextNow())
+  push(href)
+  await Promise.all([switching, arrivedAt(href)])
+  useTour.getState().go(index)
+}
+
+/** Keys that belong to what has focus, like arrows in a tab list or a text field. */
+const ownsArrows = (target: EventTarget | null) =>
+  target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="tablist"], [role="radiogroup"], [role="menu"], [role="listbox"], [role="slider"], [role="grid"]')
+
 function StepScreen({ step }: { step: TourStep }) {
   const router = useRouter()
   useStore((s) => s.data)
@@ -219,8 +247,8 @@ function StepScreen({ step }: { step: TourStep }) {
   const [view, setView] = useState<{ step: string; view: View }>({ step: step.id, view: { mode: "pending" } })
   const enteredAt = useTour((s) => s.enteredAt)
   const [celebrate, setCelebrate] = useState<{ step: string; at?: string; message: string; kept: boolean }>()
-  /** The visit of the step "Do it for me" is playing, and the one that's already done and closing. */
-  const [piloting, setPiloting] = useState<string>()
+  /** The visit of the step "Do it for me" is playing, and whether it's typing a screen in. */
+  const [piloting, setPiloting] = useState<{ visit: string; filling: boolean }>()
   const closing = useRef<string>(undefined)
   const leaving = useRef<string>(undefined)
   const vp = useViewport()
@@ -331,22 +359,21 @@ function StepScreen({ step }: { step: TourStep }) {
     if (useTour.getState().enteredAt === at) useTour.getState().finish(step.id, how)
   }
   const visit = enteredAt
-  const flying = piloting === visit
+  const flying = piloting?.visit === visit
   const handoff = mine && mode === "ready" ? handedOff() : undefined
-  const canFill = !!step.fill?.when(ctx) && !handoff
-  const fill = async () => {
-    if (!step.fill) return
-    setPiloting(visit)
+  const canAdvance = mode === "ready" && (!!handoff || !!step.fill?.when(ctx) || !!nextClick(step, ctx))
+  const act = async () => {
+    setPiloting({ visit, filling: !handedOff() && !!step.fill?.when(contextNow()) })
     try {
-      handOff(await step.fill.run(contextNow(), api))
+      await advance(step, contextNow(), api)
     } catch (error) {
       if (!pilotStopped(error)) throw error
     } finally {
-      setPiloting((p) => (p === visit ? undefined : p))
+      setPiloting((p) => (p?.visit === visit ? undefined : p))
     }
   }
   const skip = async () => {
-    setPiloting(visit)
+    setPiloting({ visit, filling: false })
     try {
       await step.skip(contextNow(), api)
       // The server confirms what was done a moment later. Give the step that long to notice and show its success.
@@ -356,7 +383,7 @@ function StepScreen({ step }: { step: TourStep }) {
       if (!pilotStopped(error)) throw error
       return
     } finally {
-      setPiloting((p) => (p === visit ? undefined : p))
+      setPiloting((p) => (p?.visit === visit ? undefined : p))
     }
     if (useTour.getState().enteredAt !== visit || closing.current === visit) return
     await finish("skipped")
@@ -368,6 +395,23 @@ function StepScreen({ step }: { step: TourStep }) {
   }
 
   const pointer = mode === "ready" && pos.edge && pos.at !== undefined && !(party && !party.kept)
+  const jump = (index: number | undefined) => index !== undefined && void jumpTo(index, router.push)
+  const back = neighbor(step, -1)
+  const ahead = () => (done ? void finish("done") : jump(neighbor(step, 1)))
+  const keys = useRef({ back: () => jump(back), ahead })
+  useEffect(() => {
+    keys.current = { back: () => jump(back), ahead }
+  })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || ownsArrows(e.target)) return
+      e.preventDefault()
+      if (e.key === "ArrowLeft") keys.current.back()
+      else keys.current.ahead()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
   return (
     <>
@@ -388,11 +432,16 @@ function StepScreen({ step }: { step: TourStep }) {
           mode={mode}
           done={done}
           flying={flying}
-          handoff={handoff?.textContent?.trim()}
-          canFill={canFill}
+          filling={flying && !!piloting?.filling}
+          handoff={handoff?.textContent?.trim() || handoff?.getAttribute("aria-label") || undefined}
+          canAdvance={canAdvance}
+          canBack={back !== undefined}
           onNext={() => void finish("done")}
-          onFill={() => void fill()}
+          onAdvance={() => void act()}
           onSkip={() => void skip()}
+          onBack={() => jump(back)}
+          onAhead={ahead}
+          onJump={jump}
         />
       </motion.div>
       <AnimatePresence>{mine && mode === "away" && <PausedPill step={step} ctx={ctx} onResume={goThere} />}</AnimatePresence>
@@ -456,23 +505,33 @@ function StepCard({
   mode,
   done,
   flying,
+  filling,
   handoff,
-  canFill,
+  canAdvance,
+  canBack,
   onNext,
-  onFill,
+  onAdvance,
   onSkip,
+  onBack,
+  onAhead,
+  onJump,
 }: {
   step: TourStep
   ctx: TourContext
   mode: View["mode"]
   done?: string
   flying: boolean
+  filling: boolean
   /** The label of the button Iris left for the player after filling the screen in. */
   handoff?: string
-  canFill: boolean
+  canAdvance: boolean
+  canBack: boolean
   onNext: () => void
-  onFill: () => void
+  onAdvance: () => void
   onSkip: () => void
+  onBack: () => void
+  onAhead: () => void
+  onJump: (index: number) => void
 }) {
   const meta = CHAPTERS[step.chapter]
   const Icon = meta.icon
@@ -485,6 +544,7 @@ function StepCard({
   const status = step.status?.(ctx)
   const lost = mode === "lost"
   const [parts, setParts] = useState(false)
+  const played = useTour((s) => s.done)
   const jump = (chapter: ChapterId) => {
     stopPilot()
     useTour.getState().go(startOf(chapter))
@@ -525,6 +585,7 @@ function StepCard({
           <ul className="flex flex-col px-2 pt-2" aria-label="Parts">
             {CHAPTER_ORDER.map((id) => {
               const c = CHAPTERS[id]
+              const current = id === step.chapter
               return (
                 <li key={id}>
                   <button
@@ -532,13 +593,43 @@ function StepCard({
                     onClick={() => jump(id)}
                     className={cn(
                       "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px] font-medium transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
-                      id === step.chapter ? "text-background" : "text-background/70",
+                      current ? "text-background" : "text-background/70",
                     )}
                   >
                     <c.icon className="size-3.5 shrink-0 text-background/50" strokeWidth={2.2} />
                     {c.label}
-                    {id === step.chapter && <span className="ml-auto text-[11.5px] text-background/45">Restart</span>}
+                    {current && <span className="ml-auto text-[11.5px] text-background/45">Restart</span>}
                   </button>
+                  {current && (
+                    <ol className="mb-1 ml-[15px] flex flex-col border-l border-background/15 pl-1.5" aria-label="Steps">
+                      {STEPS.filter((s) => s.chapter === id).map((s) => {
+                        const here = s.id === step.id
+                        return (
+                          <li key={s.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setParts(false)
+                                if (!here) onJump(indexOf(s.id))
+                              }}
+                              aria-current={here ? "step" : undefined}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12.5px] transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
+                                here ? "bg-background/10 font-semibold text-background" : "text-background/60",
+                              )}
+                            >
+                              {played.includes(s.id) ? (
+                                <Check className="size-3 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={3} />
+                              ) : (
+                                <span className={cn("mx-[3px] size-1.5 shrink-0 rounded-full", here ? "bg-brand" : "bg-background/30")} />
+                              )}
+                              {s.label}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  )}
                 </li>
               )
             })}
@@ -575,17 +666,16 @@ function StepCard({
                 {status}
               </p>
             )}
-            {flying ? (
+            {filling ? (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
                 <WandSparkles className="size-3.5 shrink-0 animate-pulse" />
                 Iris is filling it in
               </p>
             ) : (
               !lost &&
-              action &&
-              !step.example && (
+              action && (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
-                <MousePointerClick className="size-3.5 shrink-0" />
+                <ArrowRight className="size-3.5 shrink-0" />
                 {action}
               </p>
               )
@@ -594,25 +684,29 @@ function StepCard({
         )}
 
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
-        <Progress current={n - 1} chapter={step.chapter} />
+        <span className="-ml-1.5 flex items-center gap-1">
+          <StepArrow label="Previous step" disabled={!canBack} onClick={onBack}>
+            <ChevronLeft className="size-4" />
+          </StepArrow>
+          <Progress current={n - 1} chapter={step.chapter} />
+          <StepArrow label={done ? "Next" : "Skip to the next step"} onClick={onAhead}>
+            <ChevronRight className="size-4" />
+          </StepArrow>
+        </span>
         <span className="ml-auto flex items-center gap-1">
           {flying ? null : done || (!action && !step.example) ? (
             <CardButton onClick={onNext}>
               Next <ArrowRight className="size-3.5" />
             </CardButton>
           ) : lost ? (
-            <CardButton onClick={onSkip}>
+            <CardButton onClick={onSkip} pilot>
               Do it for me <ArrowRight className="size-3.5" />
             </CardButton>
           ) : (
-            canFill && (
-              <button
-                type="button"
-                onClick={onFill}
-                className="h-7 rounded-md whitespace-nowrap px-2 text-[12.5px] font-medium text-background/55 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60"
-              >
-                Fill it in for me
-              </button>
+            canAdvance && (
+              <CardButton onClick={onAdvance} pilot>
+                <MousePointerClick className="size-3.5" /> Do it for me
+              </CardButton>
             )
           )}
         </span>
@@ -622,45 +716,35 @@ function StepCard({
 }
 
 function Example({ text }: { text: string }) {
-  const [typed, setTyped] = useState(false)
   return (
     <div className="mx-4 mt-3 rounded-xl bg-background/[0.07] p-3 ring-1 ring-background/10">
       <p className="text-[13px] leading-snug text-background/90">“{text}”</p>
-      <AnimatePresence mode="wait" initial={false}>
-        {typed ? (
-          <motion.p
-            key="enter"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-2.5 flex items-center gap-1.5 text-[12.5px] font-medium text-brand dark:text-brand-foreground"
-          >
-            <CornerDownLeft className="size-3.5" /> Now press Enter to send it
-          </motion.p>
-        ) : (
-          <motion.button
-            key="type"
-            type="button"
-            exit={{ opacity: 0 }}
-            onClick={() => {
-              compose(COMPOSER_ID, text)
-              setTyped(true)
-            }}
-            className="mt-2.5 inline-flex h-7 items-center gap-1.5 rounded-lg bg-brand px-2.5 text-[12.5px] font-semibold text-brand-foreground transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-brand/60 active:translate-y-0"
-          >
-            <WandSparkles className="size-3.5" /> Type it for me
-          </motion.button>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
 
-function CardButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function CardButton({ onClick, pilot, children }: { onClick: () => void; /** Iris's cursor sets off from here. */ pilot?: boolean; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-tour-do={pilot ? "" : undefined}
       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-foreground transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-brand/60 active:translate-y-0"
+    >
+      {children}
+    </button>
+  )
+}
+
+function StepArrow({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="flex size-6 items-center justify-center rounded-md text-background/50 transition-colors outline-none hover:bg-background/10 hover:text-background focus-visible:ring-2 focus-visible:ring-brand/60 disabled:pointer-events-none disabled:opacity-30"
     >
       {children}
     </button>
@@ -676,11 +760,11 @@ function Progress({ current, chapter }: { current: number; chapter: ChapterId })
     <span className="flex items-center gap-1.5" aria-hidden>
       {CHAPTER_ORDER.map((id, c) =>
         id === chapter ? (
-          <span key={id} className="relative h-1 w-14 overflow-hidden rounded-full bg-background/20">
+          <span key={id} className="relative h-1 w-10 overflow-hidden rounded-full bg-background/20">
             <span className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-300" style={{ width: `${((k + 1) / part.length) * 100}%` }} />
           </span>
         ) : (
-          <span key={id} className={cn("h-1 w-4 rounded-full", c < at ? "bg-brand" : "bg-background/20")} />
+          <span key={id} className={cn("h-1 w-2.5 rounded-full", c < at ? "bg-brand" : "bg-background/20")} />
         ),
       )}
     </span>

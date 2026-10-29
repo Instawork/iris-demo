@@ -1,6 +1,6 @@
 import { Building2, CalendarPlus, ChartColumn, Clock, ShieldCheck, type LucideIcon } from "lucide-react"
 
-import type { AgentMessage } from "@/components/agent/agent-store"
+import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
@@ -16,7 +16,7 @@ import { CHECKS } from "@/lib/verification"
 
 /**
  * The guided demo: the core of a VMS in five parts, each played as the person who does it. Nothing moves on until the
- * player clicks: "Fill it in for me" types a screen's fields on screen, then leaves the button that moves on to them.
+ * player clicks: "Do it for me" makes their next move on screen, typing a form in or clicking what the card points at.
  */
 
 export type ChapterId = "onboarding" | "shifts" | "compliance" | "timesheets" | "reporting"
@@ -47,6 +47,8 @@ export interface TourStep {
   kind: "step"
   id: string
   chapter: ChapterId
+  /** What the step is called in the tour's step list. */
+  label: string
   wsId: string
   /** The page the step happens on. Anywhere else, the card offers to take the player there. */
   path: RegExp
@@ -58,6 +60,8 @@ export interface TourStep {
   example?: (ctx: TourContext) => string
   /** Elements to spotlight. The first is the one the player acts on. */
   targets: (ctx: TourContext) => (Element | null | undefined)[]
+  /** What the player's next click lands on, when that isn't the first target. */
+  clicks?: (ctx: TourContext) => Element | null | undefined
   placement?: Placement
   /** What the card sits beside when that isn't the target itself, like the sheet a target lives in. */
   anchor?: () => Element | null | undefined
@@ -135,6 +139,7 @@ const STOPPED = new Error("Tour autopilot stopped")
 export const stopPilot = () => {
   pilot++
   clearHandoff()
+  restCursor(250)
 }
 export const pilotStopped = (error: unknown) => error === STOPPED
 
@@ -154,12 +159,59 @@ async function until<T>(find: () => T | null | undefined | false, ms = 5000): Pr
   }
 }
 
+/** Iris's cursor, drawn over the page while she works so everyone watching sees what she clicks. */
+let cursor: HTMLElement | undefined
+let cursorAt = { x: 0, y: 0 }
+let resting = 0
+
+const CURSOR = `<svg width="27" height="29" viewBox="0 0 22 24" aria-hidden="true"><path d="M3 2.5v16.2l4.3-4.1 2.9 6.4 2.9-1.3-2.8-6.3 6-.3z" fill="#16130f" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Iris</span>`
+
+const cursorEl = () => {
+  if (cursor?.isConnected) return cursor
+  cursor = document.createElement("div")
+  cursor.setAttribute("data-tour-cursor", "")
+  cursor.setAttribute("aria-hidden", "true")
+  cursor.innerHTML = CURSOR
+  document.body.append(cursor)
+  return cursor
+}
+
+const moveCursor = (el: HTMLElement, x: number, y: number, ms: number) => {
+  el.style.setProperty("--glide", `${ms}ms`)
+  el.style.transform = `translate(${x}px, ${y}px)`
+  cursorAt = { x, y }
+}
+
+function restCursor(after = 1200) {
+  window.clearTimeout(resting)
+  resting = window.setTimeout(() => cursor?.removeAttribute("data-on"), after)
+}
+
+/** Glides the cursor onto an element, from the tour card's button if it isn't on screen yet. */
+async function point(target: Element) {
+  const c = cursorEl()
+  window.clearTimeout(resting)
+  const r = target.getBoundingClientRect()
+  const to = { x: r.left + Math.min(r.width / 2, 140), y: r.top + Math.min(r.height / 2, 24) }
+  if (!c.hasAttribute("data-on")) {
+    const from = document.querySelector("[data-tour-do]")?.getBoundingClientRect()
+    moveCursor(c, from ? from.left + from.width / 2 : window.innerWidth / 2, from ? from.top + from.height / 2 : window.innerHeight - 80, 0)
+    c.getBoundingClientRect()
+    c.setAttribute("data-on", "")
+  }
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  const ms = still ? 0 : Math.round(Math.min(750, Math.max(300, 240 + Math.hypot(to.x - cursorAt.x, to.y - cursorAt.y) * 0.5)))
+  moveCursor(c, to.x, to.y, ms)
+  await sleep(ms + 60)
+}
+
 /** Types into a field a few letters at a time, through the field's own change handler. */
 async function type(el: Element | null | undefined, value: string) {
   if (!(el instanceof HTMLInputElement)) throw STOPPED
   if (el.value === value) return
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
   el.scrollIntoView({ block: "nearest" })
+  await point(el)
   el.focus()
   const pace = value.length > 20 ? 22 : 38
   for (let i = 1; i <= value.length; i++) {
@@ -170,18 +222,37 @@ async function type(el: Element | null | undefined, value: string) {
   await sleep(220)
 }
 
-/** Presses a button the way a person would: it lights up for a moment, then clicks. */
+/** Presses a button the way a person would: the cursor goes to it, it lights up for a moment, then clicks. */
 async function press(el: Element | null | undefined) {
   if (!(el instanceof HTMLElement)) throw STOPPED
   el.scrollIntoView({ block: "nearest" })
+  await point(el)
+  const c = cursorEl()
   el.setAttribute("data-tour-press", "")
+  c.setAttribute("data-down", "")
   try {
-    await sleep(360)
+    await sleep(300)
   } finally {
     el.removeAttribute("data-tour-press")
+    c.removeAttribute("data-down")
   }
   el.click()
+  restCursor()
   await sleep(300)
+}
+
+/** What the player's next click is on this step, if it's something Iris can click. */
+export const nextClick = (step: TourStep, ctx: TourContext) => {
+  const el = step.clicks ? step.clicks(ctx) : step.targets(ctx)[0]
+  return el instanceof HTMLElement && !el.matches(":disabled, [aria-disabled=true]") && el.getClientRects().length > 0 ? el : undefined
+}
+
+/** Makes the player's next move for them, on screen: clicks the button Iris left, fills the screen in, or clicks what the card points at. */
+export async function advance(step: TourStep, ctx: TourContext, api: TourApi) {
+  const left = handedOff()
+  if (left) return press(left)
+  if (step.fill?.when(ctx)) return handOff(await step.fill.run(ctx, api))
+  await press(nextClick(step, ctx))
 }
 
 async function attach(root: string, name: string) {
@@ -273,6 +344,24 @@ async function pickTwo() {
   }
 }
 
+const composerText = () => (document.getElementById(COMPOSER_ID) as HTMLTextAreaElement | null)?.value.trim() ?? ""
+const sendButton = () => inside(COMPOSER(), 'button[aria-label="Send"]')
+
+/** Types a question into the Home composer, leaving Send for the player. */
+async function typeAsk(text: string) {
+  const box = document.getElementById(COMPOSER_ID)
+  if (!box) throw STOPPED
+  await point(box)
+  compose(COMPOSER_ID, text)
+  await until(() => composerText() === text, 6000)
+  restCursor()
+  await sleep(200)
+  return sendButton()
+}
+
+/** The question box is free: nothing typed, and Iris isn't still answering. */
+const canAsk = (ctx: TourContext) => !!COMPOSER() && !composerText() && !useAgentThreads.getState().thinking[ctx.wsId]
+
 const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
 
 /* ------------------------------- Compliance -------------------------------- */
@@ -312,6 +401,18 @@ const verifiedSince = (ctx: TourContext) => {
     for (const item of Object.values(pro.compliance)) if (item?.verification?.result === "verified" && item.verification.at >= ctx.base.at) return { pro, v: item.verification }
   }
   return undefined
+}
+
+/** Where the player clicks next on the way to the expired document: the tab, the worker, then the document. */
+const renewTarget = (ctx: TourContext) => {
+  const pro = openPro(ctx)
+  if (pro) {
+    const doc = blocker(pro)
+    return doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')
+  }
+  if (ctx.params.get("filter") !== "not_compliant") return one('[role="tab"][data-value="not_compliant"]')
+  const first = chosenPro(ctx)
+  return (first && one(`tr[data-row-id="${first.id}"]`)) || one("tbody tr[data-row-id]")
 }
 
 /** Attaches the renewed document and ticks the attestation, leaving Verify. */
@@ -416,6 +517,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "unit",
     chapter: "onboarding",
+    label: "Add a unit",
     wsId: COMPASS,
     path: /^\/units/,
     href: () => "/units",
@@ -423,6 +525,7 @@ export const SCRIPT: TourItem[] = [
     body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
     action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
     targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
+    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
     placement: "bottom",
     done: (ctx) => !!newUnit(ctx) && !one(FORM),
     success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
@@ -442,6 +545,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "agencies",
     chapter: "onboarding",
+    label: "Agencies",
     wsId: COMPASS,
     path: /^\/agencies$/,
     href: () => "/agencies",
@@ -456,6 +560,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "counter",
     chapter: "onboarding",
+    label: "Counter a bid",
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
@@ -463,6 +568,7 @@ export const SCRIPT: TourItem[] = [
     body: () => (bidRows().length ? "Iris suggests the ask from the market and the other bids." : `Each role's bids next to what ${benchmark("chi", "bartender").agencies} Chicago agencies charge, ranked after VA.`),
     action: () => (one('[data-tour="send-counter"]') ? "Click Send" : bidRows().length ? "Click Counter, then Send" : "Open Bartender"),
     targets: () => (bidRows().length ? [counterable()] : [one(BARTENDER_ROW)]),
+    clicks: () => (bidRows().length ? (inside(counterable(), '[data-tour="send-counter"]') ?? inside(counterable(), '[data-tour="counter"]')) : one(BARTENDER_ROW)),
     placement: "left",
     anchor: () => (bidRows().length ? one('[data-slot="sheet-content"]') : undefined),
     done: (ctx) => !!counteredSince(ctx),
@@ -491,6 +597,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "approve",
     chapter: "onboarding",
+    label: "Approve the rest",
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
@@ -513,6 +620,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "contracts",
     chapter: "onboarding",
+    label: "Contracts",
     wsId: COMPASS,
     path: /^\/procurement$/,
     href: () => "/procurement?tab=contracts",
@@ -537,6 +645,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "ask",
     chapter: "shifts",
+    label: "Order in a sentence",
     wsId: LEVY,
     path: /^\/$/,
     href: () => "/",
@@ -544,6 +653,8 @@ export const SCRIPT: TourItem[] = [
     action: "Send it with Enter",
     example: askExample,
     targets: () => [COMPOSER()],
+    clicks: sendButton,
+    fill: { when: canAsk, run: () => typeAsk(askExample()) },
     placement: "top",
     done: (ctx) => hasDraft(ctx) || !!booked(ctx),
     success: () => "Draft ready",
@@ -556,6 +667,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "create",
     chapter: "shifts",
+    label: "Book it",
     wsId: LEVY,
     path: /^\/$/,
     href: () => "/",
@@ -563,6 +675,7 @@ export const SCRIPT: TourItem[] = [
     body: "Priced from the rate cards. The best offer sees it first.",
     action: "Click Create and send",
     targets: () => [last('[data-tour="agent-draft"]')],
+    clicks: () => last('[data-tour="agent-create-shift"]'),
     placement: "right",
     done: (ctx) => !!booked(ctx),
     success: () => "Shifts posted",
@@ -577,6 +690,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "one-agency",
     chapter: "shifts",
+    label: "Send to one agency",
     wsId: LEVY,
     path: /^\/shifts\/new/,
     href: () => "/shifts/new",
@@ -627,6 +741,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "renew",
     chapter: "compliance",
+    label: "Renew a document",
     wsId: METRO,
     path: /^\/professionals$/,
     href: () => "/professionals?filter=not_compliant",
@@ -640,17 +755,8 @@ export const SCRIPT: TourItem[] = [
     },
     action: (ctx) => (one(VERIFY) ? "Attach any file, tick the attestation, then Verify" : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
     fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: attest },
-    targets: (ctx) => {
-      if (one(VERIFY)) return [one(VERIFY)]
-      const pro = openPro(ctx)
-      if (pro) {
-        const doc = blocker(pro)
-        return [doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')]
-      }
-      if (ctx.params.get("filter") !== "not_compliant") return [one('[role="tab"][data-value="not_compliant"]')]
-      const first = chosenPro(ctx)
-      return [(first && one(`tr[data-row-id="${first.id}"]`)) || one("tbody tr[data-row-id]")]
-    },
+    targets: (ctx) => [one(VERIFY) ?? renewTarget(ctx)],
+    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : renewTarget(ctx)),
     placement: "left",
     anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
     done: (ctx) => !!verifiedSince(ctx) && !one(VERIFY),
@@ -690,12 +796,14 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "paper",
     chapter: "timesheets",
+    label: "Scan a paper sheet",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
     title: () => (one('[data-tour="scan-apply"]') ? "Matched to workers, checked against the clock" : one(SCAN) ? "Iris reads it" : "Venue still on paper?"),
     action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
     targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
+    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : one('[data-tour="scan-sheet-open"]')),
     placement: "right",
     done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
@@ -711,6 +819,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "auto-submit",
     chapter: "timesheets",
+    label: "Auto-submit",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
@@ -721,6 +830,7 @@ export const SCRIPT: TourItem[] = [
     },
     action: "Turn on Auto-submit",
     targets: () => [one('[data-tour="auto-submit"]')],
+    clicks: () => inside('[data-tour="auto-submit"]', '[role="switch"]'),
     placement: "bottom",
     done: (ctx) => !!ctx.data.settings?.autoSubmit?.includes("harbor"),
     success: () => "Matching timesheets now submit themselves",
@@ -739,6 +849,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "hours",
     chapter: "timesheets",
+    label: "Approve at the clock",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
@@ -764,6 +875,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "split",
     chapter: "timesheets",
+    label: "Split by role",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
@@ -826,6 +938,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "monthly",
     chapter: "reporting",
+    label: "Monthly invoice",
     wsId: COMPASS,
     path: /^\/invoices$/,
     href: () => "/invoices",
@@ -854,6 +967,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "ask-report",
     chapter: "reporting",
+    label: "Ask for a number",
     wsId: COMPASS,
     path: /^\/$/,
     href: () => "/",
@@ -861,6 +975,8 @@ export const SCRIPT: TourItem[] = [
     example: reportAsk,
     action: "Send it with Enter",
     targets: () => [COMPOSER()],
+    clicks: sendButton,
+    fill: { when: canAsk, run: () => typeAsk(reportAsk()) },
     placement: "top",
     done: (ctx) => !!reportLink(ctx),
     success: () => "Answered",
@@ -873,6 +989,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "open-report",
     chapter: "reporting",
+    label: "Open the report",
     wsId: COMPASS,
     path: /^\/$/,
     href: () => "/",
