@@ -708,12 +708,17 @@ export interface ReportSchedule {
   lastSentAt?: string
 }
 
+/** The three report pages every side gets: how agencies perform, where the money goes, and who it goes to each week. */
+export type ReportView = "scorecard" | "locations" | "spend"
+
 export interface SavedReport {
   id: string
   name: string
   description?: string
   /** Who shares it: "compass", "buyer:<id>" or "supplier:<id>". */
   org: string
+  /** The report page it backs, which carries its email schedule. */
+  view?: ReportView
   spec: ReportSpec
   createdBy: string
   createdAt: string

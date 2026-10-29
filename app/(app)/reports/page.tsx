@@ -1,13 +1,10 @@
-import { Suspense } from "react"
+import { redirect } from "next/navigation"
 
-import { ReportsPage } from "@/components/reports/reports-page"
+import { pageHref, reportHref, specFromParams } from "@/lib/reports"
 
-export const metadata = { title: "Reports" }
-
-export default function Page() {
-  return (
-    <Suspense>
-      <ReportsPage />
-    </Suspense>
-  )
+export default async function Page({ searchParams }: PageProps<"/reports">) {
+  const given = await searchParams
+  const params = new URLSearchParams(Object.entries(given).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])))
+  const spec = specFromParams(params)
+  redirect(spec ? reportHref(spec) : pageHref("scorecard"))
 }

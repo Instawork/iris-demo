@@ -4,6 +4,7 @@ import { summaryOf } from "@/lib/compliance"
 import { daysFromToday } from "@/lib/dates"
 import { awaitingApproval, filledCount, groupPhase, isOpenTo, isOutstanding, needsReview } from "@/lib/metrics"
 import { PROGRAM } from "@/lib/reference"
+import { reportPages } from "@/lib/reports"
 import { latestBid, openCounters } from "@/lib/sourcing"
 import { withAgency } from "@/lib/timesheets"
 import type { DemoData, PersonaKind, Workspace } from "@/lib/types"
@@ -137,6 +138,7 @@ export function navFor(ws: Workspace): NavItem[] {
           : kind === "buyer"
             ? "Spend, hours and agency performance at your locations"
             : "What you billed and how you filled, by buyer and week",
+      children: reportPages(kind).map((p) => ({ id: `reports.${p.id}`, label: p.label, href: `/reports/${p.id}`, tooltip: p.info })),
     },
   ]
 }

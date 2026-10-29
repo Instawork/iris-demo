@@ -106,7 +106,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const go = (href: string) => run(() => router.push(href))
 
   const pages = useMemo(
-    () => [...navFor(ws), ...settingsFor(ws)],
+    () => [...navFor(ws).flatMap((item) => item.children ?? [item]), ...settingsFor(ws)],
     [ws],
   )
   const records = useMemo(() => {

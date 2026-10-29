@@ -5,7 +5,7 @@ import { hours as formatHours, money, moneyCompact, moneyWhole, pct } from "@/li
 import { formatTimeToFill, groupPhase, inScope } from "@/lib/metrics"
 import { BUYERS, WORKSPACES, buyer, city, findCity, findLocation, findPosition, findSupplier, location, orgOf, position, supplier } from "@/lib/reference"
 import { hoursAboveClock, timesheetAmount } from "@/lib/timesheets"
-import type { DemoData, ReportDimension, ReportFilterKey, ReportMeasure, ReportPeriod, ReportSchedule, ReportSpec, SavedReport, Scope, Workspace } from "@/lib/types"
+import type { DemoData, ReportDimension, ReportFilterKey, ReportMeasure, ReportPeriod, ReportSchedule, ReportSpec, ReportView, SavedReport, Scope, Workspace } from "@/lib/types"
 
 /**
  * One engine behind saved reports, the builder, report links, the chat and the CSV, so a number reads the same
@@ -500,20 +500,47 @@ export function cleanSpec(input: unknown): ReportSpec | undefined {
   return { measures, groupBy, ...(splitBy ? { splitBy } : {}), period, ...(period === "custom" ? { from, to } : {}), filters }
 }
 
-export function reportHref(spec: ReportSpec, reportId?: string): string {
+/** The period and filters a report page was opened with. A missing period means the page's own. */
+export type PageQuery = Partial<Pick<ReportSpec, "period" | "from" | "to">> & Pick<ReportSpec, "filters">
+
+export function pageHref(view: ReportView, query: Partial<PageQuery> = {}): string {
   const q = new URLSearchParams()
-  if (reportId) q.set("r", reportId)
-  q.set("m", spec.measures.join(","))
-  q.set("by", spec.groupBy)
-  if (spec.splitBy) q.set("split", spec.splitBy)
-  q.set("period", spec.period)
-  if (spec.period === "custom" && spec.from && spec.to) {
-    q.set("from", spec.from)
-    q.set("to", spec.to)
+  if (query.period) q.set("period", query.period)
+  if (query.period === "custom" && query.from && query.to) {
+    q.set("from", query.from)
+    q.set("to", query.to)
   }
-  for (const f of FILTERS) if (spec.filters[f.id]?.length) q.set(f.id, spec.filters[f.id]!.join(","))
-  return `/reports?${q.toString()}`
+  for (const f of FILTERS) if (query.filters?.[f.id]?.length) q.set(f.id, query.filters[f.id]!.join(","))
+  const search = q.toString()
+  return `/reports/${view}${search ? `?${search}` : ""}`
 }
+
+export function queryFromParams(params: URLSearchParams): PageQuery {
+  const clean = cleanSpec({
+    measures: ["spend"],
+    groupBy: "week",
+    period: params.get("period") ?? undefined,
+    from: params.get("from") ?? undefined,
+    to: params.get("to") ?? undefined,
+    filters: Object.fromEntries(FILTERS.map((f) => [f.id, params.get(f.id)?.split(",").filter(Boolean) ?? []])),
+  })!
+  const asked = params.get("period")
+  const period = asked === clean.period ? { period: clean.period, ...(clean.period === "custom" ? { from: clean.from, to: clean.to } : {}) } : {}
+  return { ...period, filters: clean.filters }
+}
+
+const PERFORMANCE = new Set<ReportMeasure>(["fillRate", "noShowRate", "timeToFill", "shifts", "spots"])
+
+/** Which of the three pages answers a spec best: performance goes to the scorecard, places to locations, money to spend. */
+export function viewFor(spec: ReportSpec): ReportView {
+  if (spec.measures.some((m) => PERFORMANCE.has(m))) return "scorecard"
+  if (spec.groupBy === "location" || spec.splitBy === "location") return "locations"
+  return "spend"
+}
+
+/** A link to the page that answers this spec, carrying its period and filters. */
+export const reportHref = (spec: ReportSpec): string =>
+  pageHref(viewFor(spec), { period: spec.period, from: spec.from, to: spec.to, filters: spec.filters })
 
 export function specFromParams(params: URLSearchParams): ReportSpec | undefined {
   if (!params.get("m") || !params.get("by")) return undefined
@@ -577,92 +604,78 @@ const spec = (measures: ReportMeasure[], groupBy: ReportDimension, period: Repor
   ...extra,
 })
 
-/** The reports each organization starts with: what its people would build in their first week. */
+/* ------------------------------- Report pages ------------------------------ */
+
+export interface ReportPage {
+  id: ReportView
+  label: string
+  info: string
+  /** The table: one row per agency, location or buyer. */
+  table: ReportSpec
+  /** The chart above the table, week by week. */
+  trend?: ReportSpec
+  /** Each row's share of the first measure, as a bar. */
+  share?: boolean
+  /** What this side calls a measure, like "Billed" for an agency's spend. */
+  labels?: Partial<Record<ReportMeasure, string>>
+}
+
+/** The same three pages for every side, each seen from that side: agencies see buyers where others see agencies. */
+export function reportPages(kind: Workspace["kind"]): ReportPage[] {
+  const agency = kind === "supplier"
+  const who: ReportDimension = agency ? "buyer" : "agency"
+  const labels = agency ? { spend: "Billed" } : undefined
+  return [
+    {
+      id: "scorecard",
+      label: agency ? "Your scorecard" : "Agency scorecard",
+      info: agency ? "How you fill each buyer's shifts, how reliably and how fast, and what you billed." : "How each agency fills, shows up and how fast, and what it billed.",
+      table: spec(["fillRate", "noShowRate", "timeToFill", "spend"], who, "last_28"),
+      labels,
+    },
+    {
+      id: "locations",
+      label: agency ? "Billed by location" : "Spend by location",
+      info: agency ? "What you billed at each location, and what an hour costs there." : "Every location's labor spend, and what an hour costs there.",
+      table: spec(["spend", "hours", "costPerHour"], "location", "last_28"),
+      share: true,
+      labels,
+    },
+    {
+      id: "spend",
+      label: agency ? "Billed by buyer" : "Spend by agency",
+      info: agency ? "What you billed each week, and each buyer's share." : "What each agency billed each week, and its share of the total.",
+      table: spec(["spend", "hours", "costPerHour"], who, "last_90"),
+      trend: spec(["spend"], "week", "last_90", { splitBy: who }),
+      share: true,
+      labels,
+    },
+  ]
+}
+
+export const REPORT_VIEWS: ReportView[] = ["scorecard", "locations", "spend"]
+
+export const isReportView = (value: string): value is ReportView => (REPORT_VIEWS as string[]).includes(value)
+
+export const measureLabel = (page: ReportPage, m: ReportMeasure) => page.labels?.[m] ?? MEASURE[m].label
+
+/** Every organization starts with its three pages saved, so each can be emailed. Compass already sends spend every Monday. */
 export function defaultReports(now: string): SavedReport[] {
   const at = new Date(now)
   const weekly: ReportSchedule = { cadence: "weekly", time: "07:00", recipients: ["Priya Raman", "Tom Becker"] }
   const sent = lastSend(weekly, at)
-  const list: Omit<SavedReport, "id" | "createdAt" | "updatedAt">[] = [
-    {
-      name: "Weekly spend by agency",
-      description: "What every agency billed each week, across the program.",
-      org: "compass",
-      createdBy: "Priya Raman",
-      spec: spec(["spend"], "week", "last_90", { splitBy: "agency" }),
-      schedule: { ...weekly, ...(sent ? { lastSentAt: sent.toISOString() } : {}) },
-    },
-    {
-      name: "Agency scorecard",
-      description: "Fill, reliability, speed and spend for every agency.",
-      org: "compass",
-      createdBy: "Priya Raman",
-      spec: spec(["fillRate", "noShowRate", "timeToFill", "spend"], "agency", "last_28"),
-    },
-    {
-      name: "Spend by location",
-      description: "Every unit's labor spend, and what an hour costs there.",
-      org: "compass",
-      createdBy: "Priya Raman",
-      spec: spec(["spend", "hours", "costPerHour"], "location", "last_28"),
-    },
-    {
-      name: "Cost per hour by market",
-      description: "What an hour costs from each agency in each city.",
-      org: "compass",
-      createdBy: "Tom Becker",
-      spec: spec(["costPerHour"], "market", "last_90", { splitBy: "agency" }),
-    },
-    {
-      name: "Billed above the clock",
-      description: "Hours agencies billed past Iris's clock, by agency.",
-      org: "compass",
-      createdBy: "Lena Ortiz",
-      spec: spec(["aboveClock", "spend"], "agency", "last_90"),
-    },
-    {
-      name: "Spend by venue",
-      description: "What each venue spent on agency labor.",
-      org: "buyer:levy-chi",
-      createdBy: "Jordan Ellis",
-      spec: spec(["spend", "hours"], "location", "last_28"),
-    },
-    {
-      name: "Agency fill at my venues",
-      description: "How each agency fills Levy's shifts.",
-      org: "buyer:levy-chi",
-      createdBy: "Jordan Ellis",
-      spec: spec(["fillRate", "noShowRate", "timeToFill"], "agency", "last_28"),
-    },
-    {
-      name: "Bartender cost by agency",
-      description: "What an hour of bartending costs from each agency.",
-      org: "buyer:levy-chi",
-      createdBy: "Jordan Ellis",
-      spec: spec(["costPerHour", "hours", "spend"], "agency", "last_90", { filters: { position: ["bartender"] } }),
-    },
-    {
-      name: "Spend by campus",
-      description: "What each campus spent on agency labor.",
-      org: "buyer:chartwells-south",
-      createdBy: "Alicia Moreno",
-      spec: spec(["spend", "hours"], "location", "last_28"),
-    },
-    ...WORKSPACES.filter((w) => w.kind === "supplier").flatMap((w) => [
-      {
-        name: "Billed by buyer",
-        description: "What you billed each buyer.",
-        org: orgOf(w),
-        createdBy: w.user.name,
-        spec: spec(["spend", "hours"], "buyer", "last_90"),
-      },
-      {
-        name: "Fill and no-shows by week",
-        description: "How you filled the shifts sent to you first.",
-        org: orgOf(w),
-        createdBy: w.user.name,
-        spec: spec(["fillRate", "noShowRate"], "week", "last_90"),
-      },
-    ]),
-  ]
+  const orgs = new Map<string, Workspace>()
+  for (const w of WORKSPACES.filter((x) => !x.approves?.length)) if (!orgs.has(orgOf(w))) orgs.set(orgOf(w), w)
+  const list: Omit<SavedReport, "id" | "createdAt" | "updatedAt">[] = [...orgs].flatMap(([org, w]) =>
+    reportPages(w.kind).map((page) => ({
+      name: page.label,
+      description: page.info,
+      org,
+      view: page.id,
+      createdBy: w.kind === "compass" ? "Priya Raman" : w.user.name,
+      spec: page.table,
+      ...(org === "compass" && page.id === "spend" ? { schedule: { ...weekly, ...(sent ? { lastSentAt: sent.toISOString() } : {}) } } : {}),
+    })),
+  )
   return list.map((r, i) => ({ ...r, id: `rep-${i + 1}`, createdAt: now, updatedAt: now }))
 }
