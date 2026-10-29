@@ -941,7 +941,7 @@ export const SCRIPT: TourItem[] = [
     chapter: "reporting",
     label: "Monthly invoice",
     wsId: COMPASS,
-    path: /^\/invoices$/,
+    path: /^\/invoices(\/groups\/[^/]+)?$/,
     href: () => "/invoices",
     title: () => (one(GROUP) ? "Down to each cost center" : "One invoice a month for all of Compass"),
     body: (ctx) => {
@@ -953,7 +953,7 @@ export const SCRIPT: TourItem[] = [
       return one(GROUP) ? undefined : `Open ${g?.month ? formatMonth(g.month) : "this month"}`
     },
     targets: (ctx) => {
-      if (one(GROUP)) return [one(GROUP)]
+      if (one(GROUP)) return [one('[data-tour="group-title"]')]
       const g = thisMonth(ctx.data)
       return [g && one(`tr[data-row-id="${g.id}"]`)]
     },
@@ -961,7 +961,7 @@ export const SCRIPT: TourItem[] = [
     onDone: (_, api) => api.push("/"),
     skip: async (ctx, api) => {
       const g = thisMonth(ctx.data)
-      if (g) api.push(`/invoices?group=${g.id}`)
+      if (g) api.push(`/invoices/groups/${g.id}`)
     },
   },
   {

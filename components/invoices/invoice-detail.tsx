@@ -125,7 +125,7 @@ export function InvoiceDetail({ id }: { id: string }) {
             <InvoiceStatusBadge invoice={inv} />
             {group && (
               <Tip content={group.name}>
-                <Link href={`/invoices?group=${group.id}`}>
+                <Link href={`/invoices/groups/${group.id}`}>
                   <StatusBadge>
                     <Layers className="size-3" /> {group.code}
                   </StatusBadge>

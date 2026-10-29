@@ -14,6 +14,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { useTheme } from "@/hooks/use-theme"
 import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
+import { formatMonth } from "@/lib/dates"
 import { findSupplier, position } from "@/lib/reference"
 import { cn } from "@/lib/utils"
 
@@ -39,6 +40,10 @@ function useCrumbs(): Crumb[] {
     if (section === "shifts") {
       const g = data.groups.find((x) => x.id === sub)
       return [root, { label: g ? g.name || position(g.positionId).name : "Shift" }]
+    }
+    if (section === "invoices" && sub === "groups") {
+      const g = data.invoiceGroups.find((x) => x.id === parts[2])
+      return [root, { label: g ? (g.month ? formatMonth(g.month) : g.name) : "Invoice group" }]
     }
     if (section === "invoices") {
       const inv = data.invoices.find((x) => x.id === sub)

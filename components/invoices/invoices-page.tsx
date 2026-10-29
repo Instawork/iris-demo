@@ -12,7 +12,6 @@ import { EmptyState } from "@/components/common/empty-state"
 import { MultiSelectFilter, ResetFilters, SearchInput } from "@/components/common/filters"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
-import { GroupDetailDialog } from "@/components/invoices/group-dialogs"
 import { AnomalyFlag, DeltaText, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
 import { MonthlyTable } from "@/components/invoices/monthly-table"
 import { Button } from "@/components/ui/button"
@@ -88,8 +87,6 @@ export function InvoicesPage() {
   const quickOptions = QUICK[ws.kind]
   const asked = params.get("filter")
   const quick = quickOptions.find((q) => q === asked) ?? (asked === "overdue" ? "outstanding" : "all")
-  const openGroupId = params.get("group") ?? undefined
-
   const mine = useMemo(() => data.invoices.filter((i) => inScope(scope, i)), [data.invoices, scope])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -315,7 +312,7 @@ export function InvoicesPage() {
             groups={data.invoiceGroups}
             columns={columns}
             toReview={isCompass ? (i) => needsReview(data, i) : undefined}
-            onOpenMonth={(id) => setParams({ group: id })}
+            onOpenMonth={(id) => router.push(`/invoices/groups/${id}`)}
             onOpenInvoice={(i) => router.push(`/invoices/${i.id}`)}
             empty={invoicesEmpty}
           />
@@ -364,7 +361,6 @@ export function InvoicesPage() {
         )}
       </AnimatePresence>
 
-      <GroupDetailDialog groupId={openGroupId} onOpenChange={(o) => !o && setParams({ group: undefined })} />
     </>
   )
 }
