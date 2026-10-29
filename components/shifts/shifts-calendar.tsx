@@ -117,7 +117,7 @@ export function ShiftsCalendar({ groups }: { groups: ShiftGroup[] }) {
       </div>
       <Dialog open={!!openDay} onOpenChange={(o) => !o && setOpenDay(undefined)}>
         <DialogContent className="max-h-[86svh] gap-0 overflow-hidden p-0 sm:max-w-2xl">
-          <DialogHeader className="border-b border-border px-5 pt-5 pb-4">
+          <DialogHeader className="border-b border-border px-6 pt-6 pb-4">
             <DialogTitle className="text-featured-3 font-bold">{openDay ? formatDateLong(openDay) : ""}</DialogTitle>
             <DialogDescription>{openDay ? `${formatGroupHeader(openDay).split(" • ")[0]} · ${dayGroups.length} shift group${dayGroups.length === 1 ? "" : "s"}` : ""}</DialogDescription>
           </DialogHeader>

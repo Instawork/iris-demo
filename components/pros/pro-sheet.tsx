@@ -68,7 +68,7 @@ export function ProSheet({ proId, open, onOpenChange }: { proId?: string; open?:
   const pro = useStore((s) => (proId ? s.data.pros.find((p) => p.id === proId) : undefined))
   return (
     <Sheet open={!!pro && (open ?? true)} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
+      <SheetContent side="right" className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         {pro && <ProfileBody key={pro.id} pro={pro} />}
       </SheetContent>
     </Sheet>

@@ -66,7 +66,7 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[86svh] gap-0 overflow-hidden p-0 sm:max-w-2xl" data-tour="group-detail">
-        <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
+        <DialogHeader className="gap-1 border-b border-border px-6 pt-6 pb-4">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle className="text-featured-3 font-bold">{monthly ? formatMonth(live.month!) : live.name}</DialogTitle>
             <StatusBadge tone={INVOICE_STATUS[t.status].tone}>{INVOICE_STATUS[t.status].label}</StatusBadge>
@@ -91,9 +91,13 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
           )}
         </DialogHeader>
         <div className="max-h-[52svh] overflow-y-auto scrollbar-thin">
-          {shown === "breakdown" && <Breakdown invoices={t.members} />}
+          {shown === "breakdown" && (
+            <div className="px-4 py-2">
+              <Breakdown invoices={t.members} />
+            </div>
+          )}
           {shown === "invoices" && t.members.map((m) => (
-            <div key={m.id} className="flex items-center gap-3 border-b border-border px-5 py-3 last:border-0">
+            <div key={m.id} className="flex items-center gap-3 border-b border-border px-6 py-3 last:border-0">
               <SupplierLogo supplierId={m.supplierId} size="md" />
               <Link href={`/invoices/${m.id}`} className="flex flex-1 flex-col hover:underline">
                 <span className="text-body-3 font-semibold">
@@ -123,7 +127,7 @@ export function GroupDetailDialog({ groupId, onOpenChange }: { groupId?: string;
             </div>
           ))}
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-wrap items-center px-5 py-3 sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 flex-wrap items-center px-6 py-4 sm:justify-between">
           <span className="text-body-3">
             Total <span className="font-bold tabular">{money(t.total)}</span> · Balance <span className="font-bold tabular">{money(t.balance)}</span>
           </span>

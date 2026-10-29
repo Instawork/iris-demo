@@ -49,7 +49,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
 
   return (
     <>
-      <DialogHeader className="flex-row items-center gap-3 border-b border-border px-5 py-4 text-left">
+      <DialogHeader className="flex-row items-center gap-3 border-b border-border px-6 py-5 text-left">
         <SupplierLogo supplierId={sup.id} size="lg" />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <DialogTitle className="flex items-center gap-2">
@@ -62,7 +62,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
         </div>
       </DialogHeader>
 
-      <div className="flex max-h-[70svh] flex-col gap-5 overflow-y-auto px-5 py-4 scrollbar-thin">
+      <div className="flex max-h-[70svh] flex-col gap-5 overflow-y-auto px-6 py-5 scrollbar-thin">
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
           {[
             { label: "Fill rate", value: pct(m.fillRate), info: "Share of spots filled on shifts that already happened." },
@@ -138,7 +138,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
         )}
       </div>
 
-      <div className="flex justify-end border-t border-border px-5 py-3">
+      <div className="flex justify-end border-t border-border px-6 py-4">
         <Button asChild variant="ghost" size="sm">
           <Link href="/rates">
             Compare all rates <ArrowRight />

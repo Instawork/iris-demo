@@ -153,7 +153,7 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
         <Activity ev={ev} />
       </div>
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
+        <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
           {open?.kind === "role" && <RoleSheet ev={ev} line={lineOf(ev, open.lineId)} />}
           {open?.kind === "agency" && <AgencySheet ev={ev} supplierId={open.supplierId} />}
         </SheetContent>
@@ -526,9 +526,9 @@ function BidRow({
               </Tip>
             )}
           </span>
-          <span className="truncate text-caption-1 text-faded">
-            Pay {money(bid.proRate)} + {bid.markupPct}% · {va}% VA{first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}
-          </span>
+          <Tip content={`Pay ${money(bid.proRate)} + ${bid.markupPct}% markup · ${va}% VA${first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}`}>
+            <span className="w-fit cursor-default text-caption-1 text-faded">{bid.markupPct}% markup</span>
+          </Tip>
         </span>
         <span className="flex flex-col items-end">
           <span className="font-semibold tabular">{money(bid.billRate)}</span>
@@ -617,18 +617,18 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
         <Check className="size-4" /> Approve bids
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Approve bids</DialogTitle>
-            <DialogDescription>Each agency&apos;s latest prices go live on its {city(ev.cityId).name} rate card today. New shifts price at them.</DialogDescription>
+            <DialogDescription>Approved prices go live on each agency&apos;s {city(ev.cityId).name} rate card today.</DialogDescription>
           </DialogHeader>
-          <ul className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-lg border border-border scrollbar-thin">
+          <ul className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border scrollbar-thin">
             {pending.map((s) => {
               const spend = spendOf(ev, s)
               const waiting = !ready.includes(s)
               return (
                 <li key={s}>
-                  <label className={cn("flex items-center gap-3 px-3 py-2.5", waiting ? "opacity-60" : "cursor-pointer hover:bg-hover/50")}>
+                  <label className={cn("flex items-center gap-3 px-4 py-3", waiting ? "opacity-60" : "cursor-pointer hover:bg-hover/50")}>
                     <Checkbox
                       checked={chosen.includes(s)}
                       disabled={waiting}

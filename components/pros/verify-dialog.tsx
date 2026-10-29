@@ -6,7 +6,7 @@ import { useState } from "react"
 import { Field, inputClass } from "@/components/onboarding/steps"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useWorkspace } from "@/hooks/use-app"
 import { formatDateFull, todayISO } from "@/lib/dates"
@@ -110,7 +110,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border-strong p-4 hover:bg-hover">
               {phase === "reading" ? <ScanText className="size-5 animate-pulse" /> : file ? <FileText className="size-5" /> : <Upload className="size-5 text-faded" />}
               <span className="flex min-w-0 flex-1 flex-col">
@@ -120,7 +120,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
               <input type="file" accept=".pdf,.png,.jpg,.jpeg,.heic" className="sr-only" onChange={(e) => attach(e.target.files?.[0]?.name ?? "")} />
             </label>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Issued by">
                 <Select value={provider} onValueChange={setProvider}>
                   <SelectTrigger className="h-9 w-full">
@@ -152,7 +152,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
               )}
             </div>
 
-            <label className="flex items-start gap-3 rounded-xl border border-border p-4">
+            <label className="flex cursor-pointer items-start gap-3">
               <Checkbox checked={attested} onCheckedChange={(v) => setAttested(v === true)} className="mt-0.5" />
               <span className="text-body-3">
                 I attest this {label.toLowerCase()} is genuine, current, and belongs to <span className="font-semibold">{fullName(pro)}</span>.
@@ -160,7 +160,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
               </span>
             </label>
 
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={phase === "checking"}>
                 Cancel
               </Button>
@@ -175,7 +175,7 @@ export function VerifyDialog({ pro, requirement, onOpenChange }: { pro: Pro; req
                   </>
                 )}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         )}
       </DialogContent>

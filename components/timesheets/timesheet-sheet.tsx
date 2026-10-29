@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, ArrowRightLeft, Check, Pencil, Send, Trash2, Undo2, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, ArrowRightLeft, Check, MoreHorizontal, Pencil, Send, Trash2, Undo2, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -10,11 +10,12 @@ import { ProAvatar } from "@/components/common/pro-avatar"
 import { MoveDialog } from "@/components/shifts/move-dialog"
 import { BreakField, CLOCK_SOURCE, TimeField, TimesheetHistory, TimesheetStatusBadge, snapTime, timeRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { addDaysISO, formatClock, formatDateLong, formatDateShort, timeAgo, todayISO, weekEndISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, formatClock, formatDateLong, formatDateShort, timeAgo, todayISO, weekEndISO } from "@/lib/dates"
 import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { location, position, supplier } from "@/lib/reference"
@@ -35,7 +36,7 @@ export function TimesheetSheet({ id, onOpenChange }: { id?: string; onOpenChange
   const t = useStore((s) => (id ? s.data.timesheets.find((x) => x.id === id) : undefined))
   return (
     <Sheet open={!!t} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg" data-tour="timesheet-sheet">
+      <SheetContent side="right" className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl" data-tour="timesheet-sheet">
         {t && <Body key={t.id} t={t} onDone={() => onOpenChange(false)} />}
       </SheetContent>
     </Sheet>
@@ -289,17 +290,13 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                 On{" "}
                 <Link href={`/invoices/${invoice.id}`} className="font-medium text-foreground hover:underline">
                   {invoice.number}
-                </Link>{" "}
-                for the week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}.
-                {invoice.status === "open" && ` Iris issues it on Saturday, ${formatDateShort(invoice.issuedOn)}.`}
+                </Link>
+                {invoice.status === "open" && `, issued Saturday, ${formatDateShort(invoice.issuedOn)}`}
               </>
+            ) : closed ? (
+              "Invoiced as soon as it's approved"
             ) : (
-              <>
-                Week of {formatDateShort(weekStartISO(t.date))} to {formatDateShort(weekEnd)}.{" "}
-                {closed
-                  ? "That week has closed, so Iris invoices it as soon as it's approved."
-                  : `Approved hours go on ${sup.shortName}'s invoice for the week, which Iris issues on Saturday, ${formatDateShort(closesOn)}.`}
-              </>
+              `Goes on ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}`
             )}
           </span>
         </section>
@@ -357,43 +354,13 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                 </span>
                 <span className="text-body-3 text-faded">
                   {proposal.reason}: {timeRange(proposal.clockIn, proposal.clockOut)}, {proposal.breakMins ? `${proposal.breakMins} min break` : "no break"}
-                  {!(isBuyer && t.status === "pending_approval") && `, ${proposal.hours.toFixed(2)} hrs`}.
+                  , {proposal.hours.toFixed(2)} hrs.
                 </span>
-                {isBuyer && t.status === "pending_approval" && mode === "idle" && (
-                  <Button className="h-9 gap-1.5 self-start rounded-lg" disabled={busy} onClick={() => acceptProposal(proposal)} data-tour="accept-proposal">
-                    <Check className="size-4" /> Approve at {proposal.hours.toFixed(2)} hrs
-                  </Button>
-                )}
               </Panel>
             )}
           </section>
         )}
 
-        {isBuyer && t.status === "pending_approval" && mode === "idle" && (
-          <div className="flex flex-wrap gap-2">
-            {!flagged && (
-              <Button className="h-9 gap-1.5 rounded-lg" disabled={busy} onClick={approve}>
-                <Check className="size-4" /> Approve
-              </Button>
-            )}
-            {flagged && (
-              <Button variant="outline" className="h-9 rounded-lg" onClick={() => open("as_billed", AS_BILLED_REASONS[0])}>
-                Approve as billed
-              </Button>
-            )}
-            <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("reject", flagged ? REJECT_REASONS[0] : REJECT_REASONS[1])}>
-              <X className="size-4" /> Reject
-            </Button>
-            <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => open("correct", CORRECT_REASONS[0])}>
-              <Pencil className="size-4" /> Correct the times
-            </Button>
-            {slot && (
-              <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => setMoving(true)} data-tour="split-role">
-                <ArrowRightLeft className="size-4" /> Split by role
-              </Button>
-            )}
-          </div>
-        )}
         {group && slot && <MoveDialog group={group} slot={slot} open={moving} onOpenChange={setMoving} />}
 
         {mode === "reject" && (
@@ -469,24 +436,6 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           </Panel>
         )}
 
-        {isAgency && mode === "idle" && (t.status === "draft" || t.status === "rejected") && (
-          <div className="flex flex-wrap gap-2">
-            <Button className="h-9 gap-1.5 rounded-lg" disabled={busy || !t.clockIn || !t.clockOut} onClick={submit}>
-              <Send className="size-4" /> {t.status === "rejected" ? "Resubmit" : "Submit"}
-            </Button>
-            <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("edit")}>
-              <Pencil className="size-4" /> Edit times
-            </Button>
-            <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => open("remove", REMOVE_REASONS[0])}>
-              <Trash2 className="size-4" /> Remove
-            </Button>
-          </div>
-        )}
-        {isAgency && t.status === "pending_approval" && (
-          <Button variant="outline" className="h-9 gap-1.5 self-start rounded-lg" disabled={busy} onClick={withdraw}>
-            <Undo2 className="size-4" /> Withdraw to Draft
-          </Button>
-        )}
         {isBuyer && t.status === "draft" && mode === "idle" && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-body-3 text-faded">With {sup.shortName}. It hasn&apos;t been submitted yet.</span>
@@ -503,6 +452,84 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           <TimesheetHistory t={t} invoice={invoice} />
         </section>
       </div>
+
+      {mode === "idle" && isBuyer && t.status === "pending_approval" && (
+        <Actions>
+          {proposal ? (
+            <Button className="h-9 gap-1.5 rounded-lg" disabled={busy} onClick={() => acceptProposal(proposal)} data-tour="accept-proposal">
+              <Check className="size-4" /> Approve at {proposal.hours.toFixed(2)} hrs
+            </Button>
+          ) : !flagged ? (
+            <Button className="h-9 gap-1.5 rounded-lg" disabled={busy} onClick={approve}>
+              <Check className="size-4" /> Approve
+            </Button>
+          ) : (
+            <Button className="h-9 rounded-lg" onClick={() => open("as_billed", AS_BILLED_REASONS[0])}>
+              Approve as billed
+            </Button>
+          )}
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("reject", flagged ? REJECT_REASONS[0] : REJECT_REASONS[1])}>
+            <X className="size-4" /> Reject
+          </Button>
+          <span className="ml-auto flex items-center gap-1">
+            {slot && (
+              <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-faded" onClick={() => setMoving(true)} data-tour="split-role">
+                <ArrowRightLeft className="size-4" /> Split by role
+              </Button>
+            )}
+            <More
+              items={[
+                ...(flagged && proposal ? [{ label: "Approve as billed", icon: Check, onSelect: () => open("as_billed", AS_BILLED_REASONS[0]) }] : []),
+                { label: "Correct the times", icon: Pencil, onSelect: () => open("correct", CORRECT_REASONS[0]) },
+              ]}
+            />
+          </span>
+        </Actions>
+      )}
+      {mode === "idle" && isAgency && (t.status === "draft" || t.status === "rejected") && (
+        <Actions>
+          <Button className="h-9 gap-1.5 rounded-lg" disabled={busy || !t.clockIn || !t.clockOut} onClick={submit}>
+            <Send className="size-4" /> {t.status === "rejected" ? "Resubmit" : "Submit"}
+          </Button>
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("edit")}>
+            <Pencil className="size-4" /> Edit times
+          </Button>
+          <span className="ml-auto">
+            <More items={[{ label: "Remove from billing", icon: Trash2, onSelect: () => open("remove", REMOVE_REASONS[0]) }]} />
+          </span>
+        </Actions>
+      )}
+      {isAgency && t.status === "pending_approval" && (
+        <Actions>
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" disabled={busy} onClick={withdraw}>
+            <Undo2 className="size-4" /> Withdraw to Draft
+          </Button>
+        </Actions>
+      )}
     </>
+  )
+}
+
+/** The sheet's decisions, kept in reach at the bottom however long the timesheet runs. */
+function Actions({ children }: { children: React.ReactNode }) {
+  return <div className="sticky bottom-0 mt-auto flex items-center gap-2 border-t border-border bg-popover px-6 py-4">{children}</div>
+}
+
+function More({ items }: { items: { label: string; icon: React.ComponentType<{ className?: string }>; onSelect: () => void }[] }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-9 rounded-lg text-faded" aria-label="More actions">
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" side="top" className="min-w-48">
+        {items.map(({ label, icon: Icon, onSelect }) => (
+          <DropdownMenuItem key={label} onSelect={onSelect}>
+            <Icon className="size-4" /> {label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

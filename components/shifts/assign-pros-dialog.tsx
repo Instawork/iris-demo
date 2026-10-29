@@ -61,7 +61,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
       }}
     >
       <DialogContent className="gap-0 p-0 sm:max-w-lg" data-tour="assign-dialog">
-        <DialogHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
+        <DialogHeader className="gap-1 border-b border-border px-6 pt-6 pb-4">
           <DialogTitle className="text-featured-3 font-bold">Assign workers</DialogTitle>
           <DialogDescription className="text-body-3">
             {position(group.positionId).name} · {loc.name} · {formatDateLong(group.date)} · {formatInterval(group.start, group.end, city(loc.cityId).tz)}
@@ -123,7 +123,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
           })}
           {rows.length === 0 && <p className="px-3 py-8 text-center text-body-3 text-faded">No workers with this position in {city(loc.cityId).name}.</p>}
         </div>
-        <DialogFooter className="mx-0 mb-0 items-center px-5 py-3 sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 items-center px-6 py-4 sm:justify-between">
           <span className="text-caption-1 text-faded">
             {picked.length} of {open_} open spot{open_ === 1 ? "" : "s"} selected
           </span>
