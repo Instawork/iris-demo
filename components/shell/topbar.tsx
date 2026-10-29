@@ -34,6 +34,7 @@ function useCrumbs(): Crumb[] {
     if (section === "settings") return [{ label: "Settings" }, { label: SETTINGS_LABELS[sub] ?? "Settings" }]
     if (!sub) return [{ label: root.label }]
     if (section === "shifts" && sub === "new") return [root, { label: "New shift" }]
+    if (section === "agencies" && sub === "new") return [root, { label: "Add an agency" }]
     if (section === "units" && sub === "new") return [ws.kind === "compass" ? root : { label: "Work locations", href: "/settings/locations" }, { label: "Add a unit" }]
     if (section === "shifts") {
       const g = data.groups.find((x) => x.id === sub)

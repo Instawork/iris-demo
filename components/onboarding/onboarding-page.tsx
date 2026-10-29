@@ -12,7 +12,6 @@ import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
-import { AgencyDialog } from "@/components/onboarding/agency-dialog"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { daysFromToday, formatDateShort } from "@/lib/dates"
@@ -347,7 +346,6 @@ export function AgenciesPage() {
   const data = useData()
   const { ws } = useWorkspace()
   const router = useRouter()
-  const [adding, setAdding] = useState(false)
   const agencies = [...SUPPLIERS].sort((a, b) => Number(!!b.onboarded) - Number(!!a.onboarded))
 
   const columns: Column<Supplier>[] = [
@@ -455,8 +453,10 @@ export function AgenciesPage() {
         description="Every agency on the program. Open one for its rates, workers, paperwork, connection and performance in one place."
         actions={
           ws.kind === "compass" && (
-            <Button onClick={() => setAdding(true)} data-tour="add-agency">
-              <Building2 /> Add an agency
+            <Button asChild data-tour="add-agency">
+              <Link href="/agencies/new">
+                <Building2 /> Add an agency
+              </Link>
             </Button>
           )
         }
@@ -464,7 +464,6 @@ export function AgenciesPage() {
       <Surface elevated className="overflow-hidden" data-tour="agencies-table">
         <DataTable rows={agencies} columns={columns} getRowId={(s) => s.id} onRowClick={(s) => router.push(`/agencies/${s.id}`)} pageSize={25} />
       </Surface>
-      <AgencyDialog open={adding} onOpenChange={setAdding} />
     </>
   )
 }

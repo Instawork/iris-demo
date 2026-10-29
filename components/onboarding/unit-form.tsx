@@ -9,7 +9,7 @@ import { SupplierLogo } from "@/components/brand/org-avatar"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
 import { Surface } from "@/components/common/surface"
-import { Field, inputClass } from "@/components/onboarding/steps"
+import { CheckRow, Field, Line, Section, inputClass } from "@/components/onboarding/steps"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData, useWorkspace } from "@/hooks/use-app"
@@ -317,40 +317,6 @@ export function NewUnitPage() {
     </>
   )
 }
-
-function Section({ title, info, children }: { title: string; info?: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-4 p-6">
-      <h2 className="flex items-center gap-1.5 text-body-2 font-semibold">
-        {title}
-        {info && <InfoTip>{info}</InfoTip>}
-      </h2>
-      {children}
-    </section>
-  )
-}
-
-function Line({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2">
-      <dt className="text-faded">{label}</dt>
-      <dd className="font-medium tabular">{children}</dd>
-    </div>
-  )
-}
-
-/** A checkbox row, as a button so it reads and toggles the same way everywhere. */
-function CheckRow({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" aria-pressed={on} onClick={onClick} className="-mx-1.5 flex h-8 items-center gap-2 rounded-md px-1.5 text-left text-body-3 transition-colors hover:bg-hover">
-      <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border-strong")}>
-        {on && <Check className="size-3" strokeWidth={3} />}
-      </span>
-      {children}
-    </button>
-  )
-}
-
 function DepartmentRow({ department, onChange, onRemove }: { department: Department; onChange: (patch: Partial<Department>) => void; onRemove: () => void }) {
   return (
     <>
