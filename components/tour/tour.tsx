@@ -236,6 +236,12 @@ async function jumpTo(index: number, push: (href: string) => void) {
   useTour.getState().go(index)
 }
 
+/** Enter belongs to a text box with something in it, which sends or breaks the line, and to widgets that pick with it. Otherwise it's the tour's. */
+const ownsEnter = (target: EventTarget | null) =>
+  target instanceof Element &&
+  ((target instanceof HTMLTextAreaElement && !!target.value.trim()) ||
+    !!target.closest('[data-tour-layer], select, [contenteditable="true"], [role="menu"], [role="listbox"], [role="combobox"], [role="radiogroup"], [role="grid"]'))
+
 /** Keys that belong to what has focus, like arrows in a tab list or a text field. */
 const ownsArrows = (target: EventTarget | null) =>
   target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="tablist"], [role="radiogroup"], [role="menu"], [role="listbox"], [role="slider"], [role="grid"]')
@@ -398,19 +404,43 @@ function StepScreen({ step }: { step: TourStep }) {
   const jump = (index: number | undefined) => index !== undefined && void jumpTo(index, router.push)
   const back = neighbor(step, -1)
   const ahead = () => (done ? void finish("done") : jump(neighbor(step, 1)))
-  const keys = useRef({ back: () => jump(back), ahead })
+  const handoffLabel = handoff?.textContent?.trim() || handoff?.getAttribute("aria-label") || undefined
+  /** What the card's main button does right now, for Enter. */
+  const primary =
+    !mine || flying
+      ? undefined
+      : party || (mode === "ready" && !handoffLabel && !text(step.action, ctx) && !step.example)
+        ? () => void finish("done")
+        : mode === "lost"
+          ? () => void skip()
+          : canAdvance
+            ? () => void act()
+            : mode === "away"
+              ? goThere
+              : undefined
+  /** While the card shows, Enter is the tour's even with nothing to press, so it can't reach a button on the page. */
+  const holdsEnter = mine && (showCard || mode === "away")
+  const keys = useRef({ back: () => jump(back), ahead, primary, holdsEnter })
   useEffect(() => {
-    keys.current = { back: () => jump(back), ahead }
+    keys.current = { back: () => jump(back), ahead, primary, holdsEnter }
   })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.isComposing || ownsEnter(e.target) || !keys.current.holdsEnter) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) keys.current.primary?.()
+        return
+      }
       if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || ownsArrows(e.target)) return
       e.preventDefault()
       if (e.key === "ArrowLeft") keys.current.back()
       else keys.current.ahead()
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    // Capturing, so Enter reaches the tour before a focused button or tab on the page acts on it.
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
   }, [])
 
   return (
@@ -433,7 +463,7 @@ function StepScreen({ step }: { step: TourStep }) {
           done={done}
           flying={flying}
           filling={flying && !!piloting?.filling}
-          handoff={handoff?.textContent?.trim() || handoff?.getAttribute("aria-label") || undefined}
+          handoff={handoffLabel}
           canAdvance={canAdvance}
           canBack={back !== undefined}
           onNext={() => void finish("done")}
@@ -808,6 +838,22 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     await Promise.all([switching, arrivedAt(chapter.href)])
     useTour.getState().go(index + 1)
   }
+
+  const primary = useRef<() => void>(undefined)
+  useEffect(() => {
+    primary.current = item.kind === "intro" ? () => start() : item.kind === "chapter" ? () => void play(item) : exit
+  })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat || e.isComposing) return
+      if (e.target instanceof Element && e.target.closest("[data-tour-layer]")) return
+      e.preventDefault()
+      e.stopPropagation()
+      primary.current?.()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [])
 
   return (
     <motion.div

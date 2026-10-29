@@ -408,7 +408,8 @@ const renewTarget = (ctx: TourContext) => {
   const pro = openPro(ctx)
   if (pro) {
     const doc = blocker(pro)
-    return doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')
+    const action = doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')
+    return action ?? one('[role="dialog"] [role="tab"][data-value="documents"]')
   }
   if (ctx.params.get("filter") !== "not_compliant") return one('[role="tab"][data-value="not_compliant"]')
   const first = chosenPro(ctx)
