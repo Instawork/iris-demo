@@ -146,7 +146,10 @@ export interface SupplierProfile {
 
 /** What an agency agrees to beyond its rates. VA is the rebate it pays Compass at year end, as a share of spend. */
 export interface ContractTerms {
+  /** The VA in force: the tier the agency's yearly spend with Compass reaches. */
   vaPct: number
+  /** VA by yearly spend, as [spend from, percent], lowest first. The whole year's spend earns the tier it reaches. */
+  vaTiers?: [number, number][]
   netDays: number
   years: number
 }
@@ -771,8 +774,6 @@ export interface DemoData {
   /** Presenter controls for the demo tenant. */
   settings?: {
     pausedAgencies?: string[]
-    /** Agencies whose drafts go for approval on their own when they match Iris's clock. */
-    autoSubmit?: string[]
   }
   counters: Counters
 }

@@ -296,7 +296,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Devon Brooks",
     contactEmail: "devon@crewline.example",
     profile: { fillRate: 0.88, hoursToFill: 9, noShowRate: 0.032, compliance: 0.94, payIndex: 1.0, markupPct: 36, share: 0.24 },
-    contract: { vaPct: 12, netDays: 30, years: 2 },
+    contract: { vaPct: 12, vaTiers: [[0, 8], [1_000_000, 10], [2_500_000, 12]], netDays: 30, years: 2 },
   },
   {
     id: "harbor",
@@ -314,7 +314,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Renee Park",
     contactEmail: "renee@harborhospitality.example",
     profile: { fillRate: 0.91, hoursToFill: 14, noShowRate: 0.024, compliance: 0.96, payIndex: 1.04, markupPct: 42, share: 0.18 },
-    contract: { vaPct: 5, netDays: 45, years: 1 },
+    contract: { vaPct: 5, vaTiers: [[0, 3], [1_500_000, 5], [3_000_000, 8]], netDays: 45, years: 1 },
   },
   {
     id: "instawork",
@@ -332,7 +332,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Marcus Lee",
     contactEmail: "enterprise@instawork.com",
     profile: { fillRate: 0.9, hoursToFill: 7, noShowRate: 0.027, compliance: 0.95, payIndex: 1.02, markupPct: 35, share: 0.3 },
-    contract: { vaPct: 12, netDays: 30, years: 3 },
+    contract: { vaPct: 12, vaTiers: [[0, 8], [2_000_000, 10], [4_000_000, 12]], netDays: 30, years: 3 },
   },
   {
     id: "metro",
@@ -350,7 +350,7 @@ const SHIPPED_SUPPLIERS: Supplier[] = [
     contactName: "Luis Ortega",
     contactEmail: "luis@metroeventstaff.example",
     profile: { fillRate: 0.74, hoursToFill: 26, noShowRate: 0.068, compliance: 0.85, payIndex: 0.96, markupPct: 38, share: 0.12 },
-    contract: { vaPct: 8, netDays: 15, years: 1 },
+    contract: { vaPct: 8, vaTiers: [[0, 5], [1_500_000, 8], [3_000_000, 10]], netDays: 15, years: 1 },
   },
 ]
 
@@ -582,6 +582,14 @@ export const supplier = (id: string) => supplierMap.get(id) ?? SUPPLIERS[0]
 export const workspace = (id: string) => workspaceMap.get(id) ?? WORKSPACES[0]
 
 export const termsOf = (supplierId: string): ContractTerms => supplier(supplierId).contract ?? { vaPct: 0, netDays: PROGRAM.paymentTermsDays, years: 1 }
+
+/** The VA tier a year's spend reaches, and the next one up if there is one. */
+export function vaTier(terms: ContractTerms, spend: number) {
+  const tiers = terms.vaTiers ?? [[0, terms.vaPct]]
+  const at = tiers.filter(([from]) => spend >= from).at(-1) ?? tiers[0]
+  const next = tiers.find(([from]) => from > spend)
+  return { pct: at[1], next: next && { from: next[0], pct: next[1] }, tiers }
+}
 
 /** What a rate really costs Compass once the agency's VA rebate comes back. */
 export const afterVa = (rate: number, vaPct: number) => rate * (1 - vaPct / 100)

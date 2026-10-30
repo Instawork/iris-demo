@@ -54,16 +54,18 @@ export function hoursAboveClock(t: Pick<Timesheet, "hours" | "clock" | "sentHome
 }
 
 /** A draft billed exactly as Iris's clock shows, with nothing for the agency to fix: it can go for approval as it is. */
-export const matchesClock = (t: Timesheet, others: Timesheet[] = []) =>
+/** Flags the clock agrees with. They're the buyer's call at approval, not a reason for the agency to hold the draft. */
+const BUYER_CHECKS: string[] = ["over_schedule", "no_break"]
+
+/** A draft the agency can send as is: both punches billed, the same as Iris's clock wherever it has one, nothing to fix. */
+export const readyToSubmit = (t: Timesheet, others: Timesheet[] = []) =>
   t.status === "draft" &&
   !!t.clockIn &&
   !!t.clockOut &&
-  !!t.clock?.in &&
-  !!t.clock.out &&
-  t.clockIn === t.clock.in &&
-  t.clockOut === t.clock.out &&
-  t.breakMins === t.clock.breakMins &&
-  timesheetChecks(t, others).length === 0
+  (!t.clock?.in || t.clockIn === t.clock.in) &&
+  (!t.clock?.out || t.clockOut === t.clock.out) &&
+  (!t.clock || t.breakMins === t.clock.breakMins) &&
+  timesheetChecks(t, others).every((c) => BUYER_CHECKS.includes(c.id))
 
 /** The agency has to act: complete and submit a draft, or fix a rejected one. */
 export const withAgency = (t: Timesheet) => t.status === "draft" || t.status === "rejected"

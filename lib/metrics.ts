@@ -3,8 +3,8 @@ import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO,
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
-import { matchesClock, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
-import type { DemoData, Invoice, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
+import { readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
+import type { DemoData, Invoice, InvoiceLine, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
 
@@ -81,6 +81,28 @@ export { timesheetAmount }
 
 export const invoiceSubtotal = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.amount, 0))
 export const invoiceTips = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.tips, 0))
+export interface VenueTips {
+  key: string
+  locationId: string
+  date: string
+  amount: number
+  workers: { proName: string; tips: number }[]
+}
+
+/** Tips billed the way venues approve them: one line per venue and day, the sum of every worker's tip to the cent. */
+export function venueTips(lines: InvoiceLine[]): VenueTips[] {
+  const byVenue = new Map<string, VenueTips>()
+  for (const l of lines) {
+    if (l.tips <= 0) continue
+    const key = `${l.locationId}|${l.date}`
+    const v = byVenue.get(key) ?? { key, locationId: l.locationId, date: l.date, amount: 0, workers: [] }
+    v.amount = round2(v.amount + l.tips)
+    v.workers.push({ proName: l.proName, tips: l.tips })
+    byVenue.set(key, v)
+  }
+  return [...byVenue.values()].sort((a, b) => a.date.localeCompare(b.date) || a.locationId.localeCompare(b.locationId))
+}
+
 export const invoiceCredits = (inv: Invoice) => round2((inv.credits ?? []).reduce((s, c) => s + c.amount, 0))
 export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invoiceTips(inv) - invoiceCredits(inv))
 export const invoiceBalance = (inv: Invoice) => round2(Math.max(0, invoiceTotal(inv) - inv.paidAmount))
@@ -592,13 +614,13 @@ export function todosFor(data: DemoData, ws: Workspace): Todo[] {
     const mine = data.timesheets.filter((t) => t.supplierId === scope.supplierId && withAgency(t))
     if (mine.length) {
       const rejected = mine.filter((t) => t.status === "rejected").length
-      const matched = mine.filter((t) => matchesClock(t, mine.filter((o) => o.proId === t.proId))).length
+      const matched = mine.filter((t) => readyToSubmit(t, mine.filter((o) => o.proId === t.proId))).length
       todos.push({
         id: "timesheets",
         title: `${plural(mine.length, "timesheet")} to submit`,
         description: [
           rejected && `${rejected} rejected by the buyer with a reason. Fix and resubmit them so they can be invoiced.`,
-          matched ? `${matched} match Iris's clock and can go in one click.` : !rejected && "Drafts from finished shifts. Check the times and submit them for approval.",
+          matched ? `${matched} are ready and can go in one click.` : !rejected && "Drafts from finished shifts. Check the times and submit them for approval.",
         ]
           .filter(Boolean)
           .join(" "),

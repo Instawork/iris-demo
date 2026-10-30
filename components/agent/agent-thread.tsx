@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload } from "lucide-react"
+import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload, UsersRound } from "lucide-react"
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage, ReportAnswer, ShiftDraft } from "@/components/agent/agent-store"
@@ -37,12 +37,14 @@ function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: 
       ? Download
       : action.kind === "create-shift"
         ? CalendarPlus
-        : action.kind === "approve-timesheets"
+        : action.kind === "approve-timesheets" || action.kind === "submit-timesheets"
           ? CheckCheck
-          : action.kind === "accept-proposal"
-            ? Check
-            : Upload
-  const primary = action.kind === "create-shift" || action.kind === "approve-timesheets"
+          : action.kind === "assign-workers"
+            ? UsersRound
+            : action.kind === "accept-proposal"
+              ? Check
+              : Upload
+  const primary = action.kind === "create-shift" || action.kind === "approve-timesheets" || action.kind === "submit-timesheets" || action.kind === "assign-workers"
   return (
     <Button
       variant={primary ? "default" : "outline"}
@@ -265,7 +267,13 @@ export function AgentMessages({
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 0.32, ease: EASE }}
             className={cn("flex gap-3", message.from === "user" ? "justify-end" : "justify-start")}
-            data-tour={message.actions?.some((a) => a.kind === "create-shift") ? "agent-draft" : undefined}
+            data-tour={
+              message.actions?.some((a) => a.kind === "create-shift")
+                ? "agent-draft"
+                : message.actions?.some((a) => a.kind === "submit-timesheets" || a.kind === "assign-workers")
+                  ? "agent-plan"
+                  : undefined
+            }
           >
             {message.from === "agent" && <LogoMark className="mt-0.5 size-6" />}
             <div

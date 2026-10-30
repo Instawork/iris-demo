@@ -2,6 +2,7 @@
 
 import { create } from "zustand"
 
+import type { AgencyAction } from "@/lib/agent-agency"
 import type { HoursAction } from "@/lib/agent-hours"
 import type { BookingInput } from "@/lib/store"
 import type { UploadType } from "@/lib/types"
@@ -14,6 +15,7 @@ export type AgentAction =
   /** `key` is made with the draft, so a double click or a retry posts once, and no two drafts share one. */
   | { label: string; kind: "create-shift"; input: BookingInput; key: string }
   | HoursAction
+  | AgencyAction
 
 /** A shift order Iris drafted from a sentence, shown as a card above its actions. */
 export interface ShiftDraft {

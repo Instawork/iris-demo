@@ -54,7 +54,6 @@ interface StoreState {
   /** Moves a worker to another role from a time during the shift. Resolves to the new role's bill rate. */
   moveToRole: (input: { groupId: string; slotId: string; positionId: string; at: string; note?: string }) => Promise<{ positionId: string; billRate: number; split: boolean } | undefined>
   /** Turns automatic submission on or off for an agency. Resolves to how many waiting drafts went in. */
-  setAutoSubmit: (supplierId: string, enabled: boolean) => Promise<number | undefined>
   setRoster: (buyerId: string, proIds: string[], status: RosterStatus | null) => Promise<void>
   /** Approves pending hours onto this week's open invoice. A reason approves flagged ones as billed. Hours from a closed week are invoiced right away. */
   approveTimesheets: (ids: string[], reason?: string) => Promise<ApproveResult | undefined>
@@ -79,6 +78,7 @@ interface StoreState {
   submitBid: (eventId: string, lines: Record<string, { proRate: number; markupPct: number }>, note?: string) => Promise<number | undefined>
   counterBid: (eventId: string, supplierId: string, lineId: string, ask: number, note?: string) => Promise<boolean>
   approveBids: (eventId: string, supplierIds: string[]) => Promise<number>
+  negotiateBids: (eventId: string) => Promise<number>
   /** Sends lines billed above Iris's clock back to the agency for a credit, or accepts them as billed. */
   decideBilling: (id: string, decision: "send_back" | "accept", note?: string) => Promise<boolean>
   /** The agency credits what Compass sent back. Resolves to the amount credited. */
@@ -321,7 +321,6 @@ export const useStore = create<StoreState>()((set, get) => {
     releasePro: async (groupId, slotId) => void (await send("releasePro", { groupId, slotId })),
     markNoShow: async (groupId, slotId) => void (await send("markNoShow", { groupId, slotId })),
     moveToRole: async (input) => send("moveToRole", input),
-    setAutoSubmit: async (supplierId, enabled) => send("setAutoSubmit", { supplierId, enabled }),
     setRoster: async (buyerId, proIds, status) => void (await send("setRoster", { buyerId, proIds, status })),
     approveTimesheets: async (ids, reason) => send("approveTimesheets", { ids, reason }),
     correctTimesheet: async (id, times, reason) => send("correctTimesheet", { id, ...times, reason }),
@@ -342,6 +341,7 @@ export const useStore = create<StoreState>()((set, get) => {
     submitBid: async (eventId, lines, note) => send("submitBid", { eventId, lines, note }),
     counterBid: async (eventId, supplierId, lineId, ask, note) => (await send("counterBid", { eventId, supplierId, lineId, ask, note })) !== undefined,
     approveBids: async (eventId, supplierIds) => (await send("approveBids", { eventId, supplierIds })) ?? 0,
+    negotiateBids: async (eventId) => (await send("negotiateBids", { eventId })) ?? 0,
     decideBilling: async (id, decision, note) => (await send("decideBilling", { id, decision, note })) !== undefined,
     creditInvoice: async (id) => send("creditInvoice", { id }),
     closeWeekNow: async () => (await send("closeWeekNow", {} as never)) ?? [],

@@ -30,9 +30,9 @@ import {
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
-import { CATEGORY, activeCard, bidLine, buildLines, fiscalYear, latestBid, nextNumber, openCounters, responded } from "@/lib/sourcing"
+import { CATEGORY, IRIS, activeCard, bidLine, buildLines, counterPlan, fiscalYear, latestBid, nextNumber, openCounters, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
-import { billedOf, canEditBilled, change, duringShift, hoursFor, matchesClock, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
@@ -1235,6 +1235,38 @@ function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: strin
   }
 }
 
+/** Iris counters every bid above the market in one go, at the asks it planned. Each agency answers on its own. */
+function negotiateBids(data: DemoData, ctx: CommandContext, input: { eventId: string }): Outcome<number> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass negotiates bids.")
+  const ev = sourcingEvent(data, input?.eventId)
+  if (ev.status === "awarded") fail("This event is closed.")
+  const plan = counterPlan(ev)
+  if (!plan.length) fail("Every bid is at or below the market already.")
+  const messages: SourcingMessage[] = plan.map((c, i) => {
+    const line = ev.lines.find((l) => l.id === c.lineId)!
+    const role = position(line.positionId).name
+    return {
+      id: `${ev.id}-m${ev.messages.length + i + 1}`,
+      at: ctx.now,
+      by: IRIS,
+      supplierId: c.supplierId,
+      from: "compass",
+      text: `${role} is above the ${city(ev.cityId).name} market. Can you get to ${money(c.ask)}?`,
+      lineId: c.lineId,
+      ask: c.ask,
+      open: true,
+    }
+  })
+  const agencies = [...new Set(plan.map((c) => c.supplierId))]
+  return {
+    ...done(data, plan.length, withSourcing(data, { ...ev, messages: [...ev.messages, ...messages] })),
+    notices: agencies.map((s) => {
+      const n = plan.filter((c) => c.supplierId === s).length
+      return { text: `Iris countered ${n === 1 ? "one of your rates" : `${n} of your rates`} on ${ev.title} for Compass`, tone: "warning" as const, supplierId: s }
+    }),
+  }
+}
+
 /** Compass approves agencies' latest bids. Their prices go live on their rate cards, and the event closes once every bid is approved. */
 function approveBids(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierIds: string[] }): Outcome<number> {
   if (!isCompass(ctx.ws)) forbid("Only Compass approves bids.")
@@ -1473,44 +1505,6 @@ function setAgencyAutoFill(data: DemoData, ctx: CommandContext, input: { supplie
     null,
     { settings: { ...data.settings, pausedAgencies: [...paused] } },
     event(data, { text: `${actorName(ctx)} ${input.enabled ? "resumed" : "paused"} automatic staffing for ${s.shortName}`, actor: actorName(ctx), tone: "neutral", supplierId: s.id }, ctx.now),
-  )
-}
-
-/**
- * Lets an agency stop sending timesheets it has nothing to add to: drafts that match Iris's clock go for approval on
- * their own, starting with the ones waiting now. Only the exceptions are left for the agency.
- */
-function setAutoSubmit(data: DemoData, ctx: CommandContext, input: { supplierId: string; enabled: boolean }): Outcome<number> {
-  const s = need(findSupplier(str(input?.supplierId, "Agency")), "That agency doesn't exist")
-  if (!isSupplier(ctx.ws, s.id) && !isCompass(ctx.ws)) forbid("Only the agency can change how it sends its hours.")
-  const on = new Set(data.settings?.autoSubmit ?? [])
-  if (input.enabled) on.add(s.id)
-  else on.delete(s.id)
-  const by = actorName(ctx)
-  const theirs = data.timesheets.filter((t) => t.supplierId === s.id)
-  const ready = input.enabled ? theirs.filter((t) => matchesClock(t, theirs.filter((o) => o.proId === t.proId))) : []
-  const submitted = ready.map((t) => ({
-    ...t,
-    status: "pending_approval" as const,
-    submittedAt: ctx.now,
-    history: [...t.history, change(ctx.now, "Iris", "submitted", { note: `Matched Iris's clock, so it went in for ${s.shortName}` })],
-  }))
-  return done(
-    data,
-    submitted.length,
-    { settings: { ...data.settings, autoSubmit: [...on] }, ...(submitted.length ? { timesheets: replaceSheets(data, submitted) } : {}) },
-    event(
-      data,
-      {
-        text: input.enabled
-          ? `${by} set ${s.shortName}'s timesheets that match Iris's clock to go in on their own${submitted.length ? `, starting with ${plural(submitted.length, "timesheet")}` : ""}`
-          : `${by} turned off automatic timesheets for ${s.shortName}`,
-        actor: by,
-        tone: "primary",
-        supplierId: s.id,
-      },
-      ctx.now,
-    ),
   )
 }
 
@@ -1819,6 +1813,7 @@ export const COMMANDS = {
   createSourcingEvent,
   submitBid,
   counterBid,
+  negotiateBids,
   approveBids,
   completeRequirement,
   verifyRequirement,
@@ -1828,7 +1823,6 @@ export const COMMANDS = {
   resolveUpload,
   resetDemo,
   setAgencyAutoFill,
-  setAutoSubmit,
   saveReport,
   deleteReport,
   scheduleReport,

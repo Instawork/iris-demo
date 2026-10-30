@@ -9,7 +9,7 @@ import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { moneyYear } from "@/components/procurement/sourcing-bits"
 import { useData } from "@/hooks/use-app"
 import { pct } from "@/lib/format"
-import { SUPPLIERS } from "@/lib/reference"
+import { SUPPLIERS, vaTier } from "@/lib/reference"
 import { latestBid, termsNow, yearlySpend } from "@/lib/sourcing"
 import type { ContractTerms, SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -37,6 +37,24 @@ function Offered({ value, now, ev, better }: { value: string; now: string; ev?: 
   )
 }
 
+const tierLine = (tiers: [number, number][]) =>
+  tiers.map(([from, pct], i) => (i === 0 ? `${pct}%` : `${pct}% from ${moneyYear(from)}`)).join(" · ")
+
+/** The VA tier the agency's spend reaches, the next one up, and a better ladder it offered in an open event. */
+function VaCell({ tier, offer, ev }: { tier: ReturnType<typeof vaTier>; offer?: ContractTerms; ev?: SourcingEvent }) {
+  const offered = offer && ev && offer.vaPct > tier.pct
+  return (
+    <Tip content={offered ? `Offered in ${ev.number}: ${tierLine(offer.vaTiers ?? [[0, offer.vaPct]])}` : tierLine(tier.tiers)}>
+      <span className="flex cursor-default flex-col items-end">
+        <span className="font-medium tabular">{tier.pct ? `${tier.pct}%` : "None"}</span>
+        <span className={cn("text-caption-1 whitespace-nowrap", offered ? "text-positive-fg" : "text-faded")}>
+          {offered ? `${offer.vaPct}% offered` : tier.next ? `${tier.next.pct}% from ${moneyYear(tier.next.from)}` : "Top tier"}
+        </span>
+      </span>
+    </Tip>
+  )
+}
+
 export function Contracts() {
   const data = useData()
   const router = useRouter()
@@ -47,7 +65,8 @@ export function Contracts() {
     const spend = yearlySpend(data.rateCards, s.id)
     const ev = open.find((e) => !e.approved[s.id] && latestBid(e, s.id)?.terms)
     const offer: ContractTerms | undefined = ev && latestBid(ev, s.id)!.terms
-    return { s, now, spend, rebate: (spend * now.vaPct) / 100, ev, offer }
+    const tier = vaTier(now, spend)
+    return { s, now, spend, tier, rebate: (spend * tier.pct) / 100, ev, offer }
   }).sort((a, b) => b.spend - a.spend)
   const spend = rows.reduce((t, r) => t + r.spend, 0)
   const rebate = rows.reduce((t, r) => t + r.rebate, 0)
@@ -64,7 +83,7 @@ export function Contracts() {
               <th className={cn(th, "text-right")}>
                 <span className="inline-flex items-center gap-1">
                   VA
-                  <InfoTip>The rebate an agency pays Compass at year end, as a share of spend.</InfoTip>
+                  <InfoTip>The rebate an agency pays Compass at year end, as a share of spend. It steps up as the year&apos;s spend grows.</InfoTip>
                 </span>
               </th>
               <th className={cn(th, "text-right")}>Payment</th>
@@ -73,7 +92,7 @@ export function Contracts() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ s, now, spend, ev, offer }) => (
+            {rows.map(({ s, now, spend, tier, ev, offer }) => (
               <tr key={s.id} data-supplier={s.id} onClick={() => router.push(`/agencies/${s.id}`)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
                 <td className="px-3 py-2.5">
                   <span className="flex items-center gap-2.5">
@@ -83,7 +102,7 @@ export function Contracts() {
                 </td>
                 <td className="px-3 py-2.5 text-right tabular">{spend ? moneyYear(spend) : "—"}</td>
                 <td className="px-3 py-2.5 text-right">
-                  <Offered now={now.vaPct ? `${now.vaPct}%` : "None"} value={`${offer?.vaPct}%`} ev={offer && ev} better={!!offer && offer.vaPct > now.vaPct} />
+                  <VaCell tier={tier} offer={offer} ev={offer && ev} />
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <Offered now={`Net ${now.netDays}`} value={`Net ${offer?.netDays}`} ev={offer && ev} better={!!offer && offer.netDays > now.netDays} />

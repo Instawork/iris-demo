@@ -41,6 +41,7 @@ import {
   invoiceSubtotal,
   invoiceTips,
   invoiceTotal,
+  venueTips,
 } from "@/lib/metrics"
 import { buyer, costCenterOf, location, position, supplier, termsOf } from "@/lib/reference"
 import { useStore } from "@/lib/store"
@@ -74,7 +75,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const found = new Set(billingFindings(data, inv.id).map((f) => f.lineId))
   const credits = inv.credits ?? []
   const lines = [...byDate].sort((a, b) => Number(found.has(b.id)) - Number(found.has(a.id)) || Number(isHigh(b.id)) - Number(isHigh(a.id)))
-  const hasTips = lines.some((l) => l.tips > 0)
+  const tips = venueTips(byDate)
   const isOpen = status === "open"
   const canPay = ws.kind === "buyer" && invoiceBalance(inv) > 0 && status !== "in_process" && !isOpen
 
@@ -182,7 +183,6 @@ export function InvoiceDetail({ id }: { id: string }) {
                     <th className="px-3 py-2 font-medium">Date</th>
                     <th className="px-3 py-2 text-right font-medium">Hours</th>
                     <th className="px-3 py-2 text-right font-medium">Bill rate</th>
-                    {hasTips && <th className="px-3 py-2 text-right font-medium">Tips</th>}
                     <th className="px-3 py-2 text-right font-medium">Amount</th>
                   </tr>
                 </thead>
@@ -241,11 +241,29 @@ export function InvoiceDetail({ id }: { id: string }) {
                             money(l.billRate)
                           )}
                         </td>
-                        {hasTips && <td className="px-3 py-2.5 text-right tabular">{l.tips ? money(l.tips) : "—"}</td>}
-                        <td className="px-3 py-2.5 text-right font-semibold tabular">{money(l.amount + l.tips)}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold tabular">{money(l.amount)}</td>
                       </tr>
                     )
                   })}
+                  {tips.map((v) => (
+                    <tr key={v.key} className="border-t border-border/80" data-tour="venue-tips">
+                      <td className="px-3 py-2.5">
+                        <span className="flex flex-col">
+                          <span className="font-medium whitespace-nowrap">{location(v.locationId).name} tips</span>
+                          <span className="text-caption-1 whitespace-nowrap text-faded">No markup</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <Tip content={<TipSplit workers={v.workers} />}>
+                          <span className="cursor-default underline decoration-dotted underline-offset-4">{plural(v.workers.length, "worker")}</span>
+                        </Tip>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{formatDateShort(v.date)}</td>
+                      <td className="px-3 py-2.5 text-right tabular text-faded">—</td>
+                      <td className="px-3 py-2.5 text-right tabular text-faded">—</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular">{money(v.amount)}</td>
+                    </tr>
+                  ))}
                   {credits.map((c) => (
                     <tr key={c.id} className="border-t border-border/80 bg-positive-faded/50">
                       <td className="px-3 py-2.5">
@@ -258,7 +276,6 @@ export function InvoiceDetail({ id }: { id: string }) {
                       <td className="px-3 py-2.5 whitespace-nowrap">{formatDateShort(c.date)}</td>
                       <td className="px-3 py-2.5 text-right tabular">−{c.hours.toFixed(2)}</td>
                       <td className="px-3 py-2.5 text-right tabular text-faded">—</td>
-                      {hasTips && <td className="px-3 py-2.5 text-right tabular text-faded">—</td>}
                       <td className="px-3 py-2.5 text-right font-semibold tabular text-positive-fg">−{money(c.amount)}</td>
                     </tr>
                   ))}
@@ -299,7 +316,7 @@ export function InvoiceDetail({ id }: { id: string }) {
             <Row label="Labor" hint="Approved hours at the agency's bill rate for each shift's city and role.">
               {money(invoiceSubtotal(inv))}
             </Row>
-            <Row label="Tips" hint="Passed through to workers with no markup.">
+            <Row label="Tips" hint="One line per venue and day, passed through to the workers with no markup.">
               {money(invoiceTips(inv))}
             </Row>
             {credits.length > 0 && (
@@ -349,6 +366,20 @@ export function InvoiceDetail({ id }: { id: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+/** Who a venue's tip line goes to, to the cent. */
+export function TipSplit({ workers }: { workers: { proName: string; tips: number }[] }) {
+  return (
+    <span className="flex min-w-44 flex-col gap-0.5">
+      {workers.map((w, i) => (
+        <span key={`${w.proName}-${i}`} className="flex justify-between gap-4 tabular">
+          <span>{w.proName}</span>
+          <span>{money(w.tips)}</span>
+        </span>
+      ))}
+    </span>
   )
 }
 

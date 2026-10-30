@@ -9,7 +9,6 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
-import { InfoTip } from "@/components/common/info-tip"
 import { MultiSelectFilter, ResetFilters, SearchInput, SelectFilter } from "@/components/common/filters"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
@@ -18,7 +17,6 @@ import { ScanSheetDialog } from "@/components/timesheets/scan-sheet-dialog"
 import { ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { TimesheetSheet } from "@/components/timesheets/timesheet-sheet"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -29,7 +27,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { STATUS_LABEL, matchesClock, timesheetAmount, withAgency } from "@/lib/timesheets"
+import { STATUS_LABEL, readyToSubmit, timesheetAmount, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +67,7 @@ const DESCRIPTION: Record<PersonaKind, string> = {
   buyer:
     "Every worker's hours, checked against Iris's clock before you approve. Approve the clean ones together; for the rest, Iris proposes a fix. The work week runs Saturday to Friday, and approved hours are invoiced when it closes.",
   supplier:
-    "Iris drafts a timesheet for every finished shift from its own clock, so there's nothing to upload. Submit the ones that match in one click, or let them go on their own and handle only the exceptions.",
+    "Iris drafts a timesheet for every finished shift from its own clock. Anything that needs a look is at the top: fix those, then submit the rest together.",
   compass: "Every timesheet in the program, with Iris's clock beside what each agency billed and the buyer's decision.",
 }
 
@@ -150,16 +148,16 @@ export function TimesheetsPage() {
     all: () => true,
   }
   const listed = filtered.filter(matches[quick])
-  const rows = quick === "needs_approval" ? [...listed].sort(newestFirst).sort((a, b) => Number(isFlagged(b)) - Number(isFlagged(a))) : listed
-  const matching = kind === "supplier" ? filtered.filter((t) => matchesClock(t, filtered.filter((o) => o.proId === t.proId))) : []
-  const autoOn = !!ws.supplierId && !!data.settings?.autoSubmit?.includes(ws.supplierId)
-  const toggleAuto = async (on: boolean) => {
-    if (!ws.supplierId) return
-    const n = await useStore.getState().setAutoSubmit(ws.supplierId, on)
-    if (n === undefined) return
-    if (on) toast.success("Clock-matched timesheets now go in on their own", { description: n ? `${plural(n, "timesheet")} waiting went in just now. Only the exceptions stay with you.` : "Only the exceptions will wait for you." })
-    else toast("Timesheets wait for you again", { description: "Iris still drafts them from the clock." })
-  }
+  const readyIds = new Set(kind === "supplier" ? filtered.filter((t) => readyToSubmit(t, filtered.filter((o) => o.proId === t.proId))).map((t) => t.id) : [])
+  const ready = filtered.filter((t) => readyIds.has(t.id))
+  /** An agency's draft that isn't ready: it needs a look before it goes in. */
+  const needsLook = (t: Timesheet) => withAgency(t) && !readyIds.has(t.id)
+  const rows =
+    quick === "needs_approval"
+      ? [...listed].sort(newestFirst).sort((a, b) => Number(isFlagged(b)) - Number(isFlagged(a)))
+      : quick === "to_submit"
+        ? [...listed].sort(newestFirst).sort((a, b) => Number(needsLook(b)) - Number(needsLook(a)))
+        : listed
   const clean = rows.filter((t) => t.status === "pending_approval" && !isFlagged(t))
   const selectable = (t: Timesheet) =>
     kind === "buyer" ? t.status === "pending_approval" && !isFlagged(t) : kind === "supplier" ? withAgency(t) && !!t.clockIn && !!t.clockOut : false
@@ -346,21 +344,14 @@ export function TimesheetsPage() {
         description={DESCRIPTION[kind]}
         actions={
           <>
-            {kind === "supplier" && (
-              <label className="flex items-center gap-2 text-body-3 text-faded" data-tour="auto-submit">
-                <Switch checked={autoOn} onCheckedChange={toggleAuto} />
-                Auto-submit timesheets that match the clock
-                <InfoTip>When a worker&apos;s hours match Iris&apos;s clock exactly, Iris submits the timesheet to the buyer for you. Missing punches and hours that differ wait for you.</InfoTip>
-              </label>
-            )}
             {kind === "supplier" && ws.supplierId && (
               <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" onClick={() => setScanning(true)} data-tour="scan-sheet-open">
                 <ScanLine className="size-4" /> Scan a sign-in sheet
               </Button>
             )}
-            {kind === "supplier" && matching.length > 0 && (
-              <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={busy} onClick={() => submitMany(matching.map((t) => t.id))}>
-                <Send className="size-4" /> Submit {plural(matching.length, "timesheet")} that match the clock
+            {kind === "supplier" && ready.length > 0 && (
+              <Button className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold" disabled={busy} onClick={() => submitMany(ready.map((t) => t.id))} data-tour="submit-ready">
+                <Send className="size-4" /> Submit {plural(ready.length, "ready timesheet")}
               </Button>
             )}
             {kind === "buyer" && quick === "needs_approval" && clean.length > 0 && (
@@ -445,8 +436,10 @@ export function TimesheetsPage() {
           selected={selected}
           onSelectedChange={setSelected}
           onRowClick={(t) => setParams({ ts: t.id })}
-          rowClassName={(t) => (checks.get(t.id)?.some((c) => c.id === "above_clock") && t.status === "pending_approval" ? "tour-flagged" : undefined)}
-          initialSort={quick === "needs_approval" ? undefined : { id: "shift", dir: "desc" }}
+          rowClassName={(t) =>
+            checks.get(t.id)?.some((c) => c.id === "above_clock") && t.status === "pending_approval" ? "tour-flagged" : kind === "supplier" && needsLook(t) ? "bg-warning-faded/40" : undefined
+          }
+          initialSort={quick === "needs_approval" || (quick === "to_submit" && kind === "supplier") ? undefined : { id: "shift", dir: "desc" }}
           pageSize={25}
           empty={
             <EmptyState

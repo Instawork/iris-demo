@@ -413,22 +413,6 @@ export function AgenciesPage() {
       },
     },
     {
-      id: "pros",
-      header: "Workers",
-      align: "right",
-      sortValue: (s) => complianceScore(data, s.id).active,
-      cell: (s) => {
-        const c = complianceScore(data, s.id)
-        return c.onboarding ? (
-          <Tip content={`${c.onboarding} more onboarding`}>
-            <span className="font-medium">{c.active}</span>
-          </Tip>
-        ) : (
-          <span className="font-medium">{c.active}</span>
-        )
-      },
-    },
-    {
       id: "compliance",
       header: "Compliance",
       info: "Mostly the share of active workers cleared to work today; the rest is the share with no document expiring in the next 30 days.",

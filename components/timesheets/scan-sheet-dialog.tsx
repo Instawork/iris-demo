@@ -112,7 +112,7 @@ function ScanBody({ supplierId, onDone }: { supplierId: string; onDone: () => vo
             <Button variant="ghost" onClick={() => setPhase("sheet")}>
               Back to the sheet
             </Button>
-            <Button onClick={apply} disabled={busy || !changes.length} data-tour="scan-apply">
+            <Button onClick={apply} disabled={busy || !changes.length} data-tour="scan-apply" autoFocus>
               {changes.length ? `Update ${plural(changes.length, "timesheet")}` : "Nothing to update"}
             </Button>
           </>
@@ -121,7 +121,7 @@ function ScanBody({ supplierId, onDone }: { supplierId: string; onDone: () => vo
             <Button variant="ghost" onClick={onDone}>
               Cancel
             </Button>
-            <Button onClick={read} disabled={phase === "reading"} data-tour="scan-read">
+            <Button onClick={read} disabled={phase === "reading"} data-tour="scan-read" autoFocus>
               <ScanLine /> {phase === "reading" ? "Reading…" : "Read the sheet"}
             </Button>
           </>

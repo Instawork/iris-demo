@@ -5,9 +5,9 @@ import { invoiceApproved, issueOpen } from "@/lib/domain/invoicing"
 import { filledCount, groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { location, position, supplier } from "@/lib/reference"
-import { agencyAnswer } from "@/lib/sourcing"
-import { change, hoursFor, matchesClock, overtimeKey, partAt, splitForMove, weekClosed, withOvertime } from "@/lib/timesheets"
-import type { ClockRecord, DemoData, ShiftGroup, Slot, SourcingMessage, Timesheet } from "@/lib/types"
+import { IRIS, agencyAnswer, irisCounters } from "@/lib/sourcing"
+import { change, hoursFor, overtimeKey, partAt, splitForMove, weekClosed, withOvertime } from "@/lib/timesheets"
+import type { ClockRecord, DemoData, ShiftGroup, Slot, SourcingEvent, SourcingMessage, Timesheet } from "@/lib/types"
 
 /** How fast each agency staffs a shift when nobody is playing it: odds per tick, Pros per burst, and the share it can fill. */
 const PACE: Record<string, { chance: number; burst: [number, number]; cap: number }> = {
@@ -136,12 +136,6 @@ function closeShifts(data: DemoData, { now, simulated }: AdvanceOptions): { data
         counter++
         parts = parts.flatMap((t) => (t.id === current.id ? split : [t]))
       }
-      if (data.settings?.autoSubmit?.includes(supplierId))
-        parts = parts.map((t) =>
-          matchesClock(t)
-            ? { ...t, status: "pending_approval" as const, submittedAt: nowISO, history: [...t.history, change(nowISO, "Iris", "submitted", { note: `Matched Iris's clock, so it went in for ${sup.shortName}` })] }
-            : t,
-        )
       created.push(...parts)
       finished.set(g.id, (finished.get(g.id) ?? new Set()).add(slot.id))
     }
@@ -247,22 +241,34 @@ function answerSendBacks(data: DemoData, { now, simulated }: AdvanceOptions): { 
 
 /** Seconds a simulated agency takes to answer a counter. */
 const COUNTER_AFTER_SECONDS = 9
+/** Iris sends all her counters at once. Agencies answer them one after another, so the room sees them land. */
+const IRIS_FIRST_SECONDS = 4
+const IRIS_EACH_SECONDS = 0.9
 
 /** Agencies nobody is playing answer Compass's counters on their own: meet the ask, come down to their floor, or hold. */
 function answerCounters(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
   const events = data.sourcing ?? []
-  const due = (m: SourcingMessage) => m.open && simulated(m.supplierId) && now.getTime() - Date.parse(m.at) >= COUNTER_AFTER_SECONDS * 1000
-  if (!events.some((e) => e.status === "open" && e.messages.some(due))) return { data, notices: [] }
+  const after = (ev: SourcingEvent, m: SourcingMessage) =>
+    m.by === IRIS ? IRIS_FIRST_SECONDS + ev.messages.filter((x) => x.by === IRIS && x.at === m.at).indexOf(m) * IRIS_EACH_SECONDS : COUNTER_AFTER_SECONDS
+  const due = (ev: SourcingEvent) => (m: SourcingMessage) => m.open && simulated(m.supplierId) && now.getTime() - Date.parse(m.at) >= after(ev, m) * 1000
+  if (!events.some((e) => e.status === "open" && e.messages.some(due(e)))) return { data, notices: [] }
   const notices: Notice[] = []
   const nowISO = now.toISOString()
   const sourcing = events.map((ev) => {
     if (ev.status !== "open") return ev
     let next = ev
-    for (const counter of ev.messages.filter(due)) {
+    const irisWasWaiting = irisCounters(ev).some((c) => c.outcome === "waiting")
+    for (const counter of ev.messages.filter(due(ev))) {
       const answer = agencyAnswer(next, counter, nowISO)
       if (!answer) continue
       next = answer.event
-      notices.push({ text: answer.text, tone: "info", workspaceIds: ["ws-compass"] })
+      if (counter.by !== IRIS) notices.push({ text: answer.text, tone: "info", workspaceIds: ["ws-compass"] })
+    }
+    const iris = irisCounters(next)
+    if (irisWasWaiting && !iris.some((c) => c.outcome === "waiting")) {
+      const count = (o: string) => iris.filter((c) => c.outcome === o).length
+      const parts = [count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter(Boolean)
+      notices.push({ text: `Iris finished negotiating ${ev.title}: ${joinNames(parts as string[])}`, tone: "success", workspaceIds: ["ws-compass"] })
     }
     return next
   })

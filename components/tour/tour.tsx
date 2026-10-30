@@ -58,6 +58,7 @@ type View =
   | { mode: "lost" }
   | { mode: "away" }
   | { mode: "paused" }
+  | { mode: "preparing" }
 
 function contextNow(): TourContext {
   const { workspaceId, data } = useStore.getState()
@@ -245,7 +246,19 @@ const partKey = (e: KeyboardEvent, chapter?: ChapterId): ChapterId | undefined =
   return partBeside(chapter, e.key === "ArrowLeft" ? -1 : 1)
 }
 
-/** Moves the tour to any step, back or ahead. Whatever is open closes, and the page and side follow. */
+const baseNow = () => {
+  const { counters } = useStore.getState().data
+  return { sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() }
+}
+
+/** The step Iris is still setting up after a jump, by playing the step it needs. */
+let preparing: string | undefined
+
+/**
+ * Moves the tour to any step, back or ahead. Whatever is open closes, the page and side follow, and the step judges
+ * only what's done from here on. A step that acts on an earlier one, like a draft the question before it asked for,
+ * gets that played for the player first.
+ */
 async function jumpTo(index: number, push: (href: string) => void) {
   const item = SCRIPT[index]
   if (!item) return
@@ -256,7 +269,24 @@ async function jumpTo(index: number, push: (href: string) => void) {
   const href = item.href(contextNow())
   push(href)
   await Promise.all([switching, arrivedAt(href)])
+  if (item.startsChat) useAgentThreads.getState().clear(item.wsId)
+  useTour.getState().rebase(baseNow())
+  const need = item.needs ? STEPS.find((s) => s.id === item.needs) : undefined
+  const setUp = need && !need.done?.(contextNow()) ? need : undefined
+  if (setUp?.startsChat) useAgentThreads.getState().clear(item.wsId)
+  preparing = setUp ? item.id : undefined
   useTour.getState().go(index)
+  if (!setUp) return
+  const at = useTour.getState().enteredAt
+  // The step being left stops Iris as it unmounts; start once it has.
+  await new Promise((resolve) => window.setTimeout(resolve, 120))
+  try {
+    await setUp.skip(contextNow(), { push, remember: (patch) => useTour.getState().remember(patch), now: contextNow })
+  } catch (error) {
+    if (!pilotStopped(error)) throw error
+  } finally {
+    if (useTour.getState().enteredAt === at) preparing = undefined
+  }
 }
 
 /** Enter belongs to a text box with something in it, which sends or breaks the line, and to widgets that pick with it. Otherwise it's the tour's. */
@@ -297,6 +327,7 @@ function StepScreen({ step }: { step: TourStep }) {
       const t = performance.now()
       ranAt = t
       if (finished) return
+      if (preparing === step.id) return update({ mode: "preparing" })
       const ctx = contextNow()
       if (t - checkedAt > 120) {
         checkedAt = t
@@ -366,7 +397,7 @@ function StepScreen({ step }: { step: TourStep }) {
   const ready = view.view.mode === "ready" ? view.view : undefined
   const party = celebrate?.step === step.id && celebrate.at === enteredAt ? celebrate : undefined
   const done = party?.message
-  const showCard = mode === "ready" || mode === "lost" || !!party
+  const showCard = mode === "ready" || mode === "lost" || mode === "preparing" || !!party
   const anchor = mode === "ready" ? ready?.boxes[0] : undefined
   const pos = place(mode === "ready" ? (ready?.anchor ?? anchor) : undefined, cardSize, step.placement, vp.w, vp.h, anchor)
 
@@ -601,6 +632,7 @@ function StepCard({
   const body = text(step.body, ctx)
   const status = step.status?.(ctx)
   const lost = mode === "lost"
+  const preparing = mode === "preparing"
   const [parts, setParts] = useState(false)
   const played = useTour((s) => s.done)
 
@@ -636,58 +668,16 @@ function StepCard({
 
       {/* Swapped at once rather than after an exit: a page mid-navigation can hold an exit open and leave the old step on screen. */}
         {parts ? (
-          <ul className="flex flex-col px-2 pt-2" aria-label="Parts">
-            {CHAPTER_ORDER.map((id) => {
-              const c = CHAPTERS[id]
-              const current = id === step.chapter
-              return (
-                <li key={id}>
-                  <button
-                    type="button"
-                    onClick={() => openPart(id)}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px] font-medium transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
-                      current ? "text-background" : "text-background/70",
-                    )}
-                  >
-                    <c.icon className="size-3.5 shrink-0 text-background/50" strokeWidth={2.2} />
-                    {c.label}
-                    {current && <span className="ml-auto text-[11.5px] text-background/45">Restart</span>}
-                  </button>
-                  {current && (
-                    <ol className="mb-1 ml-[15px] flex flex-col border-l border-background/15 pl-1.5" aria-label="Steps">
-                      {STEPS.filter((s) => s.chapter === id).map((s) => {
-                        const here = s.id === step.id
-                        return (
-                          <li key={s.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setParts(false)
-                                if (!here) onJump(indexOf(s.id))
-                              }}
-                              aria-current={here ? "step" : undefined}
-                              className={cn(
-                                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[12.5px] transition-colors outline-none hover:bg-background/10 focus-visible:bg-background/10",
-                                here ? "bg-background/10 font-semibold text-background" : "text-background/60",
-                              )}
-                            >
-                              {played.includes(s.id) ? (
-                                <Check className="size-3 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={3} />
-                              ) : (
-                                <span className={cn("mx-[3px] size-1.5 shrink-0 rounded-full", here ? "bg-brand" : "bg-background/30")} />
-                              )}
-                              {s.label}
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ol>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
+          <PartList
+            dark
+            initial={step.chapter}
+            here={step.id}
+            played={played}
+            onStep={(s) => {
+              setParts(false)
+              if (s.id !== step.id) onJump(indexOf(s.id))
+            }}
+          />
         ) : done ? (
           <motion.div
             key="done"
@@ -720,10 +710,10 @@ function StepCard({
                 {status}
               </p>
             )}
-            {filling ? (
+            {filling || preparing ? (
               <p className="flex items-center gap-2 px-4 pt-3 text-[12.5px] font-medium text-brand dark:text-brand-foreground">
                 <WandSparkles className="size-3.5 shrink-0 animate-pulse" />
-                Iris is filling it in
+                {preparing ? "Iris is setting it up" : "Iris is filling it in"}
               </p>
             ) : (
               !lost &&
@@ -748,7 +738,7 @@ function StepCard({
           </StepArrow>
         </span>
         <span className="ml-auto flex items-center gap-1">
-          {flying ? null : done || (!action && !step.example) ? (
+          {flying || preparing ? null : done || (!action && !step.example) ? (
             <CardButton onClick={onNext}>
               Next <ArrowRight className="size-3.5" />
             </CardButton>
@@ -866,14 +856,13 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
   const router = useRouter()
   const exit = () => useTour.getState().exit()
 
-  const start = (chapter?: ChapterId) => {
+  const [starting, setStarting] = useState<string>()
+
+  /** Resets the demo and opens the tour at `at`, or at the first part. */
+  const start = (at?: number) => {
     useAgentThreads.setState({ threads: {} })
     useUi.setState({ welcomeSeen: { buyer: true, supplier: true, compass: true }, agentOpen: false })
-    const baseNow = () => {
-      const { counters } = useStore.getState().data
-      return { sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() }
-    }
-    useTour.getState().begin(baseNow(), chapter && startOf(chapter))
+    useTour.getState().begin(baseNow(), at)
     resetting = useStore
       .getState()
       .resetDemo()
@@ -881,6 +870,15 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
       .finally(() => {
         resetting = undefined
       })
+  }
+
+  /** Starts at a step. The first step of a part starts at its card, which sets the side. */
+  const startAt = async (step: TourStep) => {
+    if (STEPS.find((s) => s.chapter === step.chapter) === step) return start(startOf(step.chapter))
+    setStarting(step.id)
+    start(index)
+    await resetting
+    await jumpTo(indexOf(step.id), router.push)
   }
 
   const play = async (chapter: TourChapter) => {
@@ -952,7 +950,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
         exit={{ opacity: 0, y: -6, scale: 0.98, transition: { duration: 0.12 } }}
         transition={{ duration: 0.28, ease: EASE }}
       >
-        {item.kind === "intro" && <IntroCard onStart={start} onClose={exit} />}
+        {item.kind === "intro" && <IntroCard onStart={() => start()} onStartAt={(step) => void startAt(step)} starting={starting} onClose={exit} />}
         {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} />}
         {item.kind === "finale" && <FinaleCard onReplay={() => useTour.getState().open()} onClose={exit} />}
       </motion.div>
@@ -969,59 +967,111 @@ function Glow() {
   )
 }
 
-function IntroCard({ onStart, onClose }: { onStart: (chapter?: ChapterId) => void; onClose: () => void }) {
+function IntroCard({ onStart, onStartAt, starting, onClose }: { onStart: () => void; onStartAt: (step: TourStep) => void; starting?: string; onClose: () => void }) {
   return (
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
         <Glow />
-        <span className="relative text-[12px] font-medium text-muted-foreground">Guided demo</span>
-        <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-[1.15] font-semibold tracking-tight text-balance">
-          The program, end to end
+        <h2 id="tour-card-title" className="relative font-heading text-[28px] leading-[1.15] font-semibold tracking-tight">
+          Guided demo
         </h2>
-        <p className="relative mt-1 text-[15px] text-muted-foreground">Pick a part, or play all five.</p>
       </div>
-      <ol className="mx-7 flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
-        {CHAPTER_ORDER.map((id, i) => {
-          const c = CHAPTERS[id]
-          return (
-            <motion.li
-              key={id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: EASE, delay: 0.1 + i * 0.05 }}
-            >
-              <button
-                type="button"
-                onClick={() => onStart(id)}
-                data-tour-part={id}
-                className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors outline-none hover:bg-hover focus-visible:bg-hover"
-              >
-                <c.icon className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={1.9} />
-                <span className="text-[14px] font-semibold">{c.label}</span>
-                <span className="ml-auto font-mono text-[12px] text-subtle group-hover:hidden group-focus-visible:hidden">0{c.number}</span>
-                <span className="ml-auto hidden items-center gap-1 text-[12.5px] font-medium group-hover:flex group-focus-visible:flex">
-                  Play <ArrowRight className="size-3.5" />
-                </span>
-              </button>
-            </motion.li>
-          )
-        })}
-      </ol>
-      <div className="mx-7 mt-4 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground">
-        You play each side:
-        <SideBadge kind="buyer" size="sm" />
-        <SideBadge kind="supplier" size="sm" />
-        <SideBadge kind="compass" size="sm" />
+      <div className="mx-7">
+        <PartList busy={starting} onStep={onStartAt} />
       </div>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onClose}>
           Not now
         </Button>
-        <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={() => onStart()} autoFocus>
+        <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onStart} autoFocus>
           Play all <ArrowRight className="size-4" />
         </Button>
       </div>
     </>
+  )
+}
+
+/** The five parts, each opening onto its steps. Any step starts the tour there. */
+function PartList({
+  dark,
+  initial,
+  here,
+  played = [],
+  busy,
+  onStep,
+}: {
+  /** On the dark step card rather than the light start card. */
+  dark?: boolean
+  initial?: ChapterId
+  here?: string
+  played?: string[]
+  busy?: string
+  onStep: (step: TourStep) => void
+}) {
+  const [open, setOpen] = useState<ChapterId | undefined>(initial)
+  return (
+    <ul className={cn("flex flex-col", dark ? "px-2 pt-2" : "divide-y divide-border overflow-hidden rounded-xl border border-border")} aria-label="Parts">
+      {CHAPTER_ORDER.map((id) => {
+        const c = CHAPTERS[id]
+        const expanded = open === id
+        return (
+          <li key={id}>
+            <button
+              type="button"
+              onClick={() => setOpen(expanded ? undefined : id)}
+              aria-expanded={expanded}
+              data-tour-part={id}
+              className={cn(
+                "flex w-full items-center text-left font-medium transition-colors outline-none",
+                dark
+                  ? cn("gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] hover:bg-background/10 focus-visible:bg-background/10", expanded ? "text-background" : "text-background/70")
+                  : "gap-3 px-4 py-2.5 text-[14px] font-semibold hover:bg-hover focus-visible:bg-hover",
+              )}
+            >
+              <c.icon className={cn("shrink-0", dark ? "size-3.5 text-background/50" : "size-[18px] text-muted-foreground")} strokeWidth={dark ? 2.2 : 1.9} />
+              {c.label}
+              <ChevronDown className={cn("ml-auto size-3.5 shrink-0 transition-transform", dark ? "text-background/45" : "text-subtle", expanded && "rotate-180")} />
+            </button>
+            {expanded && (
+              <ol className={cn("flex flex-col", dark ? "mb-1 ml-[15px] border-l border-background/15 pl-1.5" : "pb-2 pl-[42px] pr-2")} aria-label="Steps">
+                {STEPS.filter((s) => s.chapter === id).map((s) => {
+                  const current = s.id === here
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onClick={() => onStep(s)}
+                        disabled={!!busy}
+                        aria-current={current ? "step" : undefined}
+                        data-tour-jump={s.id}
+                        className={cn(
+                          "group flex w-full items-center gap-2 rounded-md text-left transition-colors outline-none",
+                          dark
+                            ? cn("px-2 py-1 text-[12.5px] hover:bg-background/10 focus-visible:bg-background/10", current ? "bg-background/10 font-semibold text-background" : "text-background/60")
+                            : "px-2 py-1.5 text-[13.5px] text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:bg-hover disabled:opacity-60",
+                        )}
+                      >
+                        {dark && played.includes(s.id) ? (
+                          <Check className="size-3 shrink-0 text-brand dark:text-brand-foreground" strokeWidth={3} />
+                        ) : (
+                          <span className={cn("mx-[3px] size-1.5 shrink-0 rounded-full", current ? "bg-brand" : dark ? "bg-background/30" : "bg-foreground/20")} />
+                        )}
+                        {s.label}
+                        {!dark && (
+                          <span className={cn("ml-auto items-center gap-1 text-[12.5px] font-medium text-foreground", busy === s.id ? "flex" : "hidden group-hover:flex group-focus-visible:flex")}>
+                            {busy === s.id ? "Starting" : "Play"} <ArrowRight className="size-3.5" />
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

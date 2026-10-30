@@ -29,7 +29,7 @@ export interface SheetMatch {
 const paidMinutes = (from: string, to: string, breakMins: number) => spanMinutes(from, to) - breakMins
 const roundTo5 = (hhmm: string) => hhmmFromMinutes(Math.round(minutesOf(hhmm) / 5) * 5)
 
-const unpunched = (sheets: Timesheet[]) => sheets.some((t) => !t.clockIn || !t.clockOut || !t.clock?.in || !t.clock.out)
+const unpunched = (sheets: Timesheet[]) => sheets.filter((t) => !t.clockIn || !t.clockOut || !t.clock?.in || !t.clock.out).length
 
 /** Shifts where the agency still has hours to submit, ones with a missing punch first. */
 export function sheetShifts(data: DemoData, supplierId: string): { group: ShiftGroup; sheets: Timesheet[] }[] {
@@ -38,7 +38,7 @@ export function sheetShifts(data: DemoData, supplierId: string): { group: ShiftG
   return [...open.entries()]
     .map(([id, sheets]) => ({ group: data.groups.find((g) => g.id === id), sheets }))
     .filter((x): x is { group: ShiftGroup; sheets: Timesheet[] } => !!x.group && x.sheets.length >= 2)
-    .sort((a, b) => Number(unpunched(b.sheets)) - Number(unpunched(a.sheets)) || b.group.date.localeCompare(a.group.date) || b.sheets.length - a.sheets.length)
+    .sort((a, b) => unpunched(b.sheets) - unpunched(a.sheets) || b.group.date.localeCompare(a.group.date) || b.sheets.length - a.sheets.length)
     .slice(0, 6)
 }
 

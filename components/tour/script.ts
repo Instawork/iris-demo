@@ -6,11 +6,11 @@ import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
-import { fullName, plural } from "@/lib/format"
-import { benchmark } from "@/lib/market"
+import { fullName, moneyCompact, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
-import { buyer, location, position, supplier } from "@/lib/reference"
-import { clockHours, matchesClock, timesheetChecks, withAgency } from "@/lib/timesheets"
+import { buyer, location, position } from "@/lib/reference"
+import { irisCounters } from "@/lib/sourcing"
+import { clockHours, timesheetChecks } from "@/lib/timesheets"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
 
@@ -70,6 +70,10 @@ export interface TourStep {
   success?: (ctx: TourContext) => string
   /** Where to return when the target disappears, like a dialog the player closed. */
   back?: string
+  /** The step that sets this one up, like the question whose answer it acts on. Played for the player when they jump here. */
+  needs?: string
+  /** Starts from an empty chat, so the answer it waits for is the one the player asks for. */
+  startsChat?: boolean
   /** Fills in the screen the player is on, and returns the button they click to move on. */
   fill?: {
     when: (ctx: TourContext) => boolean
@@ -305,15 +309,16 @@ async function fillUnit() {
 
 const EVENT = "rfp-chi-27"
 const event = (ctx: TourContext) => ctx.data.sourcing?.find((e) => e.id === EVENT)
-const BARTENDER_ROW = '[data-tour="role-row"][data-position="bartender"]'
-const bidRows = () => [...document.querySelectorAll('[role="dialog"] [data-tour="bid-row"][data-position="bartender"]')]
-/** The highest bid on Bartender Compass can still counter. */
-const counterable = () => bidRows().filter((row) => row.querySelector('[data-tour="counter"], [data-tour="send-counter"]')).pop()
-const counteredSince = (ctx: TourContext) => event(ctx)?.messages.find((m) => m.from === "compass" && m.ask !== undefined && m.at >= ctx.base.at)
+/** The counters Iris sent during the tour, and how many the agencies have answered. */
+const irisSince = (ctx: TourContext) => {
+  const ev = event(ctx)
+  return ev ? irisCounters(ev).filter((c) => c.message.at >= ctx.base.at) : []
+}
+const answered = (ctx: TourContext) => irisSince(ctx).filter((c) => c.outcome !== "waiting").length
+const negotiated = (ctx: TourContext) => irisSince(ctx).length > 0 && answered(ctx) === irisSince(ctx).length
 const approvedSince = (ctx: TourContext) => Object.values(event(ctx)?.approved ?? {}).filter((at) => at >= ctx.base.at).length
 const approveDialog = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector("h2")?.textContent?.trim() === "Approve bids")
 const approveButton = () => [...(approveDialog()?.querySelectorAll("button") ?? [])].find((b) => /^Approve \d/.test(b.textContent?.trim() ?? ""))
-const closeSheet = () => (one('[data-slot="sheet-content"] [data-slot="sheet-close"]') as HTMLElement | null)?.click()
 
 /* ------------------------------ Shift creation ----------------------------- */
 
@@ -362,7 +367,25 @@ async function typeAsk(text: string) {
 /** The question box is free: nothing typed, and Iris isn't still answering. */
 const canAsk = (ctx: TourContext) => !!COMPOSER() && !composerText() && !useAgentThreads.getState().thinking[ctx.wsId]
 
-const hasDraft = (ctx: TourContext) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === "create-shift"))
+const offers = (ctx: TourContext, kind: string) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === kind))
+const hasDraft = (ctx: TourContext) => offers(ctx, "create-shift")
+
+/** Sends a question for the player and waits for the answer the next step acts on. */
+const askFor = (text: () => string, ready: (ctx: TourContext) => boolean) => async (_: TourContext, api: TourApi) => {
+  await until(() => COMPOSER(), 8000)
+  compose(COMPOSER_ID, text(), true)
+  await until(() => ready(api.now()), 15000)
+}
+
+/* -------------------------------- Assigning -------------------------------- */
+
+const assignAsk = () => "Assign workers to my open shifts"
+
+/** Spots Metro filled during the tour. */
+const assignedSince = (ctx: TourContext) => {
+  const metro = new Set(ctx.data.pros.filter((p) => p.supplierId === "metro").map((p) => p.id))
+  return ctx.data.groups.reduce((n, g) => n + g.slots.filter((s) => !!s.proId && metro.has(s.proId) && !!s.confirmedAt && s.confirmedAt >= ctx.base.at).length, 0)
+}
 
 /* ------------------------------- Compliance -------------------------------- */
 
@@ -433,12 +456,8 @@ async function attest() {
 
 const SCAN = '[data-tour="scan-sheet"]'
 
-/** Harbor's timesheets still with Harbor, and the ones that match Iris's clock exactly. */
-const harborDrafts = (data: DemoData) => {
-  const mine = data.timesheets.filter((t) => t.supplierId === "harbor")
-  const waiting = mine.filter(withAgency)
-  return { waiting, matching: waiting.filter((t) => matchesClock(t, mine.filter((o) => o.proId === t.proId))) }
-}
+const submitAsk = () => "Submit this week's timesheets"
+const submittedSince = (ctx: TourContext) => ctx.data.timesheets.filter((t) => t.supplierId === "harbor" && !!t.submittedAt && t.submittedAt >= ctx.base.at).length
 
 const scannedSince = (ctx: TourContext) =>
   ctx.data.timesheets.filter((t) => t.supplierId === "harbor" && t.history.some((h) => h.at >= ctx.base.at && `${h.note ?? ""} ${h.reason ?? ""}`.includes("sign-in sheet"))).length
@@ -562,50 +581,34 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "counter",
+    id: "negotiate",
     chapter: "onboarding",
-    label: "Counter a bid",
+    label: "Negotiate every bid",
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
-    title: () => (bidRows().length ? "Counter the highest bid" : "Next year's rates, against the market"),
-    body: () => (bidRows().length ? "Iris suggests the ask from the market and the other bids." : `Each role's bids next to what ${benchmark("chi", "bartender").agencies} Chicago agencies charge, ranked after VA.`),
-    action: () => (one('[data-tour="send-counter"]') ? "Click Send" : bidRows().length ? "Click Counter, then Send" : "Open Bartender"),
-    targets: () => (bidRows().length ? [counterable()] : [one(BARTENDER_ROW)]),
-    clicks: () => (bidRows().length ? (inside(counterable(), '[data-tour="send-counter"]') ?? inside(counterable(), '[data-tour="counter"]')) : one(BARTENDER_ROW)),
+    title: (ctx) => (irisSince(ctx).length ? "Iris is negotiating" : "Every bid above the market, countered at once"),
+    action: (ctx) => (irisSince(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
+    targets: () => [one('[data-tour="iris-negotiate"]')],
+    clicks: () => one('[data-tour="negotiate"]'),
     placement: "left",
-    anchor: () => (bidRows().length ? one('[data-slot="sheet-content"]') : undefined),
-    done: (ctx) => !!counteredSince(ctx),
-    success: (ctx) => `Counter sent to ${supplier(counteredSince(ctx)!.supplierId).shortName}`,
-    onDone: () => closeSheet(),
-    fill: {
-      when: () => !!counterable() && !one('[data-tour="send-counter"]'),
-      run: async () => {
-        const row = counterable()
-        await press(inside(row, '[data-tour="counter"]'))
-        return until(() => inside(row, '[data-tour="send-counter"]'))
-      },
-    },
-    skip: async () => {
-      if (!bidRows().length) {
-        await press(one(BARTENDER_ROW))
-        await until(() => counterable())
-        await sleep(500)
-      }
-      const row = counterable()
-      if (!row?.querySelector('[data-tour="send-counter"]')) await press(inside(row, '[data-tour="counter"]'))
-      await press(await until(() => inside(row, '[data-tour="send-counter"]')))
+    status: (ctx) => (irisSince(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSince(ctx).length} answered` : undefined),
+    done: negotiated,
+    success: (ctx) => `Saved ${moneyCompact(irisSince(ctx).reduce((sum, c) => sum + c.saves, 0))} a year`,
+    skip: async (_, api) => {
+      if (!irisSince(api.now()).length) await press(one('[data-tour="negotiate"]'))
+      await until(() => negotiated(api.now()), 30000)
     },
   },
   {
     kind: "step",
     id: "approve",
     chapter: "onboarding",
-    label: "Approve the rest",
+    label: "Approve the best bids",
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
-    title: "Approve the rest",
+    title: "Approve the best bids",
     body: "Approved bids go live on each agency's rate card.",
     action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
     targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
@@ -629,7 +632,7 @@ export const SCRIPT: TourItem[] = [
     path: /^\/procurement$/,
     href: () => "/procurement?tab=contracts",
     title: "Every contract, with the new terms",
-    body: "Each agency's VA, payment terms and length.",
+    body: "VA steps up as an agency's spend grows.",
     targets: () => [one('[data-tour="contracts"]')],
     placement: "bottom",
     skip: () => undefined,
@@ -662,10 +665,8 @@ export const SCRIPT: TourItem[] = [
     placement: "top",
     done: (ctx) => hasDraft(ctx) || !!booked(ctx),
     success: () => "Draft ready",
-    skip: async (_, api) => {
-      compose(COMPOSER_ID, askExample(), true)
-      await until(() => hasDraft(api.now()), 15000)
-    },
+    startsChat: true,
+    skip: askFor(askExample, hasDraft),
   },
   {
     kind: "step",
@@ -685,6 +686,7 @@ export const SCRIPT: TourItem[] = [
     success: () => "Shifts posted",
     onDone: (_, api) => api.push("/shifts/new"),
     back: "ask",
+    needs: "ask",
     skip: async (_, api) => {
       await press(last('[data-tour="agent-create-shift"]'))
       await until(() => booked(api.now()))
@@ -728,6 +730,57 @@ export const SCRIPT: TourItem[] = [
       if (!one(DISPATCH)) await press(one('[data-tour="booking-review"]'))
       await pickTwo()
       await press(one('[data-tour="booking-post"]'))
+    },
+  },
+  {
+    kind: "chapter",
+    id: "chapter-assign",
+    chapter: "shifts",
+    title: "The agency staffs it",
+    wsId: METRO,
+    href: "/",
+    shows: "Every open shift filled in one message.",
+  },
+  {
+    kind: "step",
+    id: "assign-ask",
+    chapter: "shifts",
+    label: "Assign workers",
+    wsId: METRO,
+    path: /^\/$/,
+    href: () => "/",
+    title: "Staff every open shift",
+    action: "Send it with Enter",
+    example: assignAsk,
+    targets: () => [COMPOSER()],
+    clicks: sendButton,
+    fill: { when: canAsk, run: () => typeAsk(assignAsk()) },
+    placement: "top",
+    done: (ctx) => offers(ctx, "assign-workers") || assignedSince(ctx) > 0,
+    success: () => "Plan ready",
+    startsChat: true,
+    skip: askFor(assignAsk, (ctx) => offers(ctx, "assign-workers")),
+  },
+  {
+    kind: "step",
+    id: "assign",
+    chapter: "shifts",
+    label: "Confirm them",
+    wsId: METRO,
+    path: /^\/$/,
+    href: () => "/",
+    title: "Check the picks, then assign",
+    action: () => `Click ${last('[data-tour="agent-assign-workers"]')?.textContent?.trim() || "Assign"}`,
+    targets: () => [last('[data-tour="agent-plan"]')],
+    clicks: () => last('[data-tour="agent-assign-workers"]'),
+    placement: "right",
+    done: (ctx) => assignedSince(ctx) > 0,
+    success: (ctx) => `${plural(assignedSince(ctx), "worker")} booked`,
+    back: "assign-ask",
+    needs: "assign-ask",
+    skip: async (_, api) => {
+      await press(last('[data-tour="agent-assign-workers"]'))
+      await until(() => assignedSince(api.now()) > 0)
     },
   },
 
@@ -804,13 +857,15 @@ export const SCRIPT: TourItem[] = [
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: () => (one('[data-tour="scan-apply"]') ? "Matched to workers, checked against the clock" : one(SCAN) ? "Iris reads it" : "Venue still on paper?"),
+    title: () => (one('[data-tour="scan-apply"]') ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "First, what doesn't match the clock"),
+    body: () => (one(SCAN) ? undefined : "It's at the top. Here, a venue that still signs in on paper."),
     action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
     targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
     clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : one('[data-tour="scan-sheet-open"]')),
     placement: "right",
     done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
+    onDone: (_, api) => api.push("/"),
     skip: async () => {
       if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
       if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
@@ -821,24 +876,45 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "auto-submit",
+    id: "submit-ask",
     chapter: "timesheets",
-    label: "Auto-submit",
+    label: "Submit in a sentence",
     wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "Already drafted from the clock",
-    body: (ctx) => {
-      const { waiting, matching } = harborDrafts(ctx.data)
-      return waiting.length ? `${matching.length} of ${waiting.length} match it exactly.` : undefined
+    path: /^\/$/,
+    href: () => "/",
+    title: "Then submit the rest at once",
+    action: "Send it with Enter",
+    example: submitAsk,
+    targets: () => [COMPOSER()],
+    clicks: sendButton,
+    fill: { when: canAsk, run: () => typeAsk(submitAsk()) },
+    placement: "top",
+    done: (ctx) => offers(ctx, "submit-timesheets") || submittedSince(ctx) > 0,
+    success: () => "Checked against the clock",
+    startsChat: true,
+    skip: askFor(submitAsk, (ctx) => offers(ctx, "submit-timesheets")),
+  },
+  {
+    kind: "step",
+    id: "submit",
+    chapter: "timesheets",
+    label: "Submit them",
+    wsId: HARBOR,
+    path: /^\/$/,
+    href: () => "/",
+    title: "One click for the week",
+    action: () => `Click ${last('[data-tour="agent-submit-timesheets"]')?.textContent?.trim() || "Submit"}`,
+    targets: () => [last('[data-tour="agent-plan"]')],
+    clicks: () => last('[data-tour="agent-submit-timesheets"]'),
+    placement: "right",
+    done: (ctx) => submittedSince(ctx) > 0,
+    success: (ctx) => `${plural(submittedSince(ctx), "timesheet")} submitted`,
+    back: "submit-ask",
+    needs: "submit-ask",
+    skip: async (_, api) => {
+      await press(last('[data-tour="agent-submit-timesheets"]'))
+      await until(() => submittedSince(api.now()) > 0)
     },
-    action: "Turn on Auto-submit",
-    targets: () => [one('[data-tour="auto-submit"]')],
-    clicks: () => inside('[data-tour="auto-submit"]', '[role="switch"]'),
-    placement: "bottom",
-    done: (ctx) => !!ctx.data.settings?.autoSubmit?.includes("harbor"),
-    success: () => "Matching timesheets now submit themselves",
-    skip: () => press(inside('[data-tour="auto-submit"]', '[role="switch"]')),
   },
   {
     kind: "chapter",
@@ -961,11 +1037,32 @@ export const SCRIPT: TourItem[] = [
       return [g && one(`tr[data-row-id="${g.id}"]`)]
     },
     placement: "right",
-    onDone: (_, api) => api.push("/"),
     skip: async (ctx, api) => {
       const g = thisMonth(ctx.data)
       if (g) api.push(`/invoices/groups/${g.id}`)
     },
+  },
+  {
+    kind: "step",
+    id: "tips",
+    chapter: "reporting",
+    label: "Tips",
+    wsId: COMPASS,
+    path: /^\/invoices\/groups\/[^/]+$/,
+    href: (ctx) => {
+      const g = thisMonth(ctx.data)
+      return g ? `/invoices/groups/${g.id}` : "/invoices"
+    },
+    title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
+    body: () => (one('[data-tour="venue-tips"]') ? "Passed through with no markup. Hover for each worker's share." : undefined),
+    action: () => (one('[data-tour="venue-tips"]') ? undefined : "Click Tips"),
+    targets: () => {
+      const rows = [...document.querySelectorAll('[data-tour="venue-tips"]')].slice(0, 3)
+      return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
+    },
+    placement: "bottom",
+    onDone: (_, api) => api.push("/"),
+    skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
   },
   {
     kind: "step",
@@ -984,10 +1081,8 @@ export const SCRIPT: TourItem[] = [
     placement: "top",
     done: (ctx) => !!reportLink(ctx),
     success: () => "Answered",
-    skip: async (_, api) => {
-      compose(COMPOSER_ID, reportAsk(), true)
-      await until(() => reportLink(api.now()), 15000)
-    },
+    startsChat: true,
+    skip: askFor(reportAsk, (ctx) => !!reportLink(ctx)),
   },
   {
     kind: "step",
@@ -1005,6 +1100,7 @@ export const SCRIPT: TourItem[] = [
     done: (ctx) => ctx.path.startsWith("/reports/"),
     success: () => "Your report",
     back: "ask-report",
+    needs: "ask-report",
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
   },
 

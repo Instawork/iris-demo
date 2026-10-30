@@ -1,5 +1,6 @@
 import { addDaysISO } from "@/lib/dates"
 import { billFrom, money, round2 } from "@/lib/format"
+import { benchmark } from "@/lib/market"
 import { hashString } from "@/lib/random"
 import { POSITIONS, SUPPLIERS, afterVa, city, position, supplier, termsOf } from "@/lib/reference"
 import type { Bid, BidLine, ContractTerms, DemoData, RateCard, SourcingEvent, SourcingLine, SourcingMessage } from "@/lib/types"
@@ -146,6 +147,56 @@ export function bestOn(ev: SourcingEvent, lineId: string) {
   return best
 }
 
+/** Who counters on Compass's behalf when Iris negotiates. */
+export const IRIS = "Iris"
+
+export interface PlannedCounter {
+  supplierId: string
+  lineId: string
+  from: number
+  ask: number
+  /** A year at the agency's share of the hours, after its VA, if it meets the ask. */
+  saves: number
+}
+
+/**
+ * The counters Iris would send: every bid above the market median that isn't approved and hasn't been countered on that
+ * role, asked down to the median but never more than 5% in one go. Biggest savings first.
+ */
+export function counterPlan(ev: SourcingEvent): PlannedCounter[] {
+  if (ev.status !== "open") return []
+  const plan: PlannedCounter[] = []
+  for (const line of ev.lines) {
+    const median = benchmark(ev.cityId, line.positionId).median
+    for (const s of ev.invited) {
+      const bid = latestBid(ev, s)?.lines[line.id]
+      if (!bid || ev.approved[s] || bid.billRate <= median) continue
+      if (ev.messages.some((m) => m.from === "compass" && m.supplierId === s && m.lineId === line.id)) continue
+      const ask = round2(Math.max(median, bid.billRate * 0.95))
+      if (ask >= bid.billRate) continue
+      const hours = line.hours * (line.share[s] ?? 0)
+      plan.push({ supplierId: s, lineId: line.id, from: bid.billRate, ask, saves: afterVa(hours * (bid.billRate - ask), offeredTerms(ev, s).vaPct) })
+    }
+  }
+  return plan.sort((a, b) => b.saves - a.saves)
+}
+
+export type CounterOutcome = "waiting" | "met" | "down" | "held"
+
+/** Every counter Iris sent on this event, with where the agency's rate stands now. */
+export function irisCounters(ev: SourcingEvent) {
+  return ev.messages
+    .filter((m) => m.from === "compass" && m.by === IRIS && m.ask !== undefined && m.lineId)
+    .map((m) => {
+      const before = bidsOf(ev, m.supplierId).filter((b) => b.at <= m.at).pop()?.lines[m.lineId!]?.billRate ?? m.ask!
+      const now = latestBid(ev, m.supplierId)?.lines[m.lineId!]?.billRate ?? before
+      const outcome: CounterOutcome = m.open ? "waiting" : now <= m.ask! ? "met" : now < before ? "down" : "held"
+      const line = lineOf(ev, m.lineId!)
+      const saves = afterVa(line.hours * (line.share[m.supplierId] ?? 0) * (before - now), offeredTerms(ev, m.supplierId).vaPct)
+      return { message: m, supplierId: m.supplierId, lineId: m.lineId!, from: before, ask: m.ask!, now, outcome, saves }
+    })
+}
+
 export const lineOf = (ev: SourcingEvent, lineId: string) => ev.lines.find((l) => l.id === lineId)!
 
 export const lineLabel = (ev: SourcingEvent, lineId: string) => position(lineOf(ev, lineId).positionId).name
@@ -209,10 +260,10 @@ const at = (date: string, hour: number) => new Date(`${date}T${String(hour).padS
 
 /** What each agency offers for the new term. Instawork keeps its 12% VA on a three-year renewal. */
 const OFFERED: Record<string, ContractTerms> = {
-  instawork: { vaPct: 12, netDays: 30, years: 3 },
-  crewline: { vaPct: 12, netDays: 45, years: 2 },
-  harbor: { vaPct: 5, netDays: 45, years: 1 },
-  metro: { vaPct: 10, netDays: 15, years: 2 },
+  instawork: { vaPct: 12, vaTiers: [[0, 8], [2_000_000, 10], [4_000_000, 12]], netDays: 30, years: 3 },
+  crewline: { vaPct: 12, vaTiers: [[0, 8], [1_000_000, 10], [2_500_000, 12]], netDays: 45, years: 2 },
+  harbor: { vaPct: 5, vaTiers: [[0, 3], [1_500_000, 5], [3_000_000, 8]], netDays: 45, years: 1 },
+  metro: { vaPct: 10, vaTiers: [[0, 6], [1_500_000, 10], [3_000_000, 12]], netDays: 15, years: 2 },
 }
 const offerOf = (supplierId: string) => (OFFERED[supplierId] ? { terms: OFFERED[supplierId] } : {})
 

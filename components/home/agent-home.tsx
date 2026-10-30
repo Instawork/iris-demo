@@ -75,7 +75,7 @@ const TASKS: Record<PersonaKind, { label: string; prompt: string; icon: LucideIc
 const examplesFor = (kind: PersonaKind) => {
   const soon = formatDay(addDaysISO(todayISO(), 9), "MMMM do")
   if (kind === "buyer") return [`Create 3 line cook shifts on ${soon} from 8am to 4pm`, "Upload next month’s shifts", "Approve yesterday’s hours", "Spend by venue this month"]
-  if (kind === "supplier") return ["Assign workers to this weekend’s shifts", "Upload a new rate card", "Submit hours for last week", "What did we bill each buyer last month?"]
+  if (kind === "supplier") return ["Assign workers to my open shifts", "Upload a new rate card", "Submit this week’s timesheets", "What did we bill each buyer last month?"]
   return ["Spend by agency last month", "Fill rate by agency for the last 28 days", "Review flagged invoices", "Cost per hour by market and agency"]
 }
 

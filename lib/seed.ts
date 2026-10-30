@@ -28,7 +28,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 20
+export const DATA_VERSION = 21
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -565,6 +565,7 @@ export function generateDemoData(today = todayISO()): DemoData {
 
   plantStoryGroups(groups, today)
   plantHoursStory(r, counters, groups, timesheets, pros, rateCards, today, nowISO)
+  clockHarbor(timesheets)
   plantPaperSheet(r, counters, groups, timesheets, pros, rateCards, today)
   plantOvertime(counters, groups, timesheets, pros, rateCards, today)
   plantSentHome(groups, timesheets, today)
@@ -804,8 +805,8 @@ function plantSentHome(groups: ShiftGroup[], timesheets: Timesheet[], today: str
 }
 
 /**
- * A Harbor concessions shift two days ago whose hours are still drafts: the venue signed its crew in on paper, so the
- * agency scans the sheet. Planted so the scan has a shift to read whatever day the demo runs.
+ * A Harbor concessions shift two days ago whose hours are still drafts: the venue signed its crew in on paper, so Iris's
+ * clock has no punches and the agency scans the sheet. Planted so the scan has a shift to read whatever day the demo runs.
  */
 function plantPaperSheet(r: Random, counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], today: string) {
   const date = addDaysISO(today, -2)
@@ -848,8 +849,6 @@ function plantPaperSheet(r: Random, counters: Counters, groups: ShiftGroup[], ti
   groups.push(group)
   const created = addHoursISO(isoAt(date, group.end), 0.5)
   for (const slot of group.slots) {
-    const inAt = hhmmFromMinutes(minutesOf(group.start) + r.int(-8, 6))
-    const outAt = hhmmFromMinutes(minutesOf(group.end) + r.int(-6, 10))
     timesheets.push({
       id: `ts-${counters.ts++}`,
       groupId: group.id,
@@ -863,18 +862,27 @@ function plantPaperSheet(r: Random, counters: Counters, groups: ShiftGroup[], ti
       scheduledStart: group.start,
       scheduledEnd: group.end,
       scheduledBreakMins: group.breakMins,
-      clockIn: inAt,
-      clockOut: outAt,
       breakMins: 30,
-      hours: paidHours(inAt, outAt, 30),
+      hours: 0,
       otHours: 0,
-      clock: { in: inAt, out: outAt, breakMins: 30, source: "iris_checkin" },
       billRate: card.billRate,
       tips: 0,
       status: "draft",
       source: "csv",
-      history: [change(created, "Iris", "created", { note: "From the clock" })],
+      history: [change(created, "Iris", "created", { note: "From the schedule. The venue signs in on paper" })],
     })
+  }
+}
+
+/** Harbor's crews check in with Iris everywhere but the paper venue, so its drafts start from the clock. */
+function clockHarbor(timesheets: Timesheet[]) {
+  for (const t of timesheets) {
+    if (t.supplierId !== "harbor" || t.status !== "draft" || t.clock) continue
+    t.clockIn = t.scheduledStart
+    t.clockOut = t.scheduledEnd
+    t.breakMins = t.scheduledBreakMins
+    t.hours = paidHours(t.scheduledStart, t.scheduledEnd, t.scheduledBreakMins)
+    t.clock = { in: t.scheduledStart, out: t.scheduledEnd, breakMins: t.scheduledBreakMins, source: "iris_checkin" }
   }
 }
 

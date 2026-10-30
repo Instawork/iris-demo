@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText } from "lucide-react"
+import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText, WandSparkles } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
-import { StatusBadge, toneText } from "@/components/common/status-badge"
+import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { BenchmarkBar, BenchmarkLegend, Change, StageBadge, Timeline, VsMarket, agencyStatus, moneyYear, termLabel, type Mark } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
@@ -20,10 +20,10 @@ import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
-import { billFrom, money, pct, round2 } from "@/lib/format"
+import { billFrom, money, pct, plural, round2 } from "@/lib/format"
 import { city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
-import { activeCard, bestOn, bidsOf, latestBid, lineOf, marketName, netOf, offeredTerms, openCounters, responded, spendOf } from "@/lib/sourcing"
+import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineLabel, lineOf, marketName, netOf, offeredTerms, openCounters, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
 import type { ContractTerms, SourcingEvent, SourcingLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -119,6 +119,7 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
+        <IrisNegotiates ev={ev} />
         <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
           <SurfaceHeader
             title="Bids"
@@ -159,6 +160,107 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
         </SheetContent>
       </Sheet>
     </div>
+  )
+}
+
+const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
+  waiting: { label: "Waiting", tone: "neutral" },
+  met: { label: "Met the ask", tone: "positive" },
+  down: { label: "Came down", tone: "primary" },
+  held: { label: "Held", tone: "neutral" },
+}
+
+const SHOWN = 5
+
+/**
+ * Iris negotiates the whole event at once: it counters every bid above the market, then shows each agency's answer as
+ * it comes in. Countering role by role, agency by agency, is still there in each role's sheet for the exceptions.
+ */
+function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
+  const negotiate = useStore((s) => s.negotiateBids)
+  const [busy, setBusy] = useState(false)
+  const [all, setAll] = useState(false)
+  const sent = irisCounters(ev)
+  const plan = sent.length ? [] : counterPlan(ev)
+  if (!sent.length && !plan.length) return null
+
+  const agencies = [...new Set((sent.length ? sent : plan).map((c) => c.supplierId))].map((s) => supplier(s).shortName)
+  const waiting = sent.filter((c) => c.outcome === "waiting").length
+  const count = (o: CounterOutcome) => sent.filter((c) => c.outcome === o).length
+  const saved = sent.reduce((s, c) => s + c.saves, 0)
+  const upTo = plan.reduce((s, c) => s + c.saves, 0)
+  const rows = sent.length
+    ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.outcome === "waiting" ? c.ask : c.now, outcome: c.outcome as CounterOutcome | undefined }))
+    : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.ask, outcome: undefined }))
+  const shown = all ? rows : rows.slice(0, SHOWN)
+  const title = !sent.length ? `${plural(plan.length, "bid")} above the market` : waiting ? "Iris is negotiating" : `Iris negotiated ${plural(sent.length, "rate")}`
+  const detail = !sent.length
+    ? `From ${listOf(agencies)}. Iris counters each one toward the ${city(ev.cityId).name} median.`
+    : waiting
+      ? `${sent.length - waiting} of ${sent.length} answered`
+      : listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))
+
+  return (
+    <Surface elevated className="overflow-hidden" data-tour="iris-negotiate">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 pt-4 pb-3">
+        <span className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand text-brand-foreground">
+            <WandSparkles className={cn("size-4", waiting > 0 && "animate-pulse")} />
+          </span>
+          <span className="flex min-w-0 flex-col">
+            <span className="text-body-2 font-semibold">{title}</span>
+            <span className="text-body-3 text-faded">{detail}</span>
+          </span>
+        </span>
+        <span className="flex flex-col items-end">
+          <span className="text-caption-1 text-faded">{sent.length ? "Saved a year" : "Up to, a year"}</span>
+          <span className={cn("text-featured-3 font-semibold tabular", (sent.length ? saved : upTo) > 0 && "text-positive-fg")}>{moneyYear(sent.length ? saved : upTo)}</span>
+        </span>
+      </div>
+      <ol className="flex flex-col border-t border-border/70">
+        {shown.map((r) => (
+          <li key={r.key} className="flex items-center gap-3 border-b border-border/60 px-5 py-2 text-body-3 last:border-0" data-tour="iris-counter" data-outcome={r.outcome}>
+            <SupplierLogo supplierId={r.supplierId} size="sm" />
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-medium">{supplier(r.supplierId).shortName}</span>
+              <span className="text-faded"> · {lineLabel(ev, r.lineId)}</span>
+            </span>
+            <span className="text-faded tabular line-through decoration-foreground/25">{money(r.from)}</span>
+            <span className="w-16 text-right font-semibold tabular">{money(r.to)}</span>
+            {r.outcome && (
+              <span className="flex w-24 justify-end">
+                <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
+                  {OUTCOME[r.outcome].label}
+                </StatusBadge>
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
+        {rows.length > SHOWN ? (
+          <Button variant="ghost" size="sm" className="-ml-2 text-faded" onClick={() => setAll((a) => !a)}>
+            {all ? "Show less" : `Show all ${rows.length}`}
+          </Button>
+        ) : (
+          <span />
+        )}
+        {!sent.length && (
+          <Button
+            className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold"
+            disabled={busy}
+            data-tour="negotiate"
+            onClick={async () => {
+              setBusy(true)
+              await negotiate(ev.id)
+              setBusy(false)
+            }}
+          >
+            <WandSparkles className="size-4" /> Send {plural(plan.length, "counter")}
+          </Button>
+        )}
+      </div>
+    </Surface>
   )
 }
 

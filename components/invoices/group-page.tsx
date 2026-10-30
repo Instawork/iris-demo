@@ -8,19 +8,20 @@ import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
-import { InfoTip } from "@/components/common/info-tip"
+import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { Breakdown, placeOf } from "@/components/invoices/breakdown"
 import { AnomalyFlag, INVOICE_STATUS, InvoiceStatusBadge, groupTotals } from "@/components/invoices/invoice-bits"
+import { TipSplit } from "@/components/invoices/invoice-detail"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatDateShort, formatMonth } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
-import { inScope, invoiceBalance, invoiceHours, invoiceStatus, invoiceTotal } from "@/lib/metrics"
-import { position, supplier } from "@/lib/reference"
+import { inScope, invoiceBalance, invoiceHours, invoiceStatus, invoiceTotal, venueTips } from "@/lib/metrics"
+import { location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
 /** One invoice group on its own page: the month's bill for all of Compass down to each cost center, or a hand-made group of invoices. */
@@ -29,7 +30,7 @@ export function InvoiceGroupPage({ id }: { id: string }) {
   const router = useRouter()
   const { ws, scope } = useWorkspace()
   const { removeFromGroup, deleteInvoiceGroup, payInvoices } = useStore.getState()
-  const [view, setView] = useState<"breakdown" | "invoices">("breakdown")
+  const [view, setView] = useState<"breakdown" | "tips" | "invoices">("breakdown")
   const live = data.invoiceGroups.find((g) => g.id === id)
   const t = live ? groupTotals(live, data.invoices.filter((i) => inScope(scope, i))) : undefined
 
@@ -48,6 +49,9 @@ export function InvoiceGroupPage({ id }: { id: string }) {
   const canManage = !monthly && ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
   const payable = ws.kind === "buyer" ? t.members.filter((m) => invoiceBalance(m) > 0 && invoiceStatus(m) !== "in_process" && invoiceStatus(m) !== "open") : []
   const payTotal = payable.reduce((s, m) => s + invoiceBalance(m), 0)
+  const tips = t.members
+    .flatMap((m) => venueTips(m.lines).map((v) => ({ ...v, key: `${m.id}|${v.key}`, invoice: m })))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.locationId.localeCompare(b.locationId))
   const download = () =>
     downloadCsv(
       exportName(live.code.toLowerCase()),
@@ -156,6 +160,7 @@ export function InvoiceGroupPage({ id }: { id: string }) {
               onChange={setView}
               items={[
                 { value: "breakdown", label: "Breakdown" },
+                ...(tips.length ? [{ value: "tips" as const, label: "Tips", count: tips.length }] : []),
                 { value: "invoices", label: "Invoices", count: t.members.length },
               ]}
             />
@@ -166,6 +171,22 @@ export function InvoiceGroupPage({ id }: { id: string }) {
             <Breakdown invoices={t.members} />
           </div>
         )}
+        {shown === "tips" &&
+          tips.map((v) => (
+            <div key={v.key} className="flex items-center gap-3 border-b border-border px-5 py-3.5 last:border-0" data-tour="venue-tips">
+              <SupplierLogo supplierId={v.invoice.supplierId} size="md" />
+              <Link href={`/invoices/${v.invoice.id}`} className="flex flex-1 flex-col hover:underline">
+                <span className="text-body-3 font-semibold">{location(v.locationId).name} tips</span>
+                <span className="text-caption-1 text-faded">
+                  {formatDateShort(v.date)} · {v.invoice.number}
+                </span>
+              </Link>
+              <Tip content={<TipSplit workers={v.workers} />}>
+                <span className="cursor-default text-body-3 text-faded underline decoration-dotted underline-offset-4">{plural(v.workers.length, "worker")}</span>
+              </Tip>
+              <span className="w-28 text-right text-body-3 font-semibold tabular">{money(v.amount)}</span>
+            </div>
+          ))}
         {shown === "invoices" &&
           t.members.map((m) => (
             <div key={m.id} className="flex items-center gap-3 border-b border-border px-5 py-3.5 last:border-0">

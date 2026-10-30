@@ -5,6 +5,7 @@ import { useCallback, useRef } from "react"
 import { NO_MESSAGES, useAgentThreads, type AgentAction, type AgentMessage } from "@/components/agent/agent-store"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
+import { asksToAssign, asksToSubmit, assignReply, submitFrom, submitReply, submittedLine } from "@/lib/agent-agency"
 import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/lib/agent-hours"
 import { parseReportRequest, reportReply } from "@/lib/agent-report"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
@@ -90,6 +91,18 @@ export function useAgent() {
         }
       }
 
+      if (ws.kind === "supplier" && ws.supplierId) {
+        const data = useStore.getState().data
+        if (asksToSubmit(text)) {
+          add({ from: "agent", ...submitReply(data, ws.supplierId, submitFrom(text, todayISO())) })
+          return
+        }
+        if (asksToAssign(text)) {
+          add({ from: "agent", ...assignReply(data, ws.supplierId) })
+          return
+        }
+      }
+
       const report = parseReportRequest(text, ws)
       if (report) {
         add({ from: "agent", ...reportReply(useStore.getState().data, report, ws) })
@@ -145,7 +158,7 @@ export function useAgent() {
           ws.kind === "buyer"
             ? "Every timesheet is checked against Iris's clock. Ask me to approve them, like “approve yesterday's hours” or “approve Harbor's timesheets for this week”, or attach a timesheet CSV and Iris will check it."
             : ws.kind === "supplier"
-              ? "The buyer approves hours, after Iris checks them against its clock. Submit your drafts in Timesheets, or attach a timesheet CSV and Iris will check it."
+              ? "Iris drafts your timesheets from its clock. Ask me to submit them, like “submit this week's timesheets”, or attach a timesheet CSV and Iris will check it."
               : "Each buyer approves its own hours, after Iris checks them against its clock. Open Timesheets to see them across the program."
         add({ from: "agent", text: reply, actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }, { label: "Upload timesheets", kind: "upload", type: "timesheets" }] })
         return
@@ -244,6 +257,38 @@ export function useAgent() {
                 )
           const next = hoursReply(data, ws.buyerId!, action.scope, today, true)
           add({ from: "agent", text: `${lead}\n\n${next.text}`, actions: next.actions })
+        } finally {
+          approving.current.delete(key)
+        }
+        return
+      }
+      if (action.kind === "submit-timesheets" || action.kind === "assign-workers") {
+        const key = messageId ?? 0
+        if (approving.current.has(key) || !ws.supplierId) return
+        approving.current.add(key)
+        try {
+          const store = useStore.getState()
+          if (action.kind === "submit-timesheets") {
+            const n = await store.submitTimesheets(action.ids)
+            if (!n) return
+            if (messageId) dropActions(ws.id, messageId)
+            const data = useStore.getState().data
+            const sent = data.timesheets.filter((t) => action.ids.includes(t.id) && t.status === "pending_approval")
+            const next = submitReply(data, ws.supplierId, action.from, true)
+            add({ from: "agent", text: `${submittedLine(sent)}\n\n${next.text}`, actions: next.actions })
+            return
+          }
+          let placed = 0
+          for (const p of action.plan) placed += await store.assignPros(p.groupId, p.proIds)
+          if (!placed) return
+          if (messageId) dropActions(ws.id, messageId)
+          const shifts = action.plan.length
+          const next = assignReply(useStore.getState().data, ws.supplierId, true)
+          add({
+            from: "agent",
+            text: `Assigned ${placed} worker${placed === 1 ? "" : "s"} across ${shifts} shift${shifts === 1 ? "" : "s"}. Each one is confirmed and the buyers can see who's coming.\n\n${next.text}`,
+            actions: [...next.actions, { label: "Open Shifts", kind: "link", href: "/shifts" }],
+          })
         } finally {
           approving.current.delete(key)
         }
