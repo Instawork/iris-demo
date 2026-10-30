@@ -33,7 +33,7 @@ import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { CATEGORY, IRIS, activeCard, bidLine, buildLines, counterPlan, fiscalYear, latestBid, nextNumber, openCounters, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
-import { billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
@@ -41,6 +41,8 @@ import type {
   ComplianceItem,
   DemoData,
   Department,
+  Expense,
+  ExpenseKind,
   Integration,
   InvoiceGroup,
   Location,
@@ -839,6 +841,41 @@ const removed = (t: Timesheet, ctx: CommandContext, reason: string): Timesheet =
   otHours: 0,
   history: [...t.history, change(ctx.now, actorName(ctx), "removed", { reason })],
 })
+
+const EXPENSE_KINDS = Object.keys(EXPENSE_LABEL) as ExpenseKind[]
+
+/** The agency bills a cost it paid for the shift. It goes for approval with the hours, so only drafts and sent-back timesheets take one. */
+function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; kind: ExpenseKind; amount: number; note?: string }): Outcome<string> {
+  const t = timesheetOf(data, input?.timesheetId)
+  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency bills expenses.")
+  if (!canEditBilled(t)) fail("Withdraw it first. Expenses go for approval with the hours.")
+  const kind = EXPENSE_KINDS.includes(input.kind) ? input.kind : fail("Pick parking, background check or other.")
+  const amount = round2(num(input.amount, "The amount", 0.01, EXPENSE_MAX))
+  const note = optStr(input.note, 200)
+  if (kind === "other" && !note) fail("Say what the expense was for.")
+  const prior = t.expenses ?? []
+  const id = `${t.id}-e${Math.max(0, ...prior.map((e) => Number(e.id.slice(e.id.lastIndexOf("-e") + 2)) || 0)) + 1}`
+  const expense: Expense = { id, kind, amount, ...(note ? { note } : {}), at: ctx.now, by: actorName(ctx) }
+  const next: Timesheet = {
+    ...t,
+    expenses: [...prior, expense],
+    history: [...t.history, change(ctx.now, actorName(ctx), "edited", { note: `Added ${EXPENSE_LABEL[kind].toLowerCase()}, ${money(amount)}` })],
+  }
+  return done(data, id, { timesheets: replaceSheets(data, [next]) })
+}
+
+function removeExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; expenseId: string }): Outcome<null> {
+  const t = timesheetOf(data, input?.timesheetId)
+  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency bills expenses.")
+  if (!canEditBilled(t)) fail("Withdraw it first. Expenses go for approval with the hours.")
+  const e = need(t.expenses?.find((x) => x.id === input.expenseId), "That expense isn't on this timesheet.")
+  const next: Timesheet = {
+    ...t,
+    expenses: t.expenses!.filter((x) => x.id !== e.id),
+    history: [...t.history, change(ctx.now, actorName(ctx), "edited", { note: `Removed ${EXPENSE_LABEL[e.kind].toLowerCase()}, ${money(e.amount)}` })],
+  }
+  return done(data, null, { timesheets: replaceSheets(data, [next]) })
+}
 
 function setTips(data: DemoData, ctx: CommandContext, input: { entries: { timesheetId: string; tips: number }[] }): Outcome<null> {
   const entries = Array.isArray(input?.entries) ? input.entries.slice(0, 2000) : fail("Tips are required")
@@ -1829,6 +1866,8 @@ export const COMMANDS = {
   withdrawTimesheets,
   editTimesheet,
   removeTimesheet,
+  addExpense,
+  removeExpense,
   setTips,
   createInvoiceGroup,
   removeFromGroup,

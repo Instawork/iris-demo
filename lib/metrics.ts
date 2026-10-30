@@ -3,7 +3,7 @@ import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO,
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
-import { readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
+import { expensesOf, readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
 import type { DemoData, Invoice, InvoiceLine, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
@@ -103,8 +103,11 @@ export function venueTips(lines: InvoiceLine[]): VenueTips[] {
   return [...byVenue.values()].sort((a, b) => a.date.localeCompare(b.date) || a.locationId.localeCompare(b.locationId))
 }
 
+/** Every expense on an invoice, with the worker and line it was billed on. */
+export const invoiceExpenseRows = (lines: InvoiceLine[]) => lines.flatMap((l) => (l.expenses ?? []).map((e) => ({ ...e, line: l })))
+export const invoiceExpenses = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + expensesOf(l), 0))
 export const invoiceCredits = (inv: Invoice) => round2((inv.credits ?? []).reduce((s, c) => s + c.amount, 0))
-export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invoiceTips(inv) - invoiceCredits(inv))
+export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invoiceTips(inv) + invoiceExpenses(inv) - invoiceCredits(inv))
 export const invoiceBalance = (inv: Invoice) => round2(Math.max(0, invoiceTotal(inv) - inv.paidAmount))
 export const invoiceHours = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.hours, 0) - (inv.credits ?? []).reduce((s, c) => s + c.hours, 0))
 

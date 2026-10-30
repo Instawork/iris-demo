@@ -27,7 +27,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { STATUS_LABEL, readyToSubmit, timesheetAmount, withAgency } from "@/lib/timesheets"
+import { STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -318,6 +318,7 @@ export function TimesheetsPage() {
             overtime_hours: t.otHours,
             bill_rate: t.billRate,
             tips: t.tips,
+            expenses: expensesOf(t),
             amount: timesheetAmount(t).toFixed(2),
             iris_checks: (checks.get(t.id) ?? []).map((c) => c.label).join("; "),
             status: STATUS_LABEL[t.status],

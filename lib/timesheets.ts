@@ -1,6 +1,6 @@
 import { minutesOf, paidHours, spanMinutes, weekEndISO, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
-import type { BilledTimes, ClockRecord, RoleMove, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
+import type { BilledTimes, ClockRecord, ExpenseKind, RoleMove, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
 
 /**
  * Timesheet rules shared by the server and the browser: paid hours, the four-hour minimum, overtime, and the checks
@@ -43,7 +43,13 @@ export const scheduledHours = (t: Pick<Timesheet, "scheduledStart" | "scheduledE
 export const laborAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate">) =>
   round2((t.hours - t.otHours) * t.billRate + t.otHours * t.billRate * OVERTIME_RATE)
 
-export const timesheetAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate" | "tips">) => round2(laborAmount(t) + t.tips)
+export const expensesOf = (t: Pick<Timesheet, "expenses">) => round2((t.expenses ?? []).reduce((s, e) => s + e.amount, 0))
+
+export const EXPENSE_LABEL: Record<ExpenseKind, string> = { parking: "Parking", background_check: "Background check", other: "Other" }
+
+export const EXPENSE_MAX = 500
+
+export const timesheetAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate" | "tips" | "expenses">) => round2(laborAmount(t) + t.tips + expensesOf(t))
 
 /** Billed hours past what Iris's own clock supports. Under a quarter hour is rounding, not a finding. */
 export function hoursAboveClock(t: Pick<Timesheet, "hours" | "clock" | "sentHome" | "status">) {

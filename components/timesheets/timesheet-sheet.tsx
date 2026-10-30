@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, ArrowRightLeft, Check, MoreHorizontal, Pencil, Send, Trash2, Undo2, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, ArrowRightLeft, Check, MoreHorizontal, Pencil, Receipt, Send, Trash2, Undo2, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
@@ -20,16 +20,36 @@ import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
 import { location, position, supplier } from "@/lib/reference"
 import { useStore, type TimesInput } from "@/lib/store"
-import { OVERTIME_RATE, clockHours, hoursFor, laborAmount, primaryProposal, scheduledHours, timesheetAmount, weekClosed, type Proposal } from "@/lib/timesheets"
-import type { Timesheet } from "@/lib/types"
+import {
+  EXPENSE_LABEL,
+  EXPENSE_MAX,
+  OVERTIME_RATE,
+  canEditBilled,
+  clockHours,
+  expensesOf,
+  hoursFor,
+  laborAmount,
+  primaryProposal,
+  scheduledHours,
+  timesheetAmount,
+  weekClosed,
+  type Proposal,
+} from "@/lib/timesheets"
+import type { ExpenseKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Mode = "idle" | "reject" | "as_billed" | "correct" | "edit" | "remove"
+type Mode = "idle" | "reject" | "as_billed" | "correct" | "edit" | "remove" | "expense"
 
 const REJECT_REASONS = ["Hours above the clock", "Hours above the schedule", "Missing or wrong punch", "Didn't work this shift", "Wrong worker", "Other"]
 const AS_BILLED_REASONS = ["Asked to stay by the supervisor", "The clock missed a punch", "Overtime was approved", "Other"]
 const CORRECT_REASONS = ["Matched to the supervisor's log", "Matched to the clock", "Matched to the schedule", "Other"]
 const REMOVE_REASONS = ["Didn't work this shift", "Duplicate timesheet", "Other"]
+const EXPENSE_KINDS = Object.keys(EXPENSE_LABEL) as ExpenseKind[]
+const EXPENSE_HINT: Record<ExpenseKind, string> = {
+  parking: "Event parking at the venue",
+  background_check: "The event required a second check",
+  other: "What it was for",
+}
 
 /** One timesheet: the three sets of times side by side, Iris's checks, the history, and what this persona can do. */
 export function TimesheetSheet({ id, onOpenChange }: { id?: string; onOpenChange: (open: boolean) => void }) {
@@ -72,7 +92,7 @@ function Panel({ title, children, className }: { title?: string; children: React
 function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const data = useData()
   const { ws } = useWorkspace()
-  const { approveTimesheets, correctTimesheet, rejectTimesheets, submitTimesheets, withdrawTimesheets, editTimesheet, removeTimesheet } = useStore.getState()
+  const { approveTimesheets, correctTimesheet, rejectTimesheets, submitTimesheets, withdrawTimesheets, editTimesheet, removeTimesheet, addExpense, removeExpense } = useStore.getState()
   const kind = ws.kind
   const pro = data.pros.find((p) => p.id === t.proId)
   const loc = location(t.locationId)
@@ -89,6 +109,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
+  const [expense, setExpense] = useState<{ kind: ExpenseKind; amount: string }>({ kind: "parking", amount: "" })
   const [times, setTimes] = useState<TimesInput>(() => ({
     clockIn: snapTime(t.clockIn ?? t.clock?.in, t.scheduledStart),
     clockOut: snapTime(t.clockOut ?? t.clock?.out, t.scheduledEnd),
@@ -162,6 +183,14 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
     run(async () => {
       if (!(await withdrawTimesheets([t.id]))) return
       toast("Withdrawn to Draft", { description: "Change the times, then submit it again." })
+    })
+  const expenseAmount = round2(Number(expense.amount) || 0)
+  const saveExpense = () =>
+    run(async () => {
+      if (!(await addExpense(t.id, expense.kind, expenseAmount, note.trim() || undefined))) return
+      toast.success(`${EXPENSE_LABEL[expense.kind]} added`, { description: `${money(expenseAmount)}, billed at cost. The buyer approves it with the hours.` })
+      setExpense({ kind: "parking", amount: "" })
+      setMode("idle")
     })
   const remove = () =>
     run(async () => {
@@ -278,7 +307,30 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               <span className="tabular">{money(t.tips)}</span>
             </div>
           )}
-          {t.tips > 0 && (
+          {(t.expenses ?? []).map((e) => (
+            <div key={e.id} className="flex items-baseline justify-between gap-3 text-body-3 text-faded" data-tour="timesheet-expense">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Receipt className="size-3.5 shrink-0 self-center" />
+                <span className="truncate">
+                  {EXPENSE_LABEL[e.kind]}
+                  {e.note && ` · ${e.note}`}
+                </span>
+                {isAgency && canEditBilled(t) && (
+                  <button
+                    type="button"
+                    className="shrink-0 self-center rounded p-0.5 text-subtle hover:bg-hover hover:text-foreground"
+                    aria-label={`Remove ${EXPENSE_LABEL[e.kind].toLowerCase()}`}
+                    disabled={busy}
+                    onClick={() => run(() => removeExpense(t.id, e.id))}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </span>
+              <span className="tabular">{money(e.amount)}</span>
+            </div>
+          ))}
+          {(t.tips > 0 || expensesOf(t) > 0) && (
             <div className="flex items-baseline justify-between border-t border-border/70 pt-1.5 text-body-3">
               <span className="font-semibold">Total</span>
               <span className="font-semibold tabular">{money(timesheetAmount(t))}</span>
@@ -421,6 +473,39 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           </Panel>
         )}
 
+        {mode === "expense" && (
+          <Panel title="Add an expense">
+            <div className="grid grid-cols-[1fr_8rem] gap-2">
+              <ReasonSelect value={EXPENSE_LABEL[expense.kind]} onChange={(v) => setExpense((x) => ({ ...x, kind: EXPENSE_KINDS.find((k) => EXPENSE_LABEL[k] === v)! }))} options={EXPENSE_KINDS.map((k) => EXPENSE_LABEL[k])} />
+              <span className="relative">
+                <span className="absolute top-1/2 left-3 -translate-y-1/2 text-body-3 text-faded">$</span>
+                <input
+                  inputMode="decimal"
+                  value={expense.amount}
+                  onChange={(e) => setExpense((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, "") }))}
+                  className="h-9 w-full rounded-lg border border-input bg-background pr-3 pl-7 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+                  placeholder="0.00"
+                  aria-label="Amount"
+                />
+              </span>
+            </div>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={EXPENSE_HINT[expense.kind]} className="min-h-14 rounded-lg bg-background text-body-3" />
+            <span className="text-caption-1 text-faded">Billed at cost, with no markup. The buyer approves it with the hours.</span>
+            <div className="flex gap-2">
+              <Button
+                className="h-9 rounded-lg"
+                disabled={busy || expenseAmount <= 0 || expenseAmount > EXPENSE_MAX || (expense.kind === "other" && !note.trim())}
+                onClick={saveExpense}
+              >
+                {expenseAmount > 0 ? `Add ${money(expenseAmount)}` : "Add"}
+              </Button>
+              <Button variant="ghost" className="h-9 rounded-lg" onClick={() => setMode("idle")}>
+                Cancel
+              </Button>
+            </div>
+          </Panel>
+        )}
+
         {mode === "remove" && (
           <Panel title="Remove from billing">
             <ReasonSelect value={reason} onChange={setReason} options={REMOVE_REASONS} />
@@ -493,6 +578,9 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           </Button>
           <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("edit")}>
             <Pencil className="size-4" /> Edit times
+          </Button>
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("expense")}>
+            <Receipt className="size-4" /> Add expense
           </Button>
           <span className="ml-auto">
             <More items={[{ label: "Remove from billing", icon: Trash2, onSelect: () => open("remove", REMOVE_REASONS[0]) }]} />

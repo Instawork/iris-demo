@@ -23,6 +23,7 @@ import { money, plural } from "@/lib/format"
 import { inScope, invoiceBalance, invoiceHours, invoiceStatus, invoiceTotal, venueTips } from "@/lib/metrics"
 import { location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
+import { expensesOf } from "@/lib/timesheets"
 
 /** One invoice group on its own page: the month's bill for all of Compass down to each cost center, or a hand-made group of invoices. */
 export function InvoiceGroupPage({ id }: { id: string }) {
@@ -75,7 +76,8 @@ export function InvoiceGroupPage({ id }: { id: string }) {
             hours: l.hours,
             bill_rate: l.billRate.toFixed(2),
             tips: l.tips.toFixed(2),
-            amount: (l.amount + l.tips).toFixed(2),
+            expenses: expensesOf(l).toFixed(2),
+            amount: (l.amount + l.tips + expensesOf(l)).toFixed(2),
             }
           }),
         ),

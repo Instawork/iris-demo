@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState } from "react"
 
 import { money } from "@/lib/format"
 import { PROGRAM, buyer, departmentOf, location } from "@/lib/reference"
+import { expensesOf } from "@/lib/timesheets"
 import type { Invoice, InvoiceLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -51,7 +52,7 @@ function treeOf(invoices: Invoice[]) {
     }
     for (const line of inv.lines) {
       const credit = credited.get(line.id)
-      const amount = line.amount + line.tips - (credit?.amount ?? 0)
+      const amount = line.amount + line.tips + expensesOf(line) - (credit?.amount ?? 0)
       const hours = line.hours - (credit?.hours ?? 0)
       let node = root
       for (const place of placeOf(inv, line)) {

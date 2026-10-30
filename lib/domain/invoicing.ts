@@ -34,6 +34,7 @@ export const lineOf = (t: Timesheet, pros: Map<string, Pro>): InvoiceLine => {
     billRate: t.billRate,
     amount: laborAmount(t),
     tips: t.tips,
+    ...(t.expenses?.length ? { expenses: t.expenses } : {}),
   }
 }
 

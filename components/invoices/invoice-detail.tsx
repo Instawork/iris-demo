@@ -36,6 +36,8 @@ import {
   invoiceBalance,
   invoiceBenchmark,
   invoiceCredits,
+  invoiceExpenseRows,
+  invoiceExpenses,
   invoiceHours,
   invoiceStatus,
   invoiceSubtotal,
@@ -45,6 +47,7 @@ import {
 } from "@/lib/metrics"
 import { buyer, costCenterOf, location, position, supplier, termsOf } from "@/lib/reference"
 import { useStore } from "@/lib/store"
+import { EXPENSE_LABEL, expensesOf } from "@/lib/timesheets"
 import { cn } from "@/lib/utils"
 
 export function InvoiceDetail({ id }: { id: string }) {
@@ -76,6 +79,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const credits = inv.credits ?? []
   const lines = [...byDate].sort((a, b) => Number(found.has(b.id)) - Number(found.has(a.id)) || Number(isHigh(b.id)) - Number(isHigh(a.id)))
   const tips = venueTips(byDate)
+  const expenses = invoiceExpenseRows(byDate)
   const isOpen = status === "open"
   const canPay = ws.kind === "buyer" && invoiceBalance(inv) > 0 && status !== "in_process" && !isOpen
 
@@ -95,7 +99,8 @@ export function InvoiceDetail({ id }: { id: string }) {
           hours: l.hours,
           bill_rate: l.billRate.toFixed(2),
           tips: l.tips.toFixed(2),
-          amount: (l.amount + l.tips).toFixed(2),
+          expenses: expensesOf(l).toFixed(2),
+          amount: (l.amount + l.tips + expensesOf(l)).toFixed(2),
           ...(isCompass ? { vs_others_pct: (deltaOf(l.id) * 100).toFixed(1) } : {}),
         })).concat(
           credits.map((c) => ({
@@ -110,6 +115,7 @@ export function InvoiceDetail({ id }: { id: string }) {
             hours: -c.hours,
             bill_rate: "",
             tips: "0.00",
+            expenses: "0.00",
             amount: (-c.amount).toFixed(2),
             ...(isCompass ? { vs_others_pct: "" } : {}),
           })),
@@ -264,6 +270,21 @@ export function InvoiceDetail({ id }: { id: string }) {
                       <td className="px-3 py-2.5 text-right font-semibold tabular">{money(v.amount)}</td>
                     </tr>
                   ))}
+                  {expenses.map((e) => (
+                    <tr key={e.id} className="border-t border-border/80" data-tour="invoice-expense">
+                      <td className="px-3 py-2.5">
+                        <span className="flex flex-col">
+                          <span className="font-medium whitespace-nowrap">{EXPENSE_LABEL[e.kind]}</span>
+                          <span className="text-caption-1 whitespace-nowrap text-faded">{e.note ?? `${location(e.line.locationId).name} · at cost`}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{e.line.proName}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">{formatDateShort(e.line.date)}</td>
+                      <td className="px-3 py-2.5 text-right tabular text-faded">—</td>
+                      <td className="px-3 py-2.5 text-right tabular text-faded">—</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular">{money(e.amount)}</td>
+                    </tr>
+                  ))}
                   {credits.map((c) => (
                     <tr key={c.id} className="border-t border-border/80 bg-positive-faded/50">
                       <td className="px-3 py-2.5">
@@ -319,6 +340,11 @@ export function InvoiceDetail({ id }: { id: string }) {
             <Row label="Tips" hint="One line per venue and day, passed through to the workers with no markup.">
               {money(invoiceTips(inv))}
             </Row>
+            {expenses.length > 0 && (
+              <Row label="Expenses" hint="Parking, background checks and other costs the agency paid for a shift, billed at cost.">
+                {money(invoiceExpenses(inv))}
+              </Row>
+            )}
             {credits.length > 0 && (
               <Row label="Credits" hint="Hours billed above Iris's clock that the agency credited after Compass sent them back.">
                 <span className="text-positive-fg">−{money(invoiceCredits(inv))}</span>

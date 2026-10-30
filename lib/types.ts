@@ -476,6 +476,18 @@ export interface TimesheetRejection {
   by: string
 }
 
+export type ExpenseKind = "parking" | "background_check" | "other"
+
+/** A cost the agency paid for this shift, billed at cost: parking, or a background check the event required. */
+export interface Expense {
+  id: string
+  kind: ExpenseKind
+  amount: number
+  note?: string
+  at: string
+  by: string
+}
+
 export interface Timesheet {
   id: string
   groupId: string
@@ -503,6 +515,8 @@ export interface Timesheet {
   sentHome?: boolean
   billRate: number
   tips: number
+  /** Approved with the hours, so the agency adds them before it submits. */
+  expenses?: Expense[]
   status: TimesheetStatus
   source: "app" | "csv" | "manual"
   submittedAt?: string
@@ -539,6 +553,7 @@ export interface InvoiceLine {
   billRate: number
   amount: number
   tips: number
+  expenses?: Expense[]
 }
 
 /** Compass's decision on an invoice priced above the market. Either way it's cleared for payment; a rate review also asks the agency to look at its rates. */

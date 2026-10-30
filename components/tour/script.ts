@@ -534,6 +534,8 @@ const thisMonth = (data: DemoData) =>
   data.invoiceGroups.filter((g) => !!g.month && g.invoiceIds.length > 0).sort((a, b) => b.month!.localeCompare(a.month!))[0]
 
 const GROUP = '[data-tour="group-detail"]'
+const ACCRUALS = '[data-tour="accruals"]'
+const ACCRUE_TAB = '[role="tab"][data-value="accrue"]'
 
 /** Where Iris's latest answer links to its report. */
 const reportLink = (ctx: TourContext) => {
@@ -1009,8 +1011,27 @@ export const SCRIPT: TourItem[] = [
       return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
     },
     placement: "bottom",
-    onDone: (_, api) => api.push("/"),
+    onDone: (_, api) => api.push("/invoices?filter=accrue"),
     skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
+  },
+  {
+    kind: "step",
+    id: "accruals",
+    chapter: "reporting",
+    label: "Accruals",
+    wsId: COMPASS,
+    path: /^\/invoices$/,
+    href: () => "/invoices?filter=accrue",
+    title: () => (one(ACCRUALS) ? "To accrue, by cost center" : "Spend before the invoice lands"),
+    body: () => (one(ACCRUALS) ? "Hours worked that no invoice covers yet. Accounting books it at month end." : undefined),
+    action: () => (one(ACCRUALS) ? undefined : "Click Not invoiced yet"),
+    targets: () => {
+      const rows = [...document.querySelectorAll(`${ACCRUALS} tbody tr`)].slice(0, 3)
+      return rows.length ? [...rows, one('[data-tour="accrual-total"]')] : [one(ACCRUE_TAB)]
+    },
+    placement: "bottom",
+    onDone: (_, api) => api.push("/"),
+    skip: () => press(one(ACCRUE_TAB)),
   },
   {
     kind: "step",

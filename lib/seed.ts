@@ -8,13 +8,14 @@ import { lineOf, monthlyGroups } from "@/lib/domain/invoicing"
 import { seedRateLog } from "@/lib/rate-log"
 import { defaultReports } from "@/lib/reports"
 import { seedSourcing } from "@/lib/sourcing"
-import { change, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
+import { change, expensesOf, hoursFor, laborAmount, withOvertime } from "@/lib/timesheets"
 import type {
   ActivityEvent,
   ClockRecord,
   ComplianceItem,
   Counters,
   DemoData,
+  Expense,
   Invoice,
   Pro,
   ProReview,
@@ -571,6 +572,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   plantSentHome(groups, timesheets, today)
   plantMissingPunch(timesheets, today)
   plantRejections(r, timesheets, today)
+  plantExpenses(timesheets, today)
   const sheets = withOvertime(timesheets)
   const { invoices, invoiceGroups } = generateInvoices(counters, sheets, pros, today)
   plantBillingError(sheets, invoices, today)
@@ -917,6 +919,30 @@ function plantRejections(r: Random, timesheets: Timesheet[], today: string) {
   }
 }
 
+const PARKING: Record<string, number> = { "loc-lfs": 25, "loc-wla": 20, "loc-nsb": 18 }
+
+/**
+ * Event-day parking the agencies paid at the stadium, arena and ballpark, on one shift in eight there, and two second
+ * background checks a youth camp at Peachtree required.
+ */
+function plantExpenses(timesheets: Timesheet[], today: string) {
+  const from = addDaysISO(today, -35)
+  const billable = (t: Timesheet) => (t.status === "approved" || t.status === "pending_approval") && t.date >= from && t.hours > 0
+  const add = (t: Timesheet, kind: Expense["kind"], amount: number, note?: string) => {
+    const at = addHoursISO(isoAt(t.date, t.scheduledEnd), 1)
+    t.expenses = [...(t.expenses ?? []), { id: `${t.id}-e${(t.expenses?.length ?? 0) + 1}`, kind, amount, ...(note ? { note } : {}), at, by: supplierName(t.supplierId) }]
+  }
+  timesheets
+    .filter((t) => billable(t) && PARKING[t.locationId])
+    .forEach((t, i) => {
+      if (i % 8 === 3) add(t, "parking", PARKING[t.locationId], "Event-day lot")
+    })
+  timesheets
+    .filter((t) => billable(t) && t.locationId === "loc-pu")
+    .slice(-2)
+    .forEach((t) => add(t, "background_check", 35, "Youth camp required a second check"))
+}
+
 const supplierName = (id: string) => {
   const s = SUPPLIERS.find((x) => x.id === id)
   return s ? (s.integration === "api" ? `${s.shortName} app` : s.contactName) : id
@@ -1009,7 +1035,7 @@ function plantBillingError(timesheets: Timesheet[], invoices: Invoice[], today: 
 }
 
 function invoiceTotalRaw(inv: Invoice) {
-  return round2(inv.lines.reduce((sum, l) => sum + l.amount + l.tips, 0))
+  return round2(inv.lines.reduce((sum, l) => sum + l.amount + l.tips + expensesOf(l), 0))
 }
 
 function generateUploads(counters: Counters, today: string): Upload[] {

@@ -12,10 +12,12 @@ import { EmptyState } from "@/components/common/empty-state"
 import { MultiSelectFilter, ResetFilters, SearchInput } from "@/components/common/filters"
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
+import { AccrualTable } from "@/components/invoices/accrual-table"
 import { AnomalyFlag, DeltaText, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
 import { MonthlyTable } from "@/components/invoices/monthly-table"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
+import { accrualCsvRows, accruals } from "@/lib/accruals"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatDateShort, todayISO } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
@@ -27,26 +29,27 @@ import {
   invoiceHours,
   invoiceStatus,
   invoiceSubtotal,
+  invoiceExpenses,
   invoiceTips,
   invoiceTotal,
   isFlagged,
   needsReview,
   type InvoiceDisplayStatus,
 } from "@/lib/metrics"
-import { BUYERS, SUPPLIERS, buyer, supplier } from "@/lib/reference"
+import { BUYERS, SUPPLIERS, buyer, costCenterOf, location, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import type { Invoice, PersonaKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Quick = "all" | "flagged" | "open" | "outstanding" | "paid"
+type Quick = "all" | "flagged" | "open" | "outstanding" | "paid" | "accrue"
 
 const QUICK: Record<PersonaKind, Quick[]> = {
-  compass: ["all", "flagged", "open", "outstanding", "paid"],
-  buyer: ["all", "open", "outstanding", "paid"],
+  compass: ["all", "flagged", "open", "outstanding", "paid", "accrue"],
+  buyer: ["all", "open", "outstanding", "paid", "accrue"],
   supplier: ["all", "open", "outstanding", "paid"],
 }
 
-const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", paid: "Paid" }
+const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", paid: "Paid", accrue: "Not invoiced yet" }
 
 const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 
@@ -104,6 +107,7 @@ export function InvoicesPage() {
       open: (i) => invoiceStatus(i) === "open",
       outstanding: (i) => OUTSTANDING.includes(invoiceStatus(i)),
       paid: (i) => invoiceStatus(i) === "paid",
+      accrue: () => false,
     }),
     [data],
   )
@@ -114,6 +118,18 @@ export function InvoicesPage() {
   }, [data, filtered, matches, quick])
   const groupOf = useMemo(() => new Map(data.invoiceGroups.map((g) => [g.id, g])), [data.invoiceGroups])
   const byMonth = ws.kind !== "supplier" && quick === "all"
+  const accruing = quick === "accrue"
+  const accrued = useMemo(() => {
+    if (!accruing) return undefined
+    const q = query.trim().toLowerCase()
+    const sheets = data.timesheets.filter(
+      (t) =>
+        (!suppliers.length || suppliers.includes(t.supplierId)) &&
+        (!buyers.length || buyers.includes(t.buyerId)) &&
+        (!q || `${location(t.locationId).name} ${costCenterOf(t.locationId, t.departmentId, t.positionId)}`.toLowerCase().includes(q)),
+    )
+    return accruals(sheets, scope, todayISO())
+  }, [accruing, data.timesheets, scope, suppliers, buyers, query])
 
   const hasFilters = !!query || suppliers.length + buyers.length > 0
   const resetFilters = () => {
@@ -205,6 +221,7 @@ export function InvoicesPage() {
   ]
 
   const exportCsv = () => {
+    if (accrued) return downloadCsv(exportName("accruals"), toCsv(accrualCsvRows(accrued)))
     downloadCsv(
       exportName("invoices"),
       toCsv(
@@ -223,6 +240,7 @@ export function InvoicesPage() {
             hours: invoiceHours(i),
             labor: invoiceSubtotal(i).toFixed(2),
             tips: invoiceTips(i).toFixed(2),
+            expenses: invoiceExpenses(i).toFixed(2),
             amount: invoiceTotal(i).toFixed(2),
             balance: invoiceBalance(i).toFixed(2),
             ...(isCompass
@@ -261,7 +279,7 @@ export function InvoicesPage() {
         title="Invoices"
         description={DESCRIPTION[ws.kind]}
         actions={
-          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={!rows.length} onClick={exportCsv}>
+          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={accrued ? !accrued.rows.length : !rows.length} onClick={exportCsv}>
             <Download className="size-4" /> Download CSV
           </Button>
         }
@@ -279,22 +297,30 @@ export function InvoicesPage() {
             .map((q) => ({
               value: q,
               label: QUICK_LABEL[q],
-              count: q === "all" || q === "paid" ? undefined : filtered.filter(matches[q]).length,
+              count: q === "all" || q === "paid" || q === "accrue" ? undefined : filtered.filter(matches[q]).length,
               tooltip:
                 q === "flagged"
                   ? "Anomalous invoices waiting for your review"
+                  : q === "accrue"
+                    ? "Hours worked that no issued invoice covers yet, to accrue at month end"
                   : q === "all" && ws.kind !== "supplier"
                     ? "One invoice a month, broken down by sector, business and cost center"
                     : undefined,
             }))}
         />
-        <span className="text-body-3 text-faded">
-          <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
-        </span>
+        {accrued ? (
+          <span className="text-body-3 text-faded" data-tour="accrual-total">
+            <span className="font-bold text-foreground tabular">{money(accrued.amount)}</span> to accrue · <span className="font-bold text-foreground tabular">{Math.round(accrued.hours).toLocaleString("en-US")}</span> hours
+          </span>
+        ) : (
+          <span className="text-body-3 text-faded">
+            <span className="font-bold text-foreground tabular">{money(billed)}</span> billed · <span className="font-bold text-foreground tabular">{money(open)}</span> open
+          </span>
+        )}
       </div>
-      <motion.div key={byMonth ? "months" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
+      <motion.div key={accruing ? "accrue" : byMonth ? "months" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search invoices" className="w-52" />
+          <SearchInput value={query} onChange={setQuery} placeholder={accruing ? "Search units" : "Search invoices"} className="w-52" />
           {ws.kind !== "supplier" && (
             <MultiSelectFilter
               label="Agencies"
@@ -306,7 +332,9 @@ export function InvoicesPage() {
           {ws.kind !== "buyer" && <MultiSelectFilter label="Buyers" options={BUYERS.map((b) => ({ value: b.id, label: b.name }))} value={buyers} onChange={setBuyers} />}
           <ResetFilters show={hasFilters} onClick={resetFilters} />
         </div>
-        {byMonth ? (
+        {accrued ? (
+          <AccrualTable accruals={accrued} showBuyer={ws.kind === "compass"} />
+        ) : byMonth ? (
           <MonthlyTable
             invoices={rows}
             groups={data.invoiceGroups}
