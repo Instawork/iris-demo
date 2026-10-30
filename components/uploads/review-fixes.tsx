@@ -99,7 +99,7 @@ export function ReviewFixes({ session, onChange, onDone }: { session: ReviewSess
         </Button>
         <div className="flex items-center gap-3">
           {tally.pending > 0 && <span className="text-caption-1 text-faded tabular">{tally.pending} left to review</span>}
-          <Button className="h-9 rounded-lg px-4 text-body-3 font-semibold" disabled={tally.pending > 0 || !tally.rows} onClick={save}>
+          <Button className="h-9 rounded-lg px-4 text-body-3 font-semibold" disabled={tally.pending > 0 || !tally.rows} onClick={save} data-tour="upload-save">
             Save {rows(tally.rows)}
           </Button>
         </div>

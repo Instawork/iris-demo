@@ -622,7 +622,7 @@ export interface InvoiceGroup {
   invoiceIds: string[]
 }
 
-export type UploadType = "shifts" | "timesheets" | "tips" | "rates" | "professionals" | "activity"
+export type UploadType = "shifts" | "timesheets" | "tips" | "expenses" | "rates" | "professionals" | "activity"
 
 export type UploadStatus = "completed" | "completed_with_errors" | "failed" | "needs_review"
 

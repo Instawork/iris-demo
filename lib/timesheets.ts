@@ -49,6 +49,12 @@ export const EXPENSE_LABEL: Record<ExpenseKind, string> = { parking: "Parking", 
 
 export const EXPENSE_MAX = 500
 
+export const EXPENSE_KINDS = Object.keys(EXPENSE_LABEL) as ExpenseKind[]
+
+/** The id for the next expense on a timesheet, `skip` places further along when adding several at once. */
+export const nextExpenseId = (t: Pick<Timesheet, "id" | "expenses">, skip = 0) =>
+  `${t.id}-e${Math.max(0, ...(t.expenses ?? []).map((e) => Number(e.id.slice(e.id.lastIndexOf("-e") + 2)) || 0)) + 1 + skip}`
+
 export const timesheetAmount = (t: Pick<Timesheet, "hours" | "otHours" | "billRate" | "tips" | "expenses">) => round2(laborAmount(t) + t.tips + expensesOf(t))
 
 /** Billed hours past what Iris's own clock supports. Under a quarter hour is rounding, not a finding. */

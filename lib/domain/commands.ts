@@ -33,7 +33,7 @@ import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { CATEGORY, IRIS, activeCard, bidLine, buildLines, counterPlan, fiscalYear, latestBid, nextNumber, openCounters, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
-import { EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
@@ -842,7 +842,6 @@ const removed = (t: Timesheet, ctx: CommandContext, reason: string): Timesheet =
   history: [...t.history, change(ctx.now, actorName(ctx), "removed", { reason })],
 })
 
-const EXPENSE_KINDS = Object.keys(EXPENSE_LABEL) as ExpenseKind[]
 
 /** The agency bills a cost it paid for the shift. It goes for approval with the hours, so only drafts and sent-back timesheets take one. */
 function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; kind: ExpenseKind; amount: number; note?: string }): Outcome<string> {
@@ -854,7 +853,7 @@ function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: s
   const note = optStr(input.note, 200)
   if (kind === "other" && !note) fail("Say what the expense was for.")
   const prior = t.expenses ?? []
-  const id = `${t.id}-e${Math.max(0, ...prior.map((e) => Number(e.id.slice(e.id.lastIndexOf("-e") + 2)) || 0)) + 1}`
+  const id = nextExpenseId(t)
   const expense: Expense = { id, kind, amount, ...(note ? { note } : {}), at: ctx.now, by: actorName(ctx) }
   const next: Timesheet = {
     ...t,
@@ -1466,7 +1465,7 @@ export interface UploadApply {
 
 type UploadRecord = Omit<Upload, "id" | "code" | "uploadedBy" | "actorKind" | "buyerId" | "supplierId" | "uploadedAt">
 
-const UPLOAD_TYPES: Upload["type"][] = ["shifts", "timesheets", "tips", "rates", "professionals", "activity"]
+const UPLOAD_TYPES: Upload["type"][] = ["shifts", "timesheets", "tips", "expenses", "rates", "professionals", "activity"]
 
 function applyUpload(data: DemoData, ctx: CommandContext, upload: Upload, apply?: UploadApply): DemoData {
   if (!apply || upload.status === "failed" || upload.status === "needs_review") return data

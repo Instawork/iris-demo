@@ -125,7 +125,7 @@ export function useAgent() {
 
       if (lower.includes("template")) {
         const type: UploadType =
-          lower.includes("rate") ? "rates" : lower.includes("professional") ? "professionals" : lower.includes("hour") ? "timesheets" : lower.includes("tip") ? "tips" : ws.kind === "compass" ? "activity" : "shifts"
+          lower.includes("rate") ? "rates" : lower.includes("professional") ? "professionals" : lower.includes("hour") ? "timesheets" : lower.includes("tip") ? "tips" : lower.includes("expense") && ws.kind === "supplier" ? "expenses" : ws.kind === "compass" ? "activity" : "shifts"
         add({
           from: "agent",
           text: `Here is the ${UPLOAD_SPECS[type].label.toLowerCase()} template. It contains the exact columns the validator expects.`,
@@ -205,7 +205,7 @@ export function useAgent() {
       const plan = planImport(type, csv, useStore.getState().data, ws)
       add({
         from: "agent",
-        text: `I identified this as a ${UPLOAD_SPECS[type].label.toLowerCase()} upload. ${plan.okCount} row${plan.okCount === 1 ? "" : "s"} ready, ${plan.errorCount} requiring review${plan.missingColumns.length ? `, and ${plan.missingColumns.length} required column${plan.missingColumns.length === 1 ? "" : "s"} missing` : ""}. Nothing has been saved.`,
+        text: `I identified this as ${/^[aeiou]/i.test(UPLOAD_SPECS[type].label) ? "an" : "a"} ${UPLOAD_SPECS[type].label.toLowerCase()} upload. ${plan.okCount} row${plan.okCount === 1 ? "" : "s"} ready, ${plan.errorCount} requiring review${plan.missingColumns.length ? `, and ${plan.missingColumns.length} required column${plan.missingColumns.length === 1 ? "" : "s"} missing` : ""}. Nothing has been saved.`,
         actions: [
           { label: "Continue to upload review", kind: "review", type, fileName: file.name, csv },
           { label: "Download matching template", kind: "template", type },

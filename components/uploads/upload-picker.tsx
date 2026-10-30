@@ -1,6 +1,6 @@
 "use client"
 
-import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, Coins, Download, Paperclip, Upload, Users, X, type LucideIcon } from "lucide-react"
+import { BadgeDollarSign, CalendarPlus, Car, ChartColumn, Clock, Coins, Download, Paperclip, Upload, Users, X, type LucideIcon } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -18,6 +18,7 @@ export const UPLOAD_ICONS: Record<UploadType, LucideIcon> = {
   shifts: CalendarPlus,
   timesheets: Clock,
   tips: Coins,
+  expenses: Car,
   rates: BadgeDollarSign,
   professionals: Users,
   activity: ChartColumn,

@@ -21,7 +21,7 @@ export const AGENT_PROMPTS = {
 const INTRO = {
   compass: "I can build a report from a question, and help you investigate spend, flagged invoices and workforce safety across the Compass program.",
   buyer: "I can create or upload shifts, approve hours that match the clock, and provide the right CSV template.",
-  supplier: "I can help upload rates and workers, assign workers to shifts, and submit hours or tips.",
+  supplier: "I can help upload rates and workers, assign workers to shifts, and submit hours, tips or expenses.",
 }
 
 export const CHAT_COMPOSER_ID = "agent-chat-composer"

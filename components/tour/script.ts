@@ -10,7 +10,8 @@ import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
-import { buyer, location, position } from "@/lib/reference"
+import { templateCsv } from "@/lib/csv"
+import { buyer, location, position, workspace } from "@/lib/reference"
 import { irisCounters } from "@/lib/sourcing"
 import { timesheetChecks } from "@/lib/timesheets"
 import { SAMPLE_UNIT_SHEET } from "@/lib/unit-sheet"
@@ -502,6 +503,22 @@ async function fillParking() {
   return inside(EXPENSE_FORM, '[data-tour="expense-save"]')
 }
 
+const EXPENSE_FILE = "harbor_expenses.csv"
+const chatReview = () => last('[data-tour="agent-review"]')
+const uploadSave = () => one('[data-tour="upload-save"]')
+const expenseUpload = (ctx: TourContext) => ctx.data.uploads.find((u) => u.type === "expenses" && u.uploadedAt >= ctx.base.at && u.status.startsWith("completed"))
+
+/** Drops Harbor's week of expenses into Agent Chat, built from its own unsubmitted shifts. */
+async function attachExpenses(ctx: TourContext) {
+  const input = last("input[data-agent-file]")
+  if (!(input instanceof HTMLInputElement)) throw STOPPED
+  const files = new DataTransfer()
+  files.items.add(new File([templateCsv("expenses", ctx.data, workspace(HARBOR))], EXPENSE_FILE, { type: "text/csv" }))
+  input.files = files.files
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+  return until(chatReview, 8000)
+}
+
 /** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
 const paddedSheet = (data: DemoData) =>
   data.timesheets
@@ -877,6 +894,40 @@ export const SCRIPT: TourItem[] = [
       await until(() => one(EXPENSE_FORM))
       await press(await fillParking())
       await until(() => expenseSince(api.now()), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "expense-sheet",
+    chapter: "timesheets",
+    label: "Expenses from a sheet",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    startsChat: true,
+    title: () => (uploadSave() ? "Matched to every shift" : "Or the whole week, from a sheet"),
+    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
+    action: () => {
+      const next = uploadSave() ?? chatReview()
+      if (next) return `Click ${next.textContent?.trim()}`
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
+    },
+    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
+    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
+    placement: "left",
+    anchor: () => uploadSave()?.closest('[role="dialog"]'),
+    done: (ctx) => !!expenseUpload(ctx),
+    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
+    skip: async (_, api) => {
+      if (!uploadSave() && !chatReview()) {
+        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+        await until(() => COMPOSER(CHAT_COMPOSER_ID))
+        await attachExpenses(api.now())
+      }
+      if (!uploadSave()) await press(await until(chatReview, 8000))
+      await press(await until(uploadSave, 8000))
+      await until(() => expenseUpload(api.now()), 8000)
     },
   },
   {

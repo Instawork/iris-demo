@@ -8,11 +8,12 @@ import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
 import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/domain/core"
 import { tipsOpen, withTips } from "@/lib/domain/invoicing"
-import { billedOf, change, clockHours, hoursFor, overtimeKey, withOvertime } from "@/lib/timesheets"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, clockHours, hoursFor, nextExpenseId, overtimeKey, withOvertime } from "@/lib/timesheets"
 import type {
   BusinessActivity,
   ComplianceItem,
   DemoData,
+  Expense,
   Location,
   PersonaKind,
   Pro,
@@ -267,6 +268,20 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
     href: "/shifts",
     columns: [SHIFT_GROUP_COLUMN, PRO_COLUMN, { key: "tip_amount", label: "Tip", required: true, description: "Dollars" }],
   },
+  expenses: {
+    type: "expenses",
+    label: "Expense",
+    description: "Parking, background checks and other costs paid for a shift. Billed at cost with the hours, before they're submitted.",
+    allowed: ["supplier"],
+    href: "/timesheets",
+    columns: [
+      SHIFT_GROUP_COLUMN,
+      PRO_COLUMN,
+      { key: "expense_type", label: "Type", required: true, description: "parking, background check or other" },
+      { key: "amount", label: "Amount", required: true, description: `Dollars, up to $${EXPENSE_MAX}` },
+      { key: "note", label: "Note", required: false, description: "What it was for. Required for other" },
+    ],
+  },
   activity: {
     type: "activity",
     label: "Business activity",
@@ -404,6 +419,28 @@ function tipRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
   return rows
 }
 
+const PARKING_BY_KIND: Record<string, number> = { Stadium: 25, Arena: 20, Ballpark: 18, "Convention center": 22 }
+
+/** Parking for the agency's unsubmitted shifts at venues that charge for it, and one event-required background check. */
+function expenseRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
+  const today = todayISO()
+  const open = data.timesheets
+    .filter((t) => inWorkspace(ws, t) && canEditBilled(t) && t.clockIn && t.clockOut && !t.expenses?.length && t.date <= today)
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
+  const parked = open.filter((t) => PARKING_BY_KIND[location(t.locationId).kind]).slice(0, 5)
+  const checked = open.find((t) => !parked.includes(t))
+  const rows: Row[] = [
+    ...parked.map((t) => ({ shift_group_id: groupCode(data, t.groupId), pro_id: proCode(data, t.proId), expense_type: "parking", amount: PARKING_BY_KIND[location(t.locationId).kind].toFixed(2), note: "Event parking" })),
+    ...(checked ? [{ shift_group_id: groupCode(data, checked.groupId), pro_id: proCode(data, checked.proId), expense_type: "background check", amount: "35.00", note: "Required by the event" }] : []),
+  ]
+  if (withIssues && rows.length >= 3) {
+    rows[1] = { ...rows[1], expense_type: "parkng" }
+    rows[2] = { ...rows[2], expense_type: "other", note: "" }
+    rows.push({ ...rows[0] })
+  }
+  return rows
+}
+
 function rateRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
   const cityOrder = (id: string) => CITIES.findIndex((c) => c.id === id)
   const positionOrder = (id: string) => POSITIONS.findIndex((p) => p.id === id)
@@ -511,6 +548,7 @@ export function templateRows(type: UploadType, data: DemoData, ws: Workspace, wi
   if (type === "shifts") return shiftRows(data, ws, withIssues)
   if (type === "timesheets") return timesheetRows(data, ws, withIssues)
   if (type === "tips") return tipRows(data, ws, withIssues)
+  if (type === "expenses") return expenseRows(data, ws, withIssues)
   if (type === "rates") return rateRows(data, ws, withIssues)
   if (type === "professionals") return proRows(data, ws, withIssues)
   return activityRows(withIssues)
@@ -653,6 +691,7 @@ export function planImport(type: UploadType, text: string, data: DemoData, ws: W
     shifts: planShifts,
     timesheets: planTimesheets,
     tips: planTips,
+    expenses: planExpenses,
     rates: planRates,
     professionals: planPros,
     activity: planActivity,
@@ -906,6 +945,65 @@ function planTips(rows: Row[], ctx: Ctx): Planned {
     ...tally(results),
     summary: tips.size ? `${money(total)} in tips added to ${plural(tips.size, "timesheet")}` : "No tips added",
     apply: tips.size ? (data) => withTips(data, tips) : undefined,
+  }
+}
+
+/* Expenses -------------------------------------------------------------- */
+
+const expenseKind = (v: string) => EXPENSE_KINDS.find((k) => norm(k) === norm(v) || norm(EXPENSE_LABEL[k]) === norm(v))
+
+function planExpenses(rows: Row[], ctx: Ctx): Planned {
+  const results: RowResult[] = []
+  const adds = new Map<string, Omit<Expense, "id" | "at" | "by">[]>()
+  const seen = new Map<string, number>()
+  rows.forEach((row, i) => {
+    const n = ctx.nums[i]
+    const issues: UploadIssue[] = []
+    required(row, ["shift_group_id", "pro_id", "expense_type", "amount"], issues, n)
+    const g = row.shift_group_id ? groupCell(ctx, row.shift_group_id, n, issues) : undefined
+    const pro = row.pro_id ? proCell(ctx, row.pro_id, n, issues) : undefined
+    const kind = row.expense_type
+      ? lookup(expenseKind(row.expense_type), row.expense_type, EXPENSE_KINDS, (k) => [EXPENSE_LABEL[k]], n, "expense_type", issues, "Use parking, background check or other")
+      : undefined
+    const same = g && pro && kind ? firstSeen(seen, `${g.id}|${pro.id}|${kind}`, n) : undefined
+    if (same !== undefined) {
+      results.push(duplicate(n, row, "expense_type", `Duplicate of row ${same}`))
+      return
+    }
+    const ts = g && pro ? ctx.data.timesheets.find((t) => t.groupId === g.id && t.proId === pro.id) : undefined
+    if (g && pro && !ts) issues.push(problem(n, "pro_id", `No hours for this worker on ${g.code}`))
+    if (ts && ts.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your workers"))
+    else if (ts && !canEditBilled(ts)) issues.push(problem(n, undefined, "Already submitted, so expenses can't change", REMOVE_ROW))
+    const amount = parseNumber(row.amount ?? "")
+    if (row.amount && (amount === undefined || amount <= 0 || amount > EXPENSE_MAX)) issues.push(problem(n, "amount", `Use an amount up to ${money(EXPENSE_MAX)}`))
+    if (ts && kind && amount !== undefined && ts.expenses?.some((e) => e.kind === kind && e.amount === round2(amount))) issues.push(problem(n, undefined, "Already on this timesheet", REMOVE_ROW))
+    const note = row.note?.slice(0, 200) || undefined
+    if (kind === "other" && !note) issues.push(problem(n, "note", "Say what it was for"))
+    const ok = !hasErrors(issues)
+    if (ok && ts && kind && amount !== undefined) adds.set(ts.id, [...(adds.get(ts.id) ?? []), { kind, amount: round2(amount), ...(note ? { note } : {}) }])
+    results.push({ row: n, values: row, issues, ok, summary: ok && pro && kind ? `${money(amount ?? 0)} ${EXPENSE_LABEL[kind].toLowerCase()} for ${pro.firstName} ${pro.lastName}` : "" })
+  })
+  const all = [...adds.values()].flat()
+  const total = round2(all.reduce((s, e) => s + e.amount, 0))
+  return {
+    rows: results,
+    ...tally(results),
+    summary: all.length ? `${money(total)} in expenses added to ${plural(adds.size, "timesheet")}` : "No expenses added",
+    apply: all.length
+      ? (data) => {
+          const now = new Date().toISOString()
+          const by = ctx.ws.user.name
+          return {
+            timesheets: data.timesheets.map((t) => {
+              const add = adds.get(t.id)
+              if (!add || !canEditBilled(t)) return t
+              const expenses = add.map((e, k): Expense => ({ ...e, id: nextExpenseId(t, k), at: now, by }))
+              const note = `Added ${expenses.map((e) => `${EXPENSE_LABEL[e.kind].toLowerCase()}, ${money(e.amount)}`).join("; ")} from a CSV upload`
+              return { ...t, expenses: [...(t.expenses ?? []), ...expenses], history: [...t.history, change(now, by, "edited", { note })] }
+            }),
+          }
+        }
+      : undefined,
   }
 }
 
