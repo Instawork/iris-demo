@@ -898,6 +898,9 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     primary.current = item.kind === "intro" ? () => start() : item.kind === "chapter" ? () => void play(item) : exit
   })
   useEffect(() => {
+    useUi.getState().setAgentOpen(false)
+  }, [item.id])
+  useEffect(() => {
     const here = item.kind === "chapter" ? item.chapter : undefined
     const onKey = (e: KeyboardEvent) => {
       if (item.kind !== "intro" && !e.repeat) {

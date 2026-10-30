@@ -1,5 +1,6 @@
 import { Building2, CalendarPlus, ChartColumn, Clock, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
 
+import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
@@ -350,42 +351,32 @@ async function pickTwo() {
   }
 }
 
-const composerText = () => (document.getElementById(COMPOSER_ID) as HTMLTextAreaElement | null)?.value.trim() ?? ""
-const sendButton = () => inside(COMPOSER(), 'button[aria-label="Send"]')
+const composerText = (id = COMPOSER_ID) => (document.getElementById(id) as HTMLTextAreaElement | null)?.value.trim() ?? ""
+const sendButton = (id = COMPOSER_ID) => inside(COMPOSER(id), 'button[aria-label="Send"]')
 
-/** Types a question into the Home composer, leaving Send for the player. */
-async function typeAsk(text: string) {
-  const box = document.getElementById(COMPOSER_ID)
+/** Types a question into a composer, Home's unless told otherwise, leaving Send for the player. */
+async function typeAsk(text: string, id = COMPOSER_ID) {
+  const box = document.getElementById(id)
   if (!box) throw STOPPED
   await point(box)
-  compose(COMPOSER_ID, text)
-  await until(() => composerText() === text, 6000)
+  compose(id, text)
+  await until(() => composerText(id) === text, 6000)
   restCursor()
   await sleep(200)
-  return sendButton()
+  return sendButton(id)
 }
 
 /** The question box is free: nothing typed, and Iris isn't still answering. */
-const canAsk = (ctx: TourContext) => !!COMPOSER() && !composerText() && !useAgentThreads.getState().thinking[ctx.wsId]
+const canAsk = (ctx: TourContext, id = COMPOSER_ID) => !!COMPOSER(id) && !composerText(id) && !useAgentThreads.getState().thinking[ctx.wsId]
 
 const offers = (ctx: TourContext, kind: string) => ctx.thread.some((m) => m.actions?.some((a) => a.kind === kind))
 const hasDraft = (ctx: TourContext) => offers(ctx, "create-shift")
 
 /** Sends a question for the player and waits for the answer the next step acts on. */
-const askFor = (text: () => string, ready: (ctx: TourContext) => boolean) => async (_: TourContext, api: TourApi) => {
-  await until(() => COMPOSER(), 8000)
-  compose(COMPOSER_ID, text(), true)
+const askFor = (text: () => string, ready: (ctx: TourContext) => boolean, id = COMPOSER_ID) => async (_: TourContext, api: TourApi) => {
+  await until(() => COMPOSER(id), 8000)
+  compose(id, text(), true)
   await until(() => ready(api.now()), 15000)
-}
-
-/* -------------------------------- Assigning -------------------------------- */
-
-const assignAsk = () => "Assign workers to my open shifts"
-
-/** Spots Metro filled during the tour. */
-const assignedSince = (ctx: TourContext) => {
-  const metro = new Set(ctx.data.pros.filter((p) => p.supplierId === "metro").map((p) => p.id))
-  return ctx.data.groups.reduce((n, g) => n + g.slots.filter((s) => !!s.proId && metro.has(s.proId) && !!s.confirmedAt && s.confirmedAt >= ctx.base.at).length, 0)
 }
 
 /* ------------------------------- Compliance -------------------------------- */
@@ -456,6 +447,10 @@ async function attest() {
 /* -------------------------------- Timesheets ------------------------------- */
 
 const SCAN = '[data-tour="scan-sheet"]'
+const CHAT_OPEN = '[data-tour="agent-chat-open"]'
+
+/** The sheet's updates are saved but may not have reached the page yet. */
+const justScanned = () => [...document.querySelectorAll("[data-sonner-toast]")].some((t) => t.textContent?.includes("from the sheet"))
 
 const submitAsk = () => "Submit this week's timesheets"
 const submittedSince = (ctx: TourContext) => ctx.data.timesheets.filter((t) => t.supplierId === "harbor" && !!t.submittedAt && t.submittedAt >= ctx.base.at).length
@@ -522,7 +517,7 @@ const reportLink = (ctx: TourContext) => {
   return undefined
 }
 
-const COMPOSER = () => document.getElementById(COMPOSER_ID)?.closest('[data-slot="input-group"]')
+const COMPOSER = (id = COMPOSER_ID) => document.getElementById(id)?.closest('[data-slot="input-group"]')
 
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
@@ -549,7 +544,7 @@ export const SCRIPT: TourItem[] = [
     action: "Send it with Enter",
     example: askExample,
     targets: () => [COMPOSER()],
-    clicks: sendButton,
+    clicks: () => sendButton(),
     fill: { when: canAsk, run: () => typeAsk(askExample()) },
     placement: "top",
     done: (ctx) => hasDraft(ctx) || !!booked(ctx),
@@ -590,7 +585,7 @@ export const SCRIPT: TourItem[] = [
     title: "Worker assignments",
     wsId: LEVY,
     href: "/shifts/new",
-    shows: "Pick the agency and the workers, then staff it as the agency.",
+    shows: "Send it to one agency and ask for workers by name.",
   },
   {
     kind: "step",
@@ -630,57 +625,6 @@ export const SCRIPT: TourItem[] = [
       if (!one(DISPATCH)) await press(one('[data-tour="booking-review"]'))
       await pickTwo()
       await press(one('[data-tour="booking-post"]'))
-    },
-  },
-  {
-    kind: "chapter",
-    id: "chapter-assign",
-    chapter: "assignments",
-    title: "The agency staffs it",
-    wsId: METRO,
-    href: "/",
-    shows: "Every open shift filled in one message.",
-  },
-  {
-    kind: "step",
-    id: "assign-ask",
-    chapter: "assignments",
-    label: "Assign workers",
-    wsId: METRO,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Staff every open shift",
-    action: "Send it with Enter",
-    example: assignAsk,
-    targets: () => [COMPOSER()],
-    clicks: sendButton,
-    fill: { when: canAsk, run: () => typeAsk(assignAsk()) },
-    placement: "top",
-    done: (ctx) => offers(ctx, "assign-workers") || assignedSince(ctx) > 0,
-    success: () => "Plan ready",
-    startsChat: true,
-    skip: askFor(assignAsk, (ctx) => offers(ctx, "assign-workers")),
-  },
-  {
-    kind: "step",
-    id: "assign",
-    chapter: "assignments",
-    label: "Confirm them",
-    wsId: METRO,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Check the picks, then assign",
-    action: () => `Click ${last('[data-tour="agent-assign-workers"]')?.textContent?.trim() || "Assign"}`,
-    targets: () => [last('[data-tour="agent-plan"]')],
-    clicks: () => last('[data-tour="agent-assign-workers"]'),
-    placement: "right",
-    done: (ctx) => assignedSince(ctx) > 0,
-    success: (ctx) => `${plural(assignedSince(ctx), "worker")} booked`,
-    back: "assign-ask",
-    needs: "assign-ask",
-    skip: async (_, api) => {
-      await press(last('[data-tour="agent-assign-workers"]'))
-      await until(() => assignedSince(api.now()) > 0)
     },
   },
 
@@ -757,15 +701,16 @@ export const SCRIPT: TourItem[] = [
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: () => (one('[data-tour="scan-apply"]') ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "First, what doesn't match the clock"),
-    body: () => (one(SCAN) ? undefined : "It's at the top. Here, a venue that still signs in on paper."),
-    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
+    title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "First, what doesn't match the clock"),
+    body: () => (one(SCAN) || justScanned() ? undefined : "It's at the top. Here, a venue that still signs in on paper."),
+    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : justScanned() ? undefined : "Click Scan a sign-in sheet"),
     targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
-    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : one('[data-tour="scan-sheet-open"]')),
+    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
     placement: "right",
     done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
-    onDone: (_, api) => api.push("/"),
+    // The closed dialog hands focus back to its button, where the next Enter would open it again.
+    onDone: () => (document.activeElement as HTMLElement | null)?.blur(),
     skip: async () => {
       if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
       if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
@@ -780,19 +725,22 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     label: "Submit in a sentence",
     wsId: HARBOR,
-    path: /^\/$/,
-    href: () => "/",
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
     title: "Then submit the rest at once",
-    action: "Send it with Enter",
+    action: () => (COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"),
     example: submitAsk,
-    targets: () => [COMPOSER()],
-    clicks: sendButton,
-    fill: { when: canAsk, run: () => typeAsk(submitAsk()) },
-    placement: "top",
+    targets: () => [COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
+    fill: { when: (ctx) => canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(submitAsk(), CHAT_COMPOSER_ID) },
+    placement: "left",
     done: (ctx) => offers(ctx, "submit-timesheets") || submittedSince(ctx) > 0,
     success: () => "Checked against the clock",
     startsChat: true,
-    skip: askFor(submitAsk, (ctx) => offers(ctx, "submit-timesheets")),
+    skip: async (ctx, api) => {
+      if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+      await askFor(submitAsk, (now) => offers(now, "submit-timesheets"), CHAT_COMPOSER_ID)(ctx, api)
+    },
   },
   {
     kind: "step",
@@ -800,13 +748,13 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     label: "Submit them",
     wsId: HARBOR,
-    path: /^\/$/,
-    href: () => "/",
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
     title: "One click for the week",
     action: () => `Click ${last('[data-tour="agent-submit-timesheets"]')?.textContent?.trim() || "Submit"}`,
     targets: () => [last('[data-tour="agent-plan"]')],
     clicks: () => last('[data-tour="agent-submit-timesheets"]'),
-    placement: "right",
+    placement: "left",
     done: (ctx) => submittedSince(ctx) > 0,
     success: (ctx) => `${plural(submittedSince(ctx), "timesheet")} submitted`,
     back: "submit-ask",
@@ -976,7 +924,7 @@ export const SCRIPT: TourItem[] = [
     example: reportAsk,
     action: "Send it with Enter",
     targets: () => [COMPOSER()],
-    clicks: sendButton,
+    clicks: () => sendButton(),
     fill: { when: canAsk, run: () => typeAsk(reportAsk()) },
     placement: "top",
     done: (ctx) => !!reportLink(ctx),

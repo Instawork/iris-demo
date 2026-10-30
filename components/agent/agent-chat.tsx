@@ -24,6 +24,8 @@ const INTRO = {
   supplier: "I can help upload rates and workers, assign workers to shifts, and submit hours or tips.",
 }
 
+export const CHAT_COMPOSER_ID = "agent-chat-composer"
+
 /** Agent Chat on every page but Home, where the agent is the page itself. */
 export function AgentChat() {
   const pathname = usePathname()
@@ -47,7 +49,7 @@ export function AgentChat() {
 
   return (
     <>
-      <Button className="fixed right-5 bottom-5 z-40 h-11 gap-2 rounded-lg px-4 shadow-lg" onClick={() => setOpen(true)} aria-label="Open Agent Chat">
+      <Button className="fixed right-5 bottom-5 z-40 h-11 gap-2 rounded-lg px-4 shadow-lg" onClick={() => setOpen(true)} aria-label="Open Agent Chat" data-tour="agent-chat-open">
         <MessageSquare className="size-4" />
         <span className="hidden sm:inline">Agent Chat</span>
       </Button>
@@ -75,7 +77,7 @@ export function AgentChat() {
                   </Button>
                 ))}
               </div>
-              <AgentComposer label="Message Agent Chat" placeholder="Ask what to do or describe a shift…" onSubmit={agent.respond} onAttach={agent.attach} />
+              <AgentComposer id={CHAT_COMPOSER_ID} label="Message Agent Chat" placeholder="Ask what to do or describe a shift…" onSubmit={agent.respond} onAttach={agent.attach} />
             </div>
           </div>
         </SheetContent>
