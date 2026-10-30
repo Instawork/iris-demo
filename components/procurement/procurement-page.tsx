@@ -19,11 +19,9 @@ import { RatesPage } from "@/components/rates/rates-page"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
-import { pct } from "@/lib/format"
 import { benchmark } from "@/lib/market"
 import { latestBid, responded, spendOf } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
-import { cn } from "@/lib/utils"
 
 type Tab = "events" | "rates" | "contracts"
 
@@ -140,18 +138,12 @@ function Summary({ events }: { events: SourcingEvent[] }) {
     (sum, e) => {
       const s = spendOf(e)
       const m = marketSpend(e)
-      return { baseline: sum.baseline + s.baseline, savings: sum.savings + s.savings, proposed: sum.proposed + m.proposed, market: sum.market + m.market }
+      return { baseline: sum.baseline + s.baseline, proposed: sum.proposed + m.proposed, market: sum.market + m.market }
     },
-    { baseline: 0, savings: 0, proposed: 0, market: 0 },
+    { baseline: 0, proposed: 0, market: 0 },
   )
   const cells = [
     { label: "Spend being negotiated", value: moneyYear(t.baseline), info: `A year after VA, across ${events.length} open event${events.length === 1 ? "" : "s"}.` },
-    {
-      label: "Projected savings",
-      value: t.savings > 0 ? moneyYear(t.savings) : "—",
-      positive: t.savings > 0,
-      info: `A year after VA rebates${t.baseline && t.savings > 0 ? `, ${pct(t.savings / t.baseline, 1)} below today` : ""}: the latest bids and terms against today's, at each agency's share of the hours.`,
-    },
     {
       label: "Latest bids vs the market",
       value: t.market ? <VsMarket value={t.proposed / t.market - 1} /> : "—",
@@ -159,14 +151,14 @@ function Summary({ events }: { events: SourcingEvent[] }) {
     },
   ]
   return (
-    <Surface elevated className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+    <Surface elevated className="grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
       {cells.map((c) => (
         <div key={c.label} className="flex flex-col gap-0.5 px-5 py-4">
           <span className="flex items-center gap-1.5 text-body-3 text-faded">
             {c.label}
             {c.info && <InfoTip>{c.info}</InfoTip>}
           </span>
-          <span className={cn("text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular", c.positive && "text-positive-fg")}>{c.value}</span>
+          <span className="text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular">{c.value}</span>
         </div>
       ))}
     </Surface>
@@ -198,9 +190,6 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
       ? { label: "Your billings", value: `${moneyYear(spend.baseline)} a year` }
       : { label: "Bids in", value: `${bids} of ${ev.invited.length}` },
     { label: days >= 0 ? "Bids due" : "Bids closed", value: days === 0 ? "Today" : formatDateShort(ev.closesOn) },
-    ...(supplierId
-      ? []
-      : [{ label: "Projected savings", value: bids ? (spend.savings > 0 ? `${moneyYear(spend.savings)} a year` : "None yet") : "—", positive: spend.savings > 0 && bids > 0 }]),
   ]
   return (
     <Link
@@ -225,7 +214,7 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
         {facts.map((f) => (
           <span key={f.label} className="flex min-w-0 flex-col">
             <span className="text-caption-1 text-faded">{f.label}</span>
-            <span className={cn("truncate text-body-3 font-semibold tabular", "positive" in f && f.positive && "text-positive-fg")}>{f.value}</span>
+            <span className="truncate text-body-3 font-semibold tabular">{f.value}</span>
           </span>
         ))}
         <ChevronRight className="ml-auto size-4 shrink-0 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />

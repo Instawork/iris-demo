@@ -8,7 +8,7 @@ import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
-import { fullName, money, moneyCompact, plural } from "@/lib/format"
+import { fullName, money, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
 import { buyer, location, position } from "@/lib/reference"
 import { irisCounters } from "@/lib/sourcing"
@@ -1086,10 +1086,7 @@ export const SCRIPT: TourItem[] = [
     title: () => (one(ACCRUALS) ? "To accrue, by cost center" : "Spend before the invoice lands"),
     body: () => (one(ACCRUALS) ? "Hours worked that no invoice covers yet. Accounting books it at month end." : undefined),
     action: () => (one(ACCRUALS) ? undefined : "Click Not invoiced yet"),
-    targets: () => {
-      const rows = [...document.querySelectorAll(`${ACCRUALS} tbody tr`)].slice(0, 3)
-      return rows.length ? [...rows, one('[data-tour="accrual-total"]')] : [one(ACCRUE_TAB)]
-    },
+    targets: () => (one(ACCRUALS) ? [one(ACCRUALS), one('[data-tour="accrual-total"]')] : [one(ACCRUE_TAB)]),
     placement: "bottom",
     onDone: (_, api) => api.push("/"),
     skip: () => press(one(ACCRUE_TAB)),
@@ -1142,7 +1139,7 @@ export const SCRIPT: TourItem[] = [
     title: "Procurement",
     wsId: COMPASS,
     href: `/procurement/${EVENT}`,
-    shows: "Next year's rates, every agency's bids, negotiated at once.",
+    shows: "Next year's rates, every agency's bids, countered at once.",
   },
   {
     kind: "step",
@@ -1152,14 +1149,15 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
-    title: (ctx) => (irisSince(ctx).length ? "Iris is negotiating" : "Every bid above the market, countered at once"),
+    title: (ctx) => (irisSince(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
+    body: (ctx) => (irisSince(ctx).length ? "Sped up here so you can watch." : undefined),
     action: (ctx) => (irisSince(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
     targets: () => [one('[data-tour="iris-negotiate"]')],
     clicks: () => one('[data-tour="negotiate"]'),
     placement: "left",
     status: (ctx) => (irisSince(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSince(ctx).length} answered` : undefined),
     done: negotiated,
-    success: (ctx) => `Saved ${moneyCompact(irisSince(ctx).reduce((sum, c) => sum + c.saves, 0))} a year`,
+    success: () => "Every agency answered",
     skip: async (_, api) => {
       if (!irisSince(api.now()).length) await press(one('[data-tour="negotiate"]'))
       await until(() => negotiated(api.now()), 30000)

@@ -9,63 +9,32 @@ import type { Scope, Timesheet } from "@/lib/types"
  * accrues this at month end, and budgets track it each week, from Iris's timesheets instead of waiting for the bill.
  */
 
-export type AccrualStage = "agency" | "approval" | "approved"
+export type AccrualStage = "approved" | "approval" | "agency"
+
+export const ACCRUAL_STAGES: AccrualStage[] = ["approved", "approval", "agency"]
 
 export const ACCRUAL_STAGE: Record<AccrualStage, string> = {
-  agency: "With the agency",
-  approval: "Waiting for approval",
   approved: "Approved, on this week's invoice",
+  approval: "Waiting for approval",
+  agency: "With the agency",
 }
 
-const stageOf = (t: Timesheet): AccrualStage | undefined =>
+export const stageOf = (t: Timesheet): AccrualStage | undefined =>
   t.status === "draft" || t.status === "rejected" ? "agency" : t.status === "pending_approval" ? "approval" : t.status === "approved" ? "approved" : undefined
 
-export interface AccrualRow {
-  costCenter: string
-  locationId: string
-  departmentName?: string
-  buyerId: string
-  hours: number
-  amount: number
-  byStage: Record<AccrualStage, number>
-}
-
 export interface Accruals {
-  rows: AccrualRow[]
   timesheets: Timesheet[]
   hours: number
   amount: number
-  byStage: Record<AccrualStage, number>
 }
 
-const noStages = (): Record<AccrualStage, number> => ({ agency: 0, approval: 0, approved: 0 })
-
-/** Every timesheet worked by today that isn't on an issued invoice, by the cost center it's charged to. */
+/** Every timesheet worked by today that isn't on an issued invoice. */
 export function accruals(timesheets: Timesheet[], scope: Scope, today: string): Accruals {
-  const rows = new Map<string, AccrualRow>()
-  const open: Timesheet[] = []
-  const byStage = noStages()
-  for (const t of timesheets) {
-    const stage = stageOf(t)
-    if (!stage || t.date > today || !inScope(scope, t)) continue
-    const dept = departmentOf(t.locationId, t.departmentId, t.positionId)
-    const costCenter = dept?.costCenter || location(t.locationId).costCenter
-    const row = rows.get(costCenter) ?? { costCenter, locationId: t.locationId, departmentName: dept?.name, buyerId: t.buyerId, hours: 0, amount: 0, byStage: noStages() }
-    const amount = timesheetAmount(t)
-    row.hours = round2(row.hours + t.hours)
-    row.amount = round2(row.amount + amount)
-    row.byStage[stage] = round2(row.byStage[stage] + amount)
-    byStage[stage] = round2(byStage[stage] + amount)
-    rows.set(costCenter, row)
-    open.push(t)
-  }
-  const list = [...rows.values()].sort((a, b) => b.amount - a.amount)
+  const open = timesheets.filter((t) => !!stageOf(t) && t.date <= today && inScope(scope, t))
   return {
-    rows: list,
     timesheets: open,
-    hours: round2(list.reduce((s, r) => s + r.hours, 0)),
-    amount: round2(list.reduce((s, r) => s + r.amount, 0)),
-    byStage,
+    hours: round2(open.reduce((s, t) => s + t.hours, 0)),
+    amount: round2(open.reduce((s, t) => s + timesheetAmount(t), 0)),
   }
 }
 

@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
-import { billFrom, money, pct, plural, round2 } from "@/lib/format"
+import { billFrom, money, plural, round2 } from "@/lib/format"
 import { city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
 import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineLabel, lineOf, marketName, netOf, offeredTerms, openCounters, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
@@ -144,7 +144,6 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
         </Surface>
       </div>
       <div className="flex min-w-0 flex-col gap-4">
-        <Savings ev={ev} />
         <Surface elevated className="pb-4">
           <SurfaceHeader title="Timeline" />
           <div className="px-5 pt-4">
@@ -187,8 +186,6 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
   const agencies = [...new Set((sent.length ? sent : plan).map((c) => c.supplierId))].map((s) => supplier(s).shortName)
   const waiting = sent.filter((c) => c.outcome === "waiting").length
   const count = (o: CounterOutcome) => sent.filter((c) => c.outcome === o).length
-  const saved = sent.reduce((s, c) => s + c.saves, 0)
-  const upTo = plan.reduce((s, c) => s + c.saves, 0)
   const rows = sent.length
     ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.outcome === "waiting" ? c.ask : c.now, outcome: c.outcome as CounterOutcome | undefined }))
     : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.ask, outcome: undefined }))
@@ -197,7 +194,7 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
   const detail = !sent.length
     ? `From ${listOf(agencies)}. Iris counters each one toward the ${city(ev.cityId).name} median.`
     : waiting
-      ? `${sent.length - waiting} of ${sent.length} answered`
+      ? `${sent.length - waiting} of ${sent.length} answered. Agencies usually answer within two days.`
       : listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))
 
   return (
@@ -211,10 +208,6 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
             <span className="text-body-2 font-semibold">{title}</span>
             <span className="text-body-3 text-faded">{detail}</span>
           </span>
-        </span>
-        <span className="flex flex-col items-end">
-          <span className="text-caption-1 text-faded">{sent.length ? "Saved a year" : "Up to, a year"}</span>
-          <span className={cn("text-featured-3 font-semibold tabular", (sent.length ? saved : upTo) > 0 && "text-positive-fg")}>{moneyYear(sent.length ? saved : upTo)}</span>
         </span>
       </div>
       <ol className="flex flex-col border-t border-border/70">
@@ -260,25 +253,6 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
           </Button>
         )}
       </div>
-    </Surface>
-  )
-}
-
-function Savings({ ev }: { ev: SourcingEvent }) {
-  const s = spendOf(ev)
-  const bids = responded(ev).length
-  const market = ev.lines.reduce((sum, l) => sum + l.hours * benchmark(ev.cityId, l.positionId).median, 0)
-  return (
-    <Surface elevated className="flex flex-col gap-0.5 p-5">
-      <span className="flex items-center gap-1.5 text-body-3 text-faded">
-        {ev.status === "awarded" ? "Savings approved" : "Projected savings"}
-        <InfoTip>
-          {`A year after VA rebates${s.savings > 0 ? `, ${pct(s.savingsPct, 1)} below today's rates and terms` : ""}. Today's rates come to ${moneyYear(s.baseline)}${bids ? `, the latest bids to ${moneyYear(s.proposed)}` : ""}, and the ${city(ev.cityId).name} market median to ${moneyYear(market)}.`}
-        </InfoTip>
-      </span>
-      <span className={cn("text-[30px] leading-10 font-semibold tracking-[-0.03em] tabular", s.savings > 0 && "text-positive-fg")}>
-        {bids ? (s.savings > 0 ? moneyYear(s.savings) : "None yet") : "—"}
-      </span>
     </Surface>
   )
 }

@@ -11,7 +11,6 @@ import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { Surface } from "@/components/common/surface"
 import { BenchmarkBar, BenchmarkLegend, VsMarket } from "@/components/procurement/sourcing-bits"
-import { RateChanges } from "@/components/rates/rate-changes"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData } from "@/hooks/use-app"
@@ -57,11 +56,6 @@ export function MarketRates() {
   }, [data.rateCards, cityId])
 
   const shown = rows.filter((r) => position(r.positionId).name.toLowerCase().includes(query.trim().toLowerCase()))
-  const weighted = rows.reduce((t, r) => ({ you: t.you + r.you * r.hours, market: t.market + r.market.median * r.hours }), { you: 0, market: 0 })
-  const overall = weighted.market ? weighted.you / weighted.market - 1 : 0
-  const above = rows.filter((r) => vsMarket(r.you, r.market) > 0.001)
-  const agencies = rows[0]?.market.agencies ?? 0
-  const backed = rows.filter((r) => agenciesOn(r).length >= 2).length
   const selected = rows.find((r) => r.positionId === open)
 
   const exportCsv = () =>
@@ -80,13 +74,6 @@ export function MarketRates() {
       ),
     )
 
-  const cells = [
-    { label: "Your rates vs the market", value: <VsMarket value={overall} />, info: "Across every role, weighted by hours." },
-    { label: "Roles priced over the market", value: `${above.length} of ${rows.length}` },
-    { label: "Roles with a backup agency", value: `${backed} of ${POSITIONS.length}`, info: "Roles two or more of your agencies have a rate for. With one or none, nobody can step in." },
-    { label: "Benchmark", value: `${agencies} agencies`, info: `The ${city(cityId).name} rate cards behind each role's median.` },
-  ]
-
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -98,17 +85,6 @@ export function MarketRates() {
           <SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />
         </span>
       </div>
-      <Surface elevated className="grid divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-        {cells.map((c) => (
-          <div key={c.label} className="flex flex-col gap-0.5 px-5 py-4">
-            <span className="flex items-center gap-1.5 text-body-3 text-faded">
-              {c.label}
-              {c.info && <InfoTip>{c.info}</InfoTip>}
-            </span>
-            <span className="text-[26px] leading-9 font-semibold tracking-[-0.03em] tabular">{c.value}</span>
-          </div>
-        ))}
-      </Surface>
       <Surface elevated className="overflow-hidden" data-tour="market-rates">
         <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
           <table className="w-full min-w-[720px] text-body-3">
@@ -178,7 +154,6 @@ export function MarketRates() {
           <BenchmarkLegend today="You pay" best="" bids="One of your agencies" />
         </div>
       </Surface>
-      <RateChanges />
       <Sheet open={!!selected} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
           {selected && <RoleRates row={selected} cityId={cityId} />}

@@ -231,7 +231,7 @@ export function agencyAnswer(ev: SourcingEvent, counter: SourcingMessage, now: s
     lines: { ...bid.lines, [counter.lineId!]: bidLine(line.proRate, (target / line.proRate - 1) * 100) },
     ...(bid.terms ? { terms: bid.terms } : {}),
   }
-  const text = met ? `We can do ${money(target)} on ${role}. Round ${next.round} is in.` : `We can come down to ${money(target)} on ${role}. Below that we can't cover pay and burden.`
+  const text = met ? `We can do ${money(target)} on ${role}.` : `We can come down to ${money(target)} on ${role}. Below that we can't cover pay and burden.`
   return {
     event: { ...ev, bids: [...ev.bids, next], messages: [...messages, reply(ev, s.id, s.contactName, text, counter.lineId, now)] },
     text: met ? `${s.shortName} met your ask on ${role}: ${money(target)}` : `${s.shortName} came down to ${money(target)} on ${role}`,

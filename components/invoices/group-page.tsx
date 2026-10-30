@@ -12,7 +12,7 @@ import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
-import { Breakdown, placeOf } from "@/components/invoices/breakdown"
+import { Breakdown, invoiceItems, placeOf } from "@/components/invoices/breakdown"
 import { AnomalyFlag, INVOICE_STATUS, InvoiceStatusBadge, groupTotals } from "@/components/invoices/invoice-bits"
 import { TipSplit } from "@/components/invoices/invoice-detail"
 import { Button } from "@/components/ui/button"
@@ -170,7 +170,7 @@ export function InvoiceGroupPage({ id }: { id: string }) {
         )}
         {shown === "breakdown" && (
           <div className="px-3 pb-2">
-            <Breakdown invoices={t.members} />
+            <Breakdown items={invoiceItems(t.members)} />
           </div>
         )}
         {shown === "tips" &&

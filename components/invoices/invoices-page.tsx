@@ -279,7 +279,7 @@ export function InvoicesPage() {
         title="Invoices"
         description={DESCRIPTION[ws.kind]}
         actions={
-          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={accrued ? !accrued.rows.length : !rows.length} onClick={exportCsv}>
+          <Button variant="ghost" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={accrued ? !accrued.timesheets.length : !rows.length} onClick={exportCsv}>
             <Download className="size-4" /> Download CSV
           </Button>
         }
@@ -333,7 +333,7 @@ export function InvoicesPage() {
           <ResetFilters show={hasFilters} onClick={resetFilters} />
         </div>
         {accrued ? (
-          <AccrualTable accruals={accrued} showBuyer={ws.kind === "compass"} />
+          <AccrualTable accruals={accrued} />
         ) : byMonth ? (
           <MonthlyTable
             invoices={rows}
