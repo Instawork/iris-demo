@@ -170,6 +170,7 @@ const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
 }
 
 const SHOWN = 5
+const TAGGED: CounterOutcome[] = ["waiting", "held"]
 
 /**
  * Iris negotiates the whole event at once: it counters every bid above the market, then shows each agency's answer as
@@ -190,6 +191,7 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
     ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.outcome === "waiting" ? c.ask : c.now, outcome: c.outcome as CounterOutcome | undefined }))
     : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.ask, outcome: undefined }))
   const shown = all ? rows : rows.slice(0, SHOWN)
+  const tagged = rows.some((r) => r.outcome && TAGGED.includes(r.outcome))
   const title = !sent.length ? `${plural(plan.length, "bid")} above the market` : waiting ? "Iris is negotiating" : `Iris negotiated ${plural(sent.length, "rate")}`
   const detail = !sent.length
     ? `From ${listOf(agencies)}. Iris counters each one toward the ${city(ev.cityId).name} median.`
@@ -220,11 +222,13 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
             </span>
             <span className="text-faded tabular line-through decoration-foreground/25">{money(r.from)}</span>
             <span className="w-16 text-right font-semibold tabular">{money(r.to)}</span>
-            {r.outcome && (
+            {tagged && (
               <span className="flex w-24 justify-end">
-                <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
-                  {OUTCOME[r.outcome].label}
-                </StatusBadge>
+                {r.outcome && TAGGED.includes(r.outcome) && (
+                  <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
+                    {OUTCOME[r.outcome].label}
+                  </StatusBadge>
+                )}
               </span>
             )}
           </li>

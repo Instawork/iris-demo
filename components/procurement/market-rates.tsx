@@ -96,14 +96,13 @@ export function MarketRates() {
                   </span>
                 </th>
                 <th className="px-3 pb-2.5 text-left font-medium">Agencies</th>
-                <th className="px-3 pb-2.5 text-right font-medium">
+                <th className="px-3 pb-2.5 text-center font-medium">
                   <span className="inline-flex items-center gap-1">
                     You pay <InfoTip>The average bill rate across your agencies, at each one&apos;s share of the hours.</InfoTip>
                   </span>
                 </th>
-                <th className="px-3 pb-2.5 text-right font-medium">Market</th>
+                <th className="px-3 pb-2.5 text-center font-medium">Market</th>
                 <th className="w-[26%] px-3 pb-2.5 text-left font-medium">Against the market</th>
-                <th className="px-3 pb-2.5 text-right font-medium">vs market</th>
                 <th className="w-6" />
               </tr>
             </thead>
@@ -130,16 +129,13 @@ export function MarketRates() {
                       {agenciesOn(r).length === 1 && <span className="text-caption-1 font-medium whitespace-nowrap text-warning-fg">Only one</span>}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-right font-semibold tabular">{money(r.you)}</td>
-                  <td className="px-3 py-2.5 text-right text-faded tabular">{money(r.market.median)}</td>
+                  <td className="px-3 py-2.5 text-center font-semibold tabular">{money(r.you)}</td>
+                  <td className="px-3 py-2.5 text-center text-faded tabular">{money(r.market.median)}</td>
                   <td className="px-3 py-2.5">
                     <BenchmarkBar
                       b={r.market}
                       marks={[...r.cards.map((c) => ({ value: c.billRate, kind: "bid" as const })), { value: r.you, kind: "today" as const }]}
                     />
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
-                    <VsMarket value={vsMarket(r.you, r.market)} />
                   </td>
                   <td className="pr-3">
                     <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />

@@ -244,8 +244,8 @@ function answerSendBacks(data: DemoData, { now, simulated }: AdvanceOptions): { 
 /** Seconds a simulated agency takes to answer a counter. */
 const COUNTER_AFTER_SECONDS = 9
 /** Iris sends all her counters at once. Agencies answer them one after another, so the room sees them land. */
-const IRIS_FIRST_SECONDS = 4
-const IRIS_EACH_SECONDS = 0.9
+const IRIS_FIRST_SECONDS = 1
+const IRIS_EACH_SECONDS = 0.2
 
 /** Agencies nobody is playing answer Compass's counters on their own: meet the ask, come down to their floor, or hold. */
 function answerCounters(data: DemoData, { now, simulated, paused }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
