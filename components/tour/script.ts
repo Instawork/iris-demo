@@ -73,7 +73,7 @@ export interface TourStep {
   success?: (ctx: TourContext) => string
   /** Where to return when the target disappears, like a dialog the player closed. */
   back?: string
-  /** The step that sets this one up, like the question whose answer it acts on. Played for the player when they jump here. */
+  /** The step that sets this one up, like the question whose answer it acts on. Played for the player when they jump here, with whatever it needs in turn. */
   needs?: string
   /** Starts from an empty chat, so the answer it waits for is the one the player asks for. */
   startsChat?: boolean
@@ -322,12 +322,13 @@ async function fillUnit() {
 const EVENT = "rfp-chi-27"
 const event = (ctx: TourContext) => ctx.data.sourcing?.find((e) => e.id === EVENT)
 /** The counters Iris sent during the tour, and how many the agencies have answered. */
-const irisSince = (ctx: TourContext) => {
+/** Every counter Iris sent on the event, whenever it was sent, so a jump back here finds the negotiation already run. */
+const irisSent = (ctx: TourContext) => {
   const ev = event(ctx)
-  return ev ? irisCounters(ev).filter((c) => c.message.at >= ctx.base.at) : []
+  return ev ? irisCounters(ev) : []
 }
-const answered = (ctx: TourContext) => irisSince(ctx).filter((c) => c.outcome !== "waiting").length
-const negotiated = (ctx: TourContext) => irisSince(ctx).length > 0 && answered(ctx) === irisSince(ctx).length
+const answered = (ctx: TourContext) => irisSent(ctx).filter((c) => c.outcome !== "waiting").length
+const negotiated = (ctx: TourContext) => irisSent(ctx).length > 0 && answered(ctx) === irisSent(ctx).length
 const approvedSince = (ctx: TourContext) => Object.values(event(ctx)?.approved ?? {}).filter((at) => at >= ctx.base.at).length
 const approveDialog = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector("h2")?.textContent?.trim() === "Approve bids")
 const approveButton = () => [...(approveDialog()?.querySelectorAll("button") ?? [])].find((b) => /^Approve \d/.test(b.textContent?.trim() ?? ""))
@@ -1008,7 +1009,7 @@ export const SCRIPT: TourItem[] = [
     inChat: true,
     success: (ctx) => `${plural(hoursApproved(ctx), "timesheet")} approved`,
     back: "approve-ask",
-    needs: "approve-ask",
+    needs: "fix",
     skip: async (_, api) => {
       await press(last('[data-tour="agent-approve-timesheets"]'))
       await until(() => hoursApproved(api.now()) > 0)
@@ -1149,17 +1150,17 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
-    title: (ctx) => (irisSince(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
-    body: (ctx) => (irisSince(ctx).length ? "Sped up here so you can watch." : undefined),
-    action: (ctx) => (irisSince(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
+    title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
+    body: (ctx) => (irisSent(ctx).length ? "Sped up here so you can watch." : undefined),
+    action: (ctx) => (irisSent(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
     targets: () => [one('[data-tour="iris-negotiate"]')],
     clicks: () => one('[data-tour="negotiate"]'),
     placement: "left",
-    status: (ctx) => (irisSince(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSince(ctx).length} answered` : undefined),
+    status: (ctx) => (irisSent(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSent(ctx).length} answered` : undefined),
     done: negotiated,
     success: () => "Every agency answered",
     skip: async (_, api) => {
-      if (!irisSince(api.now()).length) await press(one('[data-tour="negotiate"]'))
+      if (!irisSent(api.now()).length) await press(one('[data-tour="negotiate"]'))
       await until(() => negotiated(api.now()), 30000)
     },
   },
@@ -1167,6 +1168,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "approve",
     chapter: "procurement",
+    needs: "negotiate",
     label: "Approve the best bids",
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}`),

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads } from "@/components/agent/agent-store"
 import { WorkspaceAvatar } from "@/components/brand/org-avatar"
 import { SIDES, SideBadge } from "@/components/common/side-badge"
@@ -251,6 +252,8 @@ const baseNow = () => {
   return { sg: counters.sg, inv: counters.inv, rep: counters.rep, at: new Date().toISOString() }
 }
 
+const byId = (id: string | undefined) => (id ? STEPS.find((s) => s.id === id) : undefined)
+
 /** The step Iris is still setting up after a jump, by playing the step it needs. */
 let preparing: string | undefined
 
@@ -271,20 +274,23 @@ async function jumpTo(index: number, push: (href: string) => void) {
   await Promise.all([switching, arrivedAt(href)])
   if (item.startsChat) useAgentThreads.getState().clear(item.wsId)
   useTour.getState().rebase(baseNow())
-  const need = item.needs ? STEPS.find((s) => s.id === item.needs) : undefined
-  const setUp = need && !need.done?.(contextNow()) ? need : undefined
-  if (setUp?.startsChat) useAgentThreads.getState().clear(item.wsId)
-  preparing = setUp ? item.id : undefined
+  const setUp: TourStep[] = []
+  for (let need = byId(item.needs); need && !need.done?.(contextNow()); need = byId(need.needs)) setUp.unshift(need)
+  if (setUp[0]?.startsChat) useAgentThreads.getState().clear(item.wsId)
+  preparing = setUp.length ? item.id : undefined
   useTour.getState().go(index)
-  if (!setUp) {
-    if (item.inChat) useUi.getState().setAgentOpen(true)
-    return
-  }
+  if (item.inChat && !setUp[0]?.startsChat) useUi.getState().setAgentOpen(true)
+  if (!setUp.length) return
   const at = useTour.getState().enteredAt
-  // The step being left stops Iris as it unmounts; start once it has.
+  // The step being left stops Iris as it unmounts, and a chat it left open has to finish closing, or Iris types into it.
   await new Promise((resolve) => window.setTimeout(resolve, 120))
+  if (setUp[0].startsChat) for (let t = 0; t < 20 && document.getElementById(CHAT_COMPOSER_ID); t++) await new Promise((resolve) => window.setTimeout(resolve, 50))
   try {
-    await setUp.skip(contextNow(), { push, remember: (patch) => useTour.getState().remember(patch), now: contextNow })
+    for (const need of setUp) {
+      if (useTour.getState().enteredAt !== at) break
+      if (need.inChat) for (let t = 0; t < 40 && !document.querySelector('[data-tour="agent-plan"]'); t++) await new Promise((resolve) => window.setTimeout(resolve, 50))
+      await need.skip(contextNow(), { push, remember: (patch) => useTour.getState().remember(patch), now: contextNow })
+    }
   } catch (error) {
     if (!pilotStopped(error)) throw error
   } finally {
@@ -337,6 +343,9 @@ function StepScreen({ step }: { step: TourStep }) {
         if (step.done?.(ctx)) {
           finished = true
           closing.current = useTour.getState().enteredAt
+          // Already done on arrival, like a step jumped back to: the card still has to point at it.
+          const els = step.targets(ctx).filter((el): el is Element => !!el && el.getClientRects().length > 0)
+          update(els.length ? { mode: "ready", boxes: els.map(boxOf), modal: !!topModal(), copy: "" } : { mode: "pending" })
           setCelebrate({ step: step.id, at: useTour.getState().enteredAt, message: step.success?.(ctx) ?? "Done", kept: !!step.targets(ctx)[0]?.isConnected })
           return
         }
