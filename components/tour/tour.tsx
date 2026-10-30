@@ -276,7 +276,10 @@ async function jumpTo(index: number, push: (href: string) => void) {
   if (setUp?.startsChat) useAgentThreads.getState().clear(item.wsId)
   preparing = setUp ? item.id : undefined
   useTour.getState().go(index)
-  if (!setUp) return
+  if (!setUp) {
+    if (item.inChat) useUi.getState().setAgentOpen(true)
+    return
+  }
   const at = useTour.getState().enteredAt
   // The step being left stops Iris as it unmounts; start once it has.
   await new Promise((resolve) => window.setTimeout(resolve, 120))
@@ -732,7 +735,7 @@ function StepCard({
           <StepArrow label="Previous step" disabled={!canBack} onClick={onBack}>
             <ChevronLeft className="size-4" />
           </StepArrow>
-          <PartBars chapter={step.chapter} filled={partFilled(step)} />
+          <PartBars chapter={step.chapter} stepId={step.id} onStep={(s) => s.id !== step.id && onJump(indexOf(s.id))} />
           <StepArrow label={done ? "Next" : "Skip to the next step"} onClick={onAhead}>
             <ChevronRight className="size-4" />
           </StepArrow>
@@ -795,48 +798,88 @@ function StepArrow({ label, disabled, onClick, children }: { label: string; disa
   )
 }
 
-/** How far through its part a step is, counting the step itself. */
-const partFilled = (step: TourStep) => {
-  const part = STEPS.filter((s) => s.chapter === step.chapter)
-  return (part.indexOf(step) + 1) / part.length
-}
+/** How wide each step's segment is in the part being played, so a part's bar stays about the same length however many steps it has. */
+const segmentWidth = (steps: number) => (steps === 1 ? 40 : Math.max(8, Math.round((40 - 2 * (steps - 1)) / steps)))
 
-/** One bar per part, each a way into it. The part being played is the long one, and fills as its steps go by. */
-function PartBars({ chapter, filled, light }: { chapter: ChapterId; filled?: number; /** On a light card rather than the dark step card. */ light?: boolean }) {
+/**
+ * One bar per part, each a way into it. The part being played is split into its steps, each a way to that step, and
+ * fills as they go by.
+ */
+function PartBars({
+  chapter,
+  stepId,
+  light,
+  onStep,
+}: {
+  chapter: ChapterId
+  stepId?: string
+  /** On a light card rather than the dark step card. */
+  light?: boolean
+  onStep: (step: TourStep) => void
+}) {
   const at = CHAPTER_ORDER.indexOf(chapter)
   const before = light ? "bg-foreground/40 group-hover/part:bg-foreground/60" : "bg-brand"
   const after = light ? "bg-foreground/15 group-hover/part:bg-foreground/35" : "bg-background/20 group-hover/part:bg-background/45"
+  const tip = cn("z-[70] font-medium", !light && "bg-background text-foreground [&_svg]:bg-background [&_svg]:fill-background")
   return (
     <span className="flex items-center" role="group" aria-label="Parts">
       {CHAPTER_ORDER.map((id, c) => {
         const part = CHAPTERS[id]
-        const here = id === chapter
+        if (id === chapter) {
+          const steps = STEPS.filter((x) => x.chapter === id)
+          const current = steps.findIndex((x) => x.id === stepId)
+          const width = segmentWidth(steps.length)
+          return (
+            <span key={id} className="flex items-center px-[3px]" role="group" aria-label={`Part ${part.number}: ${part.label}`}>
+              {steps.map((x, i) => (
+                <Tooltip key={x.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => onStep(x)}
+                      aria-label={`Step ${i + 1} of ${steps.length}: ${x.label}`}
+                      aria-current={i === current ? "step" : undefined}
+                      data-tour-step-bar={x.id}
+                      className={cn("group/step flex h-6 items-center rounded-md px-px outline-none focus-visible:ring-2 focus-visible:ring-brand/60", i === current && "cursor-default")}
+                    >
+                      <span
+                        style={{ width }}
+                        className={cn(
+                          "rounded-full transition-[height,background-color] duration-150",
+                          i === current ? "h-1.5" : "h-1 group-hover/step:h-1.5",
+                          light
+                            ? "bg-foreground/80 group-hover/step:bg-foreground"
+                            : i <= current
+                              ? "bg-brand"
+                              : "bg-background/25 group-hover/step:bg-background/55",
+                        )}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" sideOffset={6} className={tip}>
+                    <span className="tabular opacity-55">
+                      {i + 1}/{steps.length}
+                    </span>
+                    {x.label}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </span>
+          )
+        }
         return (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => !here && openPart(id)}
+                onClick={() => openPart(id)}
                 aria-label={`Part ${part.number}: ${part.label}`}
-                aria-current={here ? "step" : undefined}
-                className={cn("group/part flex h-6 items-center rounded-md px-[2px] outline-none focus-visible:ring-2 focus-visible:ring-brand/60", here && "cursor-default")}
+                className="group/part flex h-6 items-center rounded-md px-[2px] outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
               >
-                {here && light ? (
-                  <span className="h-1 w-10 rounded-full bg-foreground" />
-                ) : here ? (
-                  <span className="relative h-1 w-10 overflow-hidden rounded-full bg-background/20">
-                    <span className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-300" style={{ width: `${(filled ?? 0) * 100}%` }} />
-                  </span>
-                ) : (
-                  <span className={cn("h-1 w-3 rounded-full transition-[height,background-color] group-hover/part:h-1.5", c < at ? before : after)} />
-                )}
+                <span className={cn("h-1 w-2 rounded-full transition-[height,background-color] group-hover/part:h-1.5", c < at ? before : after)} />
               </button>
             </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              sideOffset={6}
-              className={cn("z-[70] font-medium", !light && "bg-background text-foreground [&_svg]:bg-background [&_svg]:fill-background")}
-            >
+            <TooltipContent side="top" sideOffset={6} className={tip}>
               <span className="tabular opacity-55">0{part.number}</span>
               {part.label}
             </TooltipContent>
@@ -891,6 +934,14 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     // The part's first step must not judge the page being left: its sheet or labels can look like that step done.
     await Promise.all([switching, arrivedAt(chapter.href)])
     useTour.getState().go(index + 1)
+  }
+
+  /** From a part's card to one of its steps. The first is the card's own Continue. */
+  const toStep = async (step: TourStep) => {
+    if (item.kind !== "chapter") return
+    if (STEPS.find((s) => s.chapter === step.chapter) === step) return play(item)
+    await resetting
+    await jumpTo(indexOf(step.id), router.push)
   }
 
   const primary = useRef<() => void>(undefined)
@@ -954,7 +1005,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
         transition={{ duration: 0.28, ease: EASE }}
       >
         {item.kind === "intro" && <IntroCard onStart={() => start()} onStartAt={(step) => void startAt(step)} starting={starting} onClose={exit} />}
-        {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} />}
+        {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} onStep={(step) => void toStep(step)} />}
         {item.kind === "finale" && <FinaleCard onReplay={() => useTour.getState().open()} onClose={exit} />}
       </motion.div>
     </motion.div>
@@ -1078,7 +1129,7 @@ function PartList({
   )
 }
 
-function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () => void; onExit: () => void }) {
+function ChapterCard({ item, onPlay, onExit, onStep }: { item: TourChapter; onPlay: () => void; onExit: () => void; onStep: (step: TourStep) => void }) {
   const meta = CHAPTERS[item.chapter]
   const ws = workspace(item.wsId)
   const side = SIDES[ws.kind]
@@ -1088,7 +1139,7 @@ function ChapterCard({ item, onPlay, onExit }: { item: TourChapter; onPlay: () =
         <Glow />
         <span className="relative z-10 -my-1 flex items-center justify-between gap-3 text-[12px] font-medium text-muted-foreground">
           Part {meta.number} of {CHAPTER_ORDER.length}
-          <PartBars chapter={item.chapter} light />
+          <PartBars chapter={item.chapter} light onStep={onStep} />
         </span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] text-balance">
           {item.title}

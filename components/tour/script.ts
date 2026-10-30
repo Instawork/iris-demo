@@ -76,6 +76,8 @@ export interface TourStep {
   needs?: string
   /** Starts from an empty chat, so the answer it waits for is the one the player asks for. */
   startsChat?: boolean
+  /** Acts on a reply in the bottom-right Agent Chat, so arriving here opens it. */
+  inChat?: boolean
   /** Fills in the screen the player is on, and returns the button they click to move on. */
   fill?: {
     when: (ctx: TourContext) => boolean
@@ -917,6 +919,7 @@ export const SCRIPT: TourItem[] = [
     clicks: proposalButton,
     placement: "left",
     done: correctedSince,
+    inChat: true,
     success: () => "Corrected to the clock and approved",
     back: "approve-ask",
     needs: "approve-ask",
@@ -939,6 +942,7 @@ export const SCRIPT: TourItem[] = [
     clicks: () => last('[data-tour="agent-approve-timesheets"]'),
     placement: "left",
     done: (ctx) => hoursApproved(ctx) > 0,
+    inChat: true,
     success: (ctx) => `${plural(hoursApproved(ctx), "timesheet")} approved`,
     back: "approve-ask",
     needs: "approve-ask",
