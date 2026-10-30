@@ -773,7 +773,7 @@ function CardButton({ onClick, pilot, children }: { onClick: () => void; /** Iri
       type="button"
       onClick={onClick}
       data-tour-do={pilot ? "" : undefined}
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-foreground transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-brand/60 active:translate-y-0"
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3 text-[13px] whitespace-nowrap font-semibold text-brand-foreground transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-brand/60 active:translate-y-0"
     >
       {children}
     </button>

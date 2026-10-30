@@ -1,4 +1,4 @@
-import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
+import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, MapPinned, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
 
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
@@ -21,7 +21,7 @@ import { CHECKS } from "@/lib/verification"
  * player clicks: "Do it for me" makes their next move on screen, typing a form in or clicking what the card points at.
  */
 
-export type ChapterId = "shifts" | "assignments" | "compliance" | "timesheets" | "reporting" | "procurement"
+export type ChapterId = "units" | "shifts" | "assignments" | "compliance" | "timesheets" | "reporting" | "procurement"
 export type Placement = "top" | "bottom" | "left" | "right"
 
 /** Everything a step needs to decide where it is and whether the player has done it. */
@@ -99,15 +99,16 @@ export interface TourChapter {
 
 export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep | { kind: "finale"; id: "finale" }
 
-export const CHAPTER_ORDER: ChapterId[] = ["shifts", "assignments", "compliance", "timesheets", "reporting", "procurement"]
+export const CHAPTER_ORDER: ChapterId[] = ["units", "shifts", "assignments", "compliance", "timesheets", "reporting", "procurement"]
 
 export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon }> = {
-  shifts: { number: 1, label: "Job postings", short: "Postings", icon: CalendarPlus },
-  assignments: { number: 2, label: "Worker assignments", short: "Assignments", icon: UsersRound },
-  compliance: { number: 3, label: "Worker compliance", short: "Compliance", icon: ShieldCheck },
-  timesheets: { number: 4, label: "Timesheets", short: "Timesheets", icon: Clock },
-  reporting: { number: 5, label: "Invoices and reporting", short: "Reporting", icon: ChartColumn },
-  procurement: { number: 6, label: "Procurement", short: "Procurement", icon: BadgeDollarSign },
+  units: { number: 1, label: "Units and cost centers", short: "Units", icon: MapPinned },
+  shifts: { number: 2, label: "Job postings", short: "Postings", icon: CalendarPlus },
+  assignments: { number: 3, label: "Worker assignments", short: "Assignments", icon: UsersRound },
+  compliance: { number: 4, label: "Worker compliance", short: "Compliance", icon: ShieldCheck },
+  timesheets: { number: 5, label: "Timesheets", short: "Timesheets", icon: Clock },
+  reporting: { number: 6, label: "Invoices and reporting", short: "Reporting", icon: ChartColumn },
+  procurement: { number: 7, label: "Procurement", short: "Procurement", icon: BadgeDollarSign },
 }
 
 const LEVY = "ws-levy"
@@ -284,7 +285,7 @@ const FORM = '[data-tour="unit-form"]'
 const SUBMIT = '[data-tour="unit-submit"]'
 const UNITS_SHEET = '[data-tour="units-sheet"]'
 const UNIT_CC = "LEV-4450"
-const SHEET_CCS = new Set(SAMPLE_UNIT_SHEET.map((r) => r.costCenter))
+const SHEET_CCS = new Set(SAMPLE_UNIT_SHEET.map((r) => r["Financial Code"]))
 
 const newUnit = (ctx: TourContext) => ctx.data.directory.locations.find((l) => l.costCenter === UNIT_CC)
 const unitRow = (ctx: TourContext) => (newUnit(ctx) ? one(`tr[data-row-id="${newUnit(ctx)!.id}"]`) : null)
@@ -543,7 +544,79 @@ const COMPOSER = (id = COMPOSER_ID) => document.getElementById(id)?.closest('[da
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
 
-  /* ------------------------------ 1. Job postings ----------------------------- */
+  /* ------------------------- 1. Units and cost centers ------------------------ */
+  {
+    kind: "chapter",
+    id: "chapter-units",
+    chapter: "units",
+    title: "Units and cost centers",
+    wsId: COMPASS,
+    href: "/units",
+    shows: "Add a venue by hand, or the whole roster at once.",
+  },
+  {
+    kind: "step",
+    id: "unit",
+    chapter: "units",
+    label: "Add a cost center",
+    wsId: COMPASS,
+    path: /^\/units/,
+    href: () => "/units",
+    title: () => (one(FORM) ? "Set up Soldier Field" : "Every unit is a cost center"),
+    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
+    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
+    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
+    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
+    placement: "bottom",
+    done: (ctx) => !!newUnit(ctx) && !one(FORM),
+    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
+    fill: {
+      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
+      run: fillUnit,
+    },
+    skip: async (_, api) => {
+      if (!one(FORM)) api.push("/units/new")
+      await until(() => one(FORM), 8000)
+      await press(await fillUnit())
+      await until(() => !one(FORM), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "units-sheet",
+    chapter: "units",
+    label: "Upload the roster",
+    wsId: COMPASS,
+    path: /^\/units/,
+    href: () => "/units",
+    title: () => (one('[data-tour="units-import"]') ? "Filed and checked" : one(UNITS_SHEET) ? "Compass's location roster" : "Or the whole roster at once"),
+    body: () =>
+      one('[data-tour="units-import"]') ? "What it can't place is held back, with the reason." : one(UNITS_SHEET) || unitsAdded() ? undefined : "The file Compass keeps today.",
+    action: () =>
+      one('[data-tour="units-import"]')
+        ? `Click ${one('[data-tour="units-import"]')?.textContent?.trim()}`
+        : one(UNITS_SHEET)
+          ? "Click Read the sheet"
+          : unitsAdded()
+            ? undefined
+            : "Click Upload a sheet",
+    targets: () => [one(UNITS_SHEET) ?? one('[data-tour="units-upload"]')],
+    clicks: () => (one(UNITS_SHEET) ? (one('[data-tour="units-import"]') ?? one('[data-tour="units-read"]')) : unitsAdded() ? undefined : one('[data-tour="units-upload"]')),
+    placement: "right",
+    done: (ctx) => sheetUnits(ctx).length > 0 && !one(UNITS_SHEET),
+    success: (ctx) => `${plural(sheetUnits(ctx).length, "unit")} added, each with its cost centers`,
+    // The closed dialog hands focus back to its button, where the next Enter would open it again.
+    onDone: () => (document.activeElement as HTMLElement | null)?.blur(),
+    skip: async () => {
+      if (!one(UNITS_SHEET)) await press(one('[data-tour="units-upload"]'))
+      if (!one('[data-tour="units-import"]')) await press(await until(() => one('[data-tour="units-read"]')))
+      const add = await until(() => one('[data-tour="units-import"]'), 4000)
+      await sleep(1200)
+      await press(add)
+    },
+  },
+
+  /* ------------------------------ 2. Job postings ----------------------------- */
   {
     kind: "chapter",
     id: "chapter-shifts",
@@ -598,7 +671,7 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* --------------------------- 2. Worker assignments --------------------------- */
+  /* --------------------------- 3. Worker assignments --------------------------- */
   {
     kind: "chapter",
     id: "chapter-assignments",
@@ -649,7 +722,7 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------------ 3. Compliance ------------------------------ */
+  /* ------------------------------ 4. Compliance ------------------------------ */
   {
     kind: "chapter",
     id: "chapter-compliance",
@@ -704,7 +777,7 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------------ 4. Timesheets ------------------------------ */
+  /* ------------------------------ 5. Timesheets ------------------------------ */
   {
     kind: "chapter",
     id: "chapter-agency-hours",
@@ -875,78 +948,15 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------- 5. Invoices and reporting ------------------------ */
+  /* ------------------------- 6. Invoices and reporting ------------------------ */
   {
     kind: "chapter",
     id: "chapter-reporting",
     chapter: "reporting",
     title: "Invoices and reporting",
     wsId: COMPASS,
-    href: "/units",
-    shows: "Add cost centers one at a time or by the sheet. Then one invoice a month.",
-  },
-  {
-    kind: "step",
-    id: "unit",
-    chapter: "reporting",
-    label: "Add a cost center",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: () => (one(FORM) ? "Set up Soldier Field" : "Every unit is a cost center"),
-    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
-    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
-    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
-    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
-    placement: "bottom",
-    done: (ctx) => !!newUnit(ctx) && !one(FORM),
-    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
-    fill: {
-      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
-      run: fillUnit,
-    },
-    skip: async (_, api) => {
-      if (!one(FORM)) api.push("/units/new")
-      await until(() => one(FORM), 8000)
-      await press(await fillUnit())
-      await until(() => !one(FORM), 8000)
-    },
-  },
-  {
-    kind: "step",
-    id: "units-sheet",
-    chapter: "reporting",
-    label: "Upload a sheet",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: () => (one('[data-tour="units-import"]') ? "Filed and checked" : one(UNITS_SHEET) ? "A sheet of locations" : "Or a whole sheet at once"),
-    body: () =>
-      one('[data-tour="units-import"]') ? "What it can't place is held back, with the reason." : one(UNITS_SHEET) || unitsAdded() ? undefined : "The way locations arrive today.",
-    action: () =>
-      one('[data-tour="units-import"]')
-        ? `Click ${one('[data-tour="units-import"]')?.textContent?.trim()}`
-        : one(UNITS_SHEET)
-          ? "Click Read the sheet"
-          : unitsAdded()
-            ? undefined
-            : "Click Upload a sheet",
-    targets: () => [one(UNITS_SHEET) ?? one('[data-tour="units-upload"]')],
-    clicks: () => (one(UNITS_SHEET) ? (one('[data-tour="units-import"]') ?? one('[data-tour="units-read"]')) : unitsAdded() ? undefined : one('[data-tour="units-upload"]')),
-    placement: "right",
-    done: (ctx) => sheetUnits(ctx).length > 0 && !one(UNITS_SHEET),
-    success: (ctx) => `${plural(sheetUnits(ctx).length, "unit")} added, each with its cost centers`,
-    onDone: (_, api) => {
-      ;(document.activeElement as HTMLElement | null)?.blur()
-      api.push("/invoices")
-    },
-    skip: async () => {
-      if (!one(UNITS_SHEET)) await press(one('[data-tour="units-upload"]'))
-      if (!one('[data-tour="units-import"]')) await press(await until(() => one('[data-tour="units-read"]')))
-      const add = await until(() => one('[data-tour="units-import"]'), 4000)
-      await sleep(1200)
-      await press(add)
-    },
+    href: "/invoices",
+    shows: "One invoice a month, and any number you ask for.",
   },
   {
     kind: "step",
@@ -1038,7 +1048,7 @@ export const SCRIPT: TourItem[] = [
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
   },
 
-  /* ------------------------------ 6. Procurement ----------------------------- */
+  /* ------------------------------ 7. Procurement ----------------------------- */
   {
     kind: "chapter",
     id: "chapter-procurement",

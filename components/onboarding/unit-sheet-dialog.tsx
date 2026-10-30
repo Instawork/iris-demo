@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { plural } from "@/lib/format"
 import { buyer, city } from "@/lib/reference"
 import { useStore } from "@/lib/store"
-import { SAMPLE_UNIT_SHEET, UNIT_SHEET_FILE, UNIT_SHEET_HEADERS, costCentersIn, readUnitSheet, type UnitSheetLine } from "@/lib/unit-sheet"
+import { cn } from "@/lib/utils"
+import { ROSTER_HEADERS, SAMPLE_UNIT_SHEET, UNIT_SHEET_FILE, costCentersIn, readUnitSheet, type UnitSheetLine } from "@/lib/unit-sheet"
 
 /** Compass adds a whole sheet of locations as units, each with its cost centers, instead of one form at a time. */
 export function UnitSheetDialog({ open, onOpenChange, onAdded }: { open: boolean; onOpenChange: (open: boolean) => void; onAdded: (ids: string[]) => void }) {
@@ -55,7 +56,7 @@ function SheetBody({ onDone }: { onDone: (ids: string[]) => void }) {
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Upload a sheet of locations</DialogTitle>
+        <DialogTitle>Upload the location roster</DialogTitle>
         <DialogDescription>Iris files each one under its business and market, with a cost center for every department.</DialogDescription>
       </DialogHeader>
 
@@ -89,17 +90,17 @@ function SheetBody({ onDone }: { onDone: (ids: string[]) => void }) {
 function Sheet({ lines, scanning }: { lines: UnitSheetLine[]; scanning: boolean }) {
   const cell = "border-r border-b border-border/70 px-2 py-1.5 whitespace-nowrap"
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       <span className="flex items-center gap-1.5 text-caption-1 text-faded">
         <FileSpreadsheet className="size-3.5 text-positive-fg" />
-        <span className="font-medium text-foreground">{UNIT_SHEET_FILE}</span> · {plural(lines.length, "location")}
+        <span className="font-medium text-foreground">{UNIT_SHEET_FILE}</span> · {plural(lines.length, "row")}
       </span>
       <div className="relative max-h-[46vh] overflow-auto rounded-lg border border-border bg-card scrollbar-thin">
         <table className="w-full border-collapse text-left text-caption-1">
           <thead className="sticky top-0 z-10 bg-page-faded">
             <tr>
               <th className={`${cell} w-8 text-center font-normal text-faded`} />
-              {UNIT_SHEET_HEADERS.map((h) => (
+              {ROSTER_HEADERS.map((h) => (
                 <th key={h} className={`${cell} font-semibold`}>
                   {h}
                 </th>
@@ -110,12 +111,11 @@ function Sheet({ lines, scanning }: { lines: UnitSheetLine[]; scanning: boolean 
             {lines.map((l) => (
               <tr key={l.line}>
                 <td className={`${cell} bg-page-faded text-center text-faded tabular`}>{l.line}</td>
-                <td className={cell}>{l.row.name}</td>
-                <td className={cell}>{l.row.business}</td>
-                <td className={cell}>{l.row.kind}</td>
-                <td className={cell}>{l.row.address}</td>
-                <td className={`${cell} tabular`}>{l.row.zip}</td>
-                <td className={`${cell} font-mono`}>{l.row.costCenter}</td>
+                {ROSTER_HEADERS.map((h) => (
+                  <td key={h} className={cn(cell, h === "Customer" && "font-medium", h === "Financial Code" && "font-mono")}>
+                    {l.row[h]}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -141,7 +141,7 @@ function Results({ lines, ready, centers }: { lines: UnitSheetLine[]; ready: Uni
     return { key: k, buyerId, cityId, units: mine, centers: costCentersIn(mine) }
   })
   return (
-    <div className="flex flex-col gap-3 text-body-3">
+    <div className="flex min-w-0 flex-col gap-3 text-body-3">
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-raised">
         <div className="flex items-end justify-between gap-4 border-b border-border px-4 py-3">
           <span className="flex flex-col">
@@ -161,7 +161,7 @@ function Results({ lines, ready, centers }: { lines: UnitSheetLine[]; ready: Uni
                   {buyer(g.buyerId).sector} · {city(g.cityId).name}, {city(g.cityId).state}
                 </span>
               </span>
-              <Tip content={g.units.map((l) => l.row.name).join(", ")}>
+              <Tip content={g.units.map((l) => l.row.Customer).join(", ")}>
                 <span className="shrink-0 text-right tabular">
                   <span className="font-semibold">{plural(g.units.length, "unit")}</span>
                   <span className="block text-caption-1 text-faded">{plural(g.centers, "cost center")}</span>
@@ -182,7 +182,7 @@ function Results({ lines, ready, centers }: { lines: UnitSheetLine[]; ready: Uni
               <li key={l.line} className="flex items-center justify-between gap-4 py-2.5">
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 text-caption-1 text-faded tabular">Row {l.line}</span>
-                  <span className="truncate font-semibold">{l.row.name}</span>
+                  <span className="truncate font-semibold">{l.row.Customer}</span>
                 </span>
                 <span className="shrink-0 text-caption-1 font-medium text-warning-fg">{l.issue}</span>
               </li>
