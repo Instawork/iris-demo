@@ -80,9 +80,9 @@ function ReasonSelect({ value, onChange, options }: { value: string; onChange: (
   )
 }
 
-function Panel({ title, children, className }: { title?: string; children: React.ReactNode; className?: string }) {
+function Panel({ title, children, className, tour }: { title?: string; children: React.ReactNode; className?: string; tour?: string }) {
   return (
-    <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-page-faded p-4", className)}>
+    <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-page-faded p-4", className)} data-tour={tour}>
       {title && <span className="text-body-3 font-semibold">{title}</span>}
       {children}
     </div>
@@ -474,7 +474,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
         )}
 
         {mode === "expense" && (
-          <Panel title="Add an expense">
+          <Panel title="Add an expense" tour="expense-form">
             <div className="grid grid-cols-[1fr_8rem] gap-2">
               <ReasonSelect value={EXPENSE_LABEL[expense.kind]} onChange={(v) => setExpense((x) => ({ ...x, kind: EXPENSE_KINDS.find((k) => EXPENSE_LABEL[k] === v)! }))} options={EXPENSE_KINDS.map((k) => EXPENSE_LABEL[k])} />
               <span className="relative">
@@ -486,6 +486,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                   className="h-9 w-full rounded-lg border border-input bg-background pr-3 pl-7 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
                   placeholder="0.00"
                   aria-label="Amount"
+                  data-tour="expense-amount"
                 />
               </span>
             </div>
@@ -494,6 +495,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             <div className="flex gap-2">
               <Button
                 className="h-9 rounded-lg"
+                data-tour="expense-save"
                 disabled={busy || expenseAmount <= 0 || expenseAmount > EXPENSE_MAX || (expense.kind === "other" && !note.trim())}
                 onClick={saveExpense}
               >
@@ -579,7 +581,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("edit")}>
             <Pencil className="size-4" /> Edit times
           </Button>
-          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("expense")}>
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("expense")} data-tour="expense-add">
             <Receipt className="size-4" /> Add expense
           </Button>
           <span className="ml-auto">

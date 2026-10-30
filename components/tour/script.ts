@@ -1,4 +1,5 @@
 import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, MapPinned, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
@@ -7,7 +8,7 @@ import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
-import { fullName, moneyCompact, plural } from "@/lib/format"
+import { fullName, money, moneyCompact, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
 import { buyer, location, position } from "@/lib/reference"
 import { irisCounters } from "@/lib/sourcing"
@@ -478,6 +479,27 @@ const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date)
 
 const SHEET = '[data-tour="timesheet-sheet"]'
 const MOVE = '[data-tour="move-dialog"]'
+const EXPENSE_FORM = '[data-tour="expense-form"]'
+const PARKING = "20.00"
+
+/** Last night's Harbor draft at the arena, where the agency paid for its workers' event parking. */
+const parkingSheet = (data: DemoData) =>
+  data.timesheets
+    .filter((t) => t.supplierId === "harbor" && t.status === "draft" && t.clockIn && t.clockOut && !t.expenses?.length && location(t.locationId).kind !== "Stadium")
+    .sort((a, b) => Number(b.locationId === "loc-wla") - Number(a.locationId === "loc-wla") || newestFirst(a, b))[0]
+
+const expenseSince = (ctx: TourContext) =>
+  ctx.data.timesheets.find((t) => t.supplierId === "harbor" && t.expenses?.some((e) => e.at >= ctx.base.at))
+
+const parkingHref = (ctx: TourContext) => {
+  const t = parkingSheet(ctx.data)
+  return t ? `/timesheets?ts=${t.id}` : "/timesheets"
+}
+
+async function fillParking() {
+  await type(inside(EXPENSE_FORM, '[data-tour="expense-amount"]'), PARKING)
+  return inside(EXPENSE_FORM, '[data-tour="expense-save"]')
+}
 
 /** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
 const paddedSheet = (data: DemoData) =>
@@ -789,7 +811,7 @@ export const SCRIPT: TourItem[] = [
     title: "Timesheets",
     wsId: HARBOR,
     href: "/timesheets",
-    shows: "Agencies send hours Iris already checked against the clock.",
+    shows: "Agencies send hours already checked against the clock, and what they paid for the shift.",
   },
   {
     kind: "step",
@@ -808,13 +830,52 @@ export const SCRIPT: TourItem[] = [
     done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
     // The closed dialog hands focus back to its button, where the next Enter would open it again.
-    onDone: () => (document.activeElement as HTMLElement | null)?.blur(),
+    // Its toast would sit over the button the next step points at.
+    onDone: (ctx, api) => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      toast.dismiss()
+      api.push(parkingHref(ctx))
+    },
     skip: async () => {
       if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
       if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
       const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
       await sleep(1200)
       await press(apply)
+    },
+  },
+  {
+    kind: "step",
+    id: "expense",
+    chapter: "timesheets",
+    label: "Bill an expense",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: parkingHref,
+    title: () => (one(EXPENSE_FORM) ? "Parking, at cost" : "Then what it paid for the shift"),
+    body: () => (one(EXPENSE_FORM) ? "No markup. The buyer approves it with the hours." : "Event parking, or a background check the event required."),
+    action: () => (one(EXPENSE_FORM) ? `Enter $${PARKING}, then Add` : one(SHEET) ? "Click Add expense" : "Open the highlighted timesheet"),
+    targets: (ctx) => {
+      if (one(EXPENSE_FORM)) return [one(EXPENSE_FORM)]
+      if (one(SHEET)) return [one('[data-tour="expense-add"]')]
+      const t = parkingSheet(ctx.data)
+      return [t && one(`tr[data-row-id="${t.id}"]`)]
+    },
+    clicks: () => (one(EXPENSE_FORM) ? inside(EXPENSE_FORM, '[data-tour="expense-save"]') : one('[data-tour="expense-add"]')),
+    placement: "left",
+    done: (ctx) => !!expenseSince(ctx),
+    success: (ctx) => `${money(expenseSince(ctx)?.expenses?.at(-1)?.amount ?? Number(PARKING))} parking added`,
+    onDone: (_, api) => api.push("/timesheets"),
+    fill: {
+      when: () => !!one(EXPENSE_FORM) && !!(inside(EXPENSE_FORM, '[data-tour="expense-save"]') as HTMLButtonElement | null)?.disabled,
+      run: fillParking,
+    },
+    skip: async (ctx, api) => {
+      if (!one(SHEET)) api.push(parkingHref(ctx))
+      if (!one(EXPENSE_FORM)) await press(await until(() => one('[data-tour="expense-add"]'), 8000))
+      await until(() => one(EXPENSE_FORM))
+      await press(await fillParking())
+      await until(() => expenseSince(api.now()), 8000)
     },
   },
   {
