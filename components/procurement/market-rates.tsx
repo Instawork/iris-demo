@@ -7,7 +7,7 @@ import { useMemo, useState } from "react"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
-import { InfoTip } from "@/components/common/info-tip"
+import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { Surface } from "@/components/common/surface"
 import { BenchmarkBar, BenchmarkLegend, VsMarket } from "@/components/procurement/sourcing-bits"
@@ -18,7 +18,7 @@ import { useData } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { money } from "@/lib/format"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
-import { CITIES, POSITIONS, city, position, supplier } from "@/lib/reference"
+import { CITIES, POSITIONS, city, position, requirementLabel, supplier } from "@/lib/reference"
 import { buildLines, estimatedHours } from "@/lib/sourcing"
 import type { RateCard } from "@/lib/types"
 
@@ -61,6 +61,7 @@ export function MarketRates() {
   const overall = weighted.market ? weighted.you / weighted.market - 1 : 0
   const above = rows.filter((r) => vsMarket(r.you, r.market) > 0.001)
   const agencies = rows[0]?.market.agencies ?? 0
+  const backed = rows.filter((r) => agenciesOn(r).length >= 2).length
   const selected = rows.find((r) => r.positionId === open)
 
   const exportCsv = () =>
@@ -82,6 +83,7 @@ export function MarketRates() {
   const cells = [
     { label: "Your rates vs the market", value: <VsMarket value={overall} />, info: "Across every role, weighted by hours." },
     { label: "Roles priced over the market", value: `${above.length} of ${rows.length}` },
+    { label: "Roles with a backup agency", value: `${backed} of ${POSITIONS.length}`, info: "Roles two or more of your agencies have a rate for. With one or none, nobody can step in." },
     { label: "Benchmark", value: `${agencies} agencies`, info: `The ${city(cityId).name} rate cards behind each role's median.` },
   ]
 
@@ -96,7 +98,7 @@ export function MarketRates() {
           <SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />
         </span>
       </div>
-      <Surface elevated className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <Surface elevated className="grid divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
         {cells.map((c) => (
           <div key={c.label} className="flex flex-col gap-0.5 px-5 py-4">
             <span className="flex items-center gap-1.5 text-body-3 text-faded">
@@ -112,7 +114,12 @@ export function MarketRates() {
           <table className="w-full min-w-[720px] text-body-3">
             <thead>
               <tr className="text-caption-1 text-faded">
-                <th className="px-3 pb-2.5 text-left font-medium">Role</th>
+                <th className="px-3 pb-2.5 text-left font-medium">
+                  <span className="inline-flex items-center gap-1">
+                    Role <InfoTip>Every agency prices Compass&apos;s definition of the role, so rates compare like for like.</InfoTip>
+                  </span>
+                </th>
+                <th className="px-3 pb-2.5 text-left font-medium">Agencies</th>
                 <th className="px-3 pb-2.5 text-right font-medium">
                   <span className="inline-flex items-center gap-1">
                     You pay <InfoTip>The average bill rate across your agencies, at each one&apos;s share of the hours.</InfoTip>
@@ -132,7 +139,21 @@ export function MarketRates() {
                   onClick={() => setOpen(r.positionId)}
                   className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60"
                 >
-                  <td className="px-3 py-2.5 font-medium">{position(r.positionId).name}</td>
+                  <td className="px-3 py-2.5 font-medium">
+                    <Tip content={<RoleDefinition positionId={r.positionId} />}>
+                      <span className="cursor-default">{position(r.positionId).name}</span>
+                    </Tip>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="flex items-center gap-1.5">
+                      <span className="flex -space-x-1">
+                        {agenciesOn(r).map((id) => (
+                          <SupplierLogo key={id} supplierId={id} size="xs" className="ring-2 ring-card" />
+                        ))}
+                      </span>
+                      {agenciesOn(r).length === 1 && <span className="text-caption-1 font-medium whitespace-nowrap text-warning-fg">Only one</span>}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular">{money(r.you)}</td>
                   <td className="px-3 py-2.5 text-right text-faded tabular">{money(r.market.median)}</td>
                   <td className="px-3 py-2.5">
@@ -164,6 +185,21 @@ export function MarketRates() {
         </SheetContent>
       </Sheet>
     </>
+  )
+}
+
+/** The agencies with a rate for the role, cheapest first. */
+const agenciesOn = (r: Row) => [...new Set(r.cards.map((c) => c.supplierId))]
+
+/** Compass's standard for a role, which every agency prices. */
+function RoleDefinition({ positionId }: { positionId: string }) {
+  const p = position(positionId)
+  const needs = [p.foodHandler && requirementLabel("foodHandler"), p.alcohol && requirementLabel("alcohol")].filter(Boolean)
+  return (
+    <span className="flex max-w-64 flex-col gap-1">
+      <span>{p.duties}</span>
+      {needs.length > 0 && <span className="opacity-70">Needs: {needs.join(", ")}</span>}
+    </span>
   )
 }
 

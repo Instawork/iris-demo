@@ -1,4 +1,4 @@
-import { Building2, CalendarPlus, ChartColumn, Clock, ShieldCheck, type LucideIcon } from "lucide-react"
+import { Building2, CalendarPlus, ChartColumn, Clock, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
 
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
@@ -15,11 +15,11 @@ import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
 
 /**
- * The guided demo: the core of a VMS in five parts, each played as the person who does it. Nothing moves on until the
+ * The guided demo: the core flows of a VMS, in the order Compass walks through them, each played as the person who does it. Nothing moves on until the
  * player clicks: "Do it for me" makes their next move on screen, typing a form in or clicking what the card points at.
  */
 
-export type ChapterId = "onboarding" | "shifts" | "compliance" | "timesheets" | "reporting"
+export type ChapterId = "shifts" | "assignments" | "compliance" | "timesheets" | "reporting" | "onboarding"
 export type Placement = "top" | "bottom" | "left" | "right"
 
 /** Everything a step needs to decide where it is and whether the player has done it. */
@@ -97,14 +97,15 @@ export interface TourChapter {
 
 export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep | { kind: "finale"; id: "finale" }
 
-export const CHAPTER_ORDER: ChapterId[] = ["onboarding", "shifts", "compliance", "timesheets", "reporting"]
+export const CHAPTER_ORDER: ChapterId[] = ["shifts", "assignments", "compliance", "timesheets", "reporting", "onboarding"]
 
 export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon }> = {
-  onboarding: { number: 1, label: "Onboarding and rates", short: "Onboarding", icon: Building2 },
-  shifts: { number: 2, label: "Ordering shifts", short: "Ordering", icon: CalendarPlus },
-  compliance: { number: 3, label: "Compliance", short: "Compliance", icon: ShieldCheck },
+  shifts: { number: 1, label: "Job postings", short: "Postings", icon: CalendarPlus },
+  assignments: { number: 2, label: "Worker assignments", short: "Assignments", icon: UsersRound },
+  compliance: { number: 3, label: "Worker compliance", short: "Compliance", icon: ShieldCheck },
   timesheets: { number: 4, label: "Timesheets", short: "Timesheets", icon: Clock },
   reporting: { number: 5, label: "Invoices and reporting", short: "Reporting", icon: ChartColumn },
+  onboarding: { number: 6, label: "Agencies and rates", short: "Rates", icon: Building2 },
 }
 
 const LEVY = "ws-levy"
@@ -526,127 +527,15 @@ const COMPOSER = () => document.getElementById(COMPOSER_ID)?.closest('[data-slot
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
 
-  /* ------------------------- 1. Onboarding and rates ------------------------- */
-  {
-    kind: "chapter",
-    id: "chapter-onboarding",
-    chapter: "onboarding",
-    title: "Onboarding and rates",
-    wsId: COMPASS,
-    href: "/units",
-    shows: "Add a unit, then negotiate next year's rates.",
-  },
-  {
-    kind: "step",
-    id: "unit",
-    chapter: "onboarding",
-    label: "Add a unit",
-    wsId: COMPASS,
-    path: /^\/units/,
-    href: () => "/units",
-    title: () => (one(FORM) ? "Set up Soldier Field" : "Add a unit"),
-    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
-    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
-    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
-    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
-    placement: "bottom",
-    done: (ctx) => !!newUnit(ctx) && !one(FORM),
-    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
-    onDone: (_, api) => api.push("/agencies"),
-    fill: {
-      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
-      run: fillUnit,
-    },
-    skip: async (ctx, api) => {
-      if (!one(FORM)) api.push("/units/new")
-      await until(() => one(FORM), 8000)
-      await press(await fillUnit())
-      await until(() => !one(FORM), 8000)
-    },
-  },
-  {
-    kind: "step",
-    id: "agencies",
-    chapter: "onboarding",
-    label: "Agencies",
-    wsId: COMPASS,
-    path: /^\/agencies$/,
-    href: () => "/agencies",
-    title: "Agencies join in one form",
-    body: "Insurance, agreement, rates and workers. Each one gets a compliance score.",
-    targets: () => [one('[data-tour="agencies-table"]')],
-    placement: "bottom",
-    onDone: (_, api) => api.push(`/procurement/${EVENT}`),
-    skip: () => undefined,
-  },
-  {
-    kind: "step",
-    id: "negotiate",
-    chapter: "onboarding",
-    label: "Negotiate every bid",
-    wsId: COMPASS,
-    path: new RegExp(`^/procurement/${EVENT}`),
-    href: () => `/procurement/${EVENT}`,
-    title: (ctx) => (irisSince(ctx).length ? "Iris is negotiating" : "Every bid above the market, countered at once"),
-    action: (ctx) => (irisSince(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
-    targets: () => [one('[data-tour="iris-negotiate"]')],
-    clicks: () => one('[data-tour="negotiate"]'),
-    placement: "left",
-    status: (ctx) => (irisSince(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSince(ctx).length} answered` : undefined),
-    done: negotiated,
-    success: (ctx) => `Saved ${moneyCompact(irisSince(ctx).reduce((sum, c) => sum + c.saves, 0))} a year`,
-    skip: async (_, api) => {
-      if (!irisSince(api.now()).length) await press(one('[data-tour="negotiate"]'))
-      await until(() => negotiated(api.now()), 30000)
-    },
-  },
-  {
-    kind: "step",
-    id: "approve",
-    chapter: "onboarding",
-    label: "Approve the best bids",
-    wsId: COMPASS,
-    path: new RegExp(`^/procurement/${EVENT}`),
-    href: () => `/procurement/${EVENT}`,
-    title: "Approve the best bids",
-    body: "Approved bids go live on each agency's rate card.",
-    action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
-    targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
-    placement: "bottom",
-    anchor: () => approveDialog(),
-    done: (ctx) => approvedSince(ctx) > 0,
-    success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
-    onDone: (_, api) => api.push("/procurement?tab=contracts"),
-    skip: async () => {
-      if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
-      await sleep(500)
-      await press(await until(() => approveButton()))
-    },
-  },
-  {
-    kind: "step",
-    id: "contracts",
-    chapter: "onboarding",
-    label: "Contracts",
-    wsId: COMPASS,
-    path: /^\/procurement$/,
-    href: () => "/procurement?tab=contracts",
-    title: "Every contract, with the new terms",
-    body: "VA steps up as an agency's spend grows.",
-    targets: () => [one('[data-tour="contracts"]')],
-    placement: "bottom",
-    skip: () => undefined,
-  },
-
-  /* --------------------------- 2. Ordering shifts ---------------------------- */
+  /* ------------------------------ 1. Job postings ----------------------------- */
   {
     kind: "chapter",
     id: "chapter-shifts",
     chapter: "shifts",
-    title: "Ordering shifts",
+    title: "Job postings",
     wsId: LEVY,
     href: "/",
-    shows: "Book shifts in a sentence, or send them to one agency.",
+    shows: "Post shifts in a sentence.",
   },
   {
     kind: "step",
@@ -692,10 +581,21 @@ export const SCRIPT: TourItem[] = [
       await until(() => booked(api.now()))
     },
   },
+
+  /* --------------------------- 2. Worker assignments --------------------------- */
+  {
+    kind: "chapter",
+    id: "chapter-assignments",
+    chapter: "assignments",
+    title: "Worker assignments",
+    wsId: LEVY,
+    href: "/shifts/new",
+    shows: "Pick the agency and the workers, then staff it as the agency.",
+  },
   {
     kind: "step",
     id: "one-agency",
-    chapter: "shifts",
+    chapter: "assignments",
     label: "Send to one agency",
     wsId: LEVY,
     path: /^\/shifts\/new/,
@@ -735,7 +635,7 @@ export const SCRIPT: TourItem[] = [
   {
     kind: "chapter",
     id: "chapter-assign",
-    chapter: "shifts",
+    chapter: "assignments",
     title: "The agency staffs it",
     wsId: METRO,
     href: "/",
@@ -744,7 +644,7 @@ export const SCRIPT: TourItem[] = [
   {
     kind: "step",
     id: "assign-ask",
-    chapter: "shifts",
+    chapter: "assignments",
     label: "Assign workers",
     wsId: METRO,
     path: /^\/$/,
@@ -764,7 +664,7 @@ export const SCRIPT: TourItem[] = [
   {
     kind: "step",
     id: "assign",
-    chapter: "shifts",
+    chapter: "assignments",
     label: "Confirm them",
     wsId: METRO,
     path: /^\/$/,
@@ -789,7 +689,7 @@ export const SCRIPT: TourItem[] = [
     kind: "chapter",
     id: "chapter-compliance",
     chapter: "compliance",
-    title: "Compliance",
+    title: "Worker compliance",
     wsId: METRO,
     href: "/professionals?filter=not_compliant",
     shows: "Renew an expired document. Iris checks it with the issuer.",
@@ -847,7 +747,7 @@ export const SCRIPT: TourItem[] = [
     title: "Timesheets",
     wsId: HARBOR,
     href: "/timesheets",
-    shows: "Drafted from the clock, or read off a paper sheet.",
+    shows: "Fix what doesn't match, then submit the week in one message.",
   },
   {
     kind: "step",
@@ -1102,6 +1002,133 @@ export const SCRIPT: TourItem[] = [
     back: "ask-report",
     needs: "ask-report",
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
+  },
+
+  /* -------------------------- 6. Agencies and rates -------------------------- */
+  {
+    kind: "chapter",
+    id: "chapter-onboarding",
+    chapter: "onboarding",
+    title: "Agencies and rates",
+    wsId: COMPASS,
+    href: "/units",
+    shows: "Add a venue, then let Iris negotiate next year's rates.",
+  },
+  {
+    kind: "step",
+    id: "unit",
+    chapter: "onboarding",
+    label: "Add a unit",
+    wsId: COMPASS,
+    path: /^\/units/,
+    href: () => "/units",
+    title: () => (one(FORM) ? "Set up Soldier Field" : "Add a unit"),
+    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
+    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
+    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
+    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
+    placement: "bottom",
+    done: (ctx) => !!newUnit(ctx) && !one(FORM),
+    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
+    onDone: (_, api) => api.push("/agencies"),
+    fill: {
+      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
+      run: fillUnit,
+    },
+    skip: async (ctx, api) => {
+      if (!one(FORM)) api.push("/units/new")
+      await until(() => one(FORM), 8000)
+      await press(await fillUnit())
+      await until(() => !one(FORM), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "agencies",
+    chapter: "onboarding",
+    label: "Agencies",
+    wsId: COMPASS,
+    path: /^\/agencies$/,
+    href: () => "/agencies",
+    title: "Agencies join in one form",
+    body: "Insurance, agreement, rates and workers. Each one gets a compliance score.",
+    targets: () => [one('[data-tour="agencies-table"]')],
+    placement: "bottom",
+    onDone: (_, api) => api.push(`/procurement/${EVENT}`),
+    skip: () => undefined,
+  },
+  {
+    kind: "step",
+    id: "negotiate",
+    chapter: "onboarding",
+    label: "Negotiate every bid",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: (ctx) => (irisSince(ctx).length ? "Iris is negotiating" : "Every bid above the market, countered at once"),
+    action: (ctx) => (irisSince(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
+    targets: () => [one('[data-tour="iris-negotiate"]')],
+    clicks: () => one('[data-tour="negotiate"]'),
+    placement: "left",
+    status: (ctx) => (irisSince(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSince(ctx).length} answered` : undefined),
+    done: negotiated,
+    success: (ctx) => `Saved ${moneyCompact(irisSince(ctx).reduce((sum, c) => sum + c.saves, 0))} a year`,
+    skip: async (_, api) => {
+      if (!irisSince(api.now()).length) await press(one('[data-tour="negotiate"]'))
+      await until(() => negotiated(api.now()), 30000)
+    },
+  },
+  {
+    kind: "step",
+    id: "approve",
+    chapter: "onboarding",
+    label: "Approve the best bids",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: "Approve the best bids",
+    body: "Approved bids go live on each agency's rate card.",
+    action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
+    targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
+    placement: "bottom",
+    anchor: () => approveDialog(),
+    done: (ctx) => approvedSince(ctx) > 0,
+    success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
+    onDone: (_, api) => api.push("/procurement?tab=contracts"),
+    skip: async () => {
+      if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
+      await sleep(500)
+      await press(await until(() => approveButton()))
+    },
+  },
+  {
+    kind: "step",
+    id: "contracts",
+    chapter: "onboarding",
+    label: "Contracts",
+    wsId: COMPASS,
+    path: /^\/procurement$/,
+    href: () => "/procurement?tab=contracts",
+    title: "Every contract, with the new terms",
+    body: "VA steps up as an agency's spend grows.",
+    targets: () => [one('[data-tour="contracts"]')],
+    placement: "bottom",
+    skip: () => undefined,
+  },
+  {
+    kind: "step",
+    id: "coverage",
+    chapter: "onboarding",
+    label: "Coverage",
+    wsId: COMPASS,
+    path: /^\/procurement$/,
+    href: () => "/procurement?tab=rates",
+    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "Who has a rate where"),
+    body: () => (one('[data-tour="market-rates"]') ? "Agencies price Compass's definition of each role, so every rate compares like for like." : undefined),
+    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Market rates"),
+    targets: () => [one('[data-tour="market-rates"]') ?? one('[role="tab"][data-value="rates"]')],
+    placement: "top",
+    skip: () => press(one('[role="tab"][data-value="rates"]')),
   },
 
   { kind: "finale", id: "finale" },

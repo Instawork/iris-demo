@@ -237,7 +237,7 @@ function openPart(chapter: ChapterId) {
 
 const partBeside = (chapter: ChapterId, by: -1 | 1): ChapterId | undefined => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(chapter) + by]
 
-/** 1 to 5 pick that part, and Shift with an arrow the part before or after `chapter`. */
+/** A part's number picks it, and Shift with an arrow the part before or after `chapter`. */
 const partKey = (e: KeyboardEvent, chapter?: ChapterId): ChapterId | undefined => {
   if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ownsArrows(e.target)) return undefined
   const n = Number(e.key)
@@ -991,7 +991,7 @@ function IntroCard({ onStart, onStartAt, starting, onClose }: { onStart: () => v
   )
 }
 
-/** The five parts, each opening onto its steps. Any step starts the tour there. */
+/** The parts, each opening onto its steps. Any step starts the tour there. */
 function PartList({
   dark,
   initial,
@@ -1118,7 +1118,7 @@ function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () =
         <Glow />
         <span className="relative text-[12px] font-medium text-muted-foreground">Guided demo</span>
         <h2 id="tour-card-title" className="relative mt-1.5 font-heading text-[28px] leading-tight font-semibold tracking-tight">
-          All five done
+          That&apos;s the program
         </h2>
         <p className="relative mt-1 text-[15px] text-pretty text-muted-foreground">Everything you did is still there to explore.</p>
       </div>
