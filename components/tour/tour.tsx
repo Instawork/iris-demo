@@ -165,15 +165,19 @@ function place(anchor: Box | undefined, size: { w: number; h: number }, prefer: 
     left: { x: anchor.x - gap - size.w, y: clampY(cy - size.h / 2), fits: anchor.x - gap - size.w >= m },
   }
   const facing: Record<Placement, Placement> = { bottom: "top", top: "bottom", right: "left", left: "right" }
+  const covers = (x: number, y: number) => x < focus.x + focus.w && x + size.w > focus.x && y < focus.y + focus.h && y + size.h > focus.y
   for (const p of [prefer ?? "bottom", "bottom", "top", "right", "left"] as Placement[]) {
     if (!options[p].fits) continue
     const x = clampX(options[p].x)
     const y = clampY(options[p].y)
+    // Clamping a side that barely fits can slide the card onto the thing it points at.
+    if (covers(x, y)) continue
     const along = p === "bottom" || p === "top" ? cx - x : cy - y
     const span = p === "bottom" || p === "top" ? size.w : size.h
     return { x, y, edge: facing[p], at: Math.min(Math.max(22, along), span - 22) }
   }
-  return { x: clampX(cx - size.w / 2), y: vh - size.h - m }
+  const above = focus.y - gap - size.h
+  return { x: clampX(cx - size.w / 2), y: above >= m ? above : vh - size.h - m }
 }
 
 function useViewport() {

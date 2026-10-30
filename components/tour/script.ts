@@ -880,7 +880,8 @@ export const SCRIPT: TourItem[] = [
       return [t && one(`tr[data-row-id="${t.id}"]`)]
     },
     clicks: () => (one(EXPENSE_FORM) ? inside(EXPENSE_FORM, '[data-tour="expense-save"]') : one('[data-tour="expense-add"]')),
-    placement: "left",
+    // The button sits in the sheet's bottom bar, so a card beside it lands on top of the click.
+    placement: "top",
     done: (ctx) => !!expenseSince(ctx),
     success: (ctx) => `${money(expenseSince(ctx)?.expenses?.at(-1)?.amount ?? Number(PARKING))} parking added`,
     onDone: (_, api) => api.push("/timesheets"),
