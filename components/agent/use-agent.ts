@@ -255,8 +255,16 @@ export function useAgent() {
                   result,
                   today,
                 )
+          if (action.kind === "accept-proposal" && messageId) {
+            const card = hoursReply(data, ws.buyerId!, action.scope, today)
+            if (card.batch) {
+              useAgentThreads.getState().update(ws.id, messageId, { text: card.text, actions: card.actions, batch: card.batch })
+              add({ from: "agent", text: lead })
+              return
+            }
+          }
           const next = hoursReply(data, ws.buyerId!, action.scope, today, true)
-          add({ from: "agent", text: `${lead}\n\n${next.text}`, actions: next.actions })
+          add({ from: "agent", text: `${lead}\n\n${next.text}`, actions: next.actions, batch: next.batch })
         } finally {
           approving.current.delete(key)
         }
@@ -275,7 +283,7 @@ export function useAgent() {
             const data = useStore.getState().data
             const sent = data.timesheets.filter((t) => action.ids.includes(t.id) && t.status === "pending_approval")
             const next = submitReply(data, ws.supplierId, action.from, true)
-            add({ from: "agent", text: `${submittedLine(sent)}\n\n${next.text}`, actions: next.actions })
+            add({ from: "agent", text: `${submittedLine(sent)}\n\n${next.text}`, actions: next.actions, batch: next.batch })
             return
           }
           let placed = 0

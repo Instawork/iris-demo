@@ -42,6 +42,26 @@ export type HoursAction =
     }
   | { label: string; kind: "link"; href: string }
 
+/** One timesheet in a reply's card: who, and what Iris found. */
+export interface BatchRow {
+  id: string
+  name: string
+  meta: string
+  issue: string
+  detail: string
+  /** What Iris's fix takes off the bill, or adds. */
+  saves?: string
+}
+
+/** A batch of timesheets as the chat lays it out: the ones ready to go in one click, then each one held back. */
+export interface TimesheetBatch {
+  ready?: { label: string; count: number; hours: string; amount: string; note?: string }
+  held: BatchRow[]
+  heldCount: number
+  heldLabel: string
+  more?: string
+}
+
 export interface FlaggedSheet {
   t: Timesheet
   /** The check whose fix Iris offers, or the first one when none has a fix. */
@@ -230,17 +250,18 @@ export function planHoursApproval(data: DemoData, buyerId: string, scope: HoursS
   return { inScope, clean, flagged }
 }
 
-function flaggedLine(f: FlaggedSheet, scope: HoursScope, data: DemoData) {
+/** A flagged timesheet as one row of the reply's card. */
+function heldRow(f: FlaggedSheet, scope: HoursScope, data: DemoData): BatchRow {
   const pro = proOf(data, f.t.proId)
-  const who = [pro ? fullName(pro) : "A worker", !scope.supplierId && supplier(f.t.supplierId).shortName, !(scope.from && scope.from === scope.to) && formatDay(f.t.date, "EEE MMM d")]
-    .filter(Boolean)
-    .join(", ")
-  const also = f.others.length ? ` Also flagged: ${f.others.map((c) => c.label.toLowerCase()).join(", ")}.` : ""
   const saving = savingOf(f)
-  const fix = f.proposal
-    ? ` Iris proposes ${f.proposal.hours.toFixed(2)} hrs${saving > 0 ? `, ${money(saving)} less` : saving < 0 ? `, ${money(-saving)} more` : ""}.`
-    : " There's no fix to propose, so open it to decide."
-  return `• ${who}: ${f.check.label}. ${f.check.detail}${also}${fix}`
+  return {
+    id: f.t.id,
+    name: pro ? fullName(pro) : "A worker",
+    meta: [!scope.supplierId && supplier(f.t.supplierId).shortName, !(scope.from && scope.from === scope.to) && formatDay(f.t.date, "EEE MMM d")].filter(Boolean).join(" · "),
+    issue: f.check.label,
+    detail: [f.check.detail, f.others.length && `Also ${f.others.map((c) => c.label.toLowerCase()).join(", ")}.`].filter(Boolean).join(" "),
+    saves: saving > 0 ? `${money(saving)} less` : saving < 0 ? `${money(-saving)} more` : undefined,
+  }
 }
 
 function nothingWaiting(inScope: Timesheet[], scope: HoursScope, data: DemoData) {
@@ -272,7 +293,7 @@ function nothingWaiting(inScope: Timesheet[], scope: HoursScope, data: DemoData)
  * The reply to an approval request: what's clean, what Iris flagged and the fix it proposes, and a button for each.
  * `still` words it as the follow-up to an approval that just went through.
  */
-export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, today: string, still = false): { text: string; actions: HoursAction[] } {
+export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, today: string, still = false): { text: string; actions: HoursAction[]; batch?: TimesheetBatch } {
   const { inScope, clean, flagged } = planHoursApproval(data, buyerId, scope)
   const pending = clean.length + flagged.length
   if (!pending) {
@@ -283,31 +304,23 @@ export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, t
   }
 
   const waiting = [...clean, ...flagged.map((f) => f.t)]
-  let summary = `${pending.toLocaleString("en-US")} ${scopePhrase(scope, data, pending, waiting)} ${pending === 1 ? "is" : "are"} ${still ? "still " : ""}waiting for approval.`
-  if (clean.length) {
-    const subject = flagged.length ? `${clean.length} ${clean.length === 1 ? "matches" : "match"}` : pending === 1 ? "It matches" : pending === 2 ? "Both match" : `All ${pending} match`
-    const hrs = round2(clean.reduce((s, t) => s + t.hours, 0))
-    const amount = round2(clean.reduce((s, t) => s + timesheetAmount(t), 0))
-    summary += ` ${subject} the clock and the schedule: ${hours(hrs)}, ${money(amount)}.`
-    const closed = clean.filter((t) => weekClosed(t.date, today)).length
-    if (closed) {
-      const which =
-        closed === clean.length ? (closed === 1 ? "Its week has" : "Their weeks have") : `${closed} ${closed === 1 ? "is from a week that has" : "are from weeks that have"}`
-      summary += ` ${which} closed, so Iris invoices ${closed === 1 ? "it" : "them"} as soon as you approve.`
-    }
-  }
-  const paragraphs = [summary]
-
+  const text = `${pending.toLocaleString("en-US")} ${scopePhrase(scope, data, pending, waiting)} ${pending === 1 ? "is" : "are"} ${still ? "still " : ""}waiting for approval.`
+  const closed = clean.filter((t) => weekClosed(t.date, today)).length
   const listed = flagged.slice(0, LISTED)
-  if (flagged.length) {
-    const more = flagged.length > LISTED ? `. Here are ${LISTED} of them:` : ":"
-    const intro = clean.length
-      ? `Iris flagged ${flagged.length === 1 ? "the other one" : `the other ${flagged.length}`}, so I held ${flagged.length === 1 ? "it" : "them"} back${more}`
-      : `Iris flagged ${pending === 1 ? "it" : pending === 2 ? "both" : `all ${pending}`}, so ${pending === 1 ? "it needs" : "each needs"} your decision${more}`
-    const rest = flagged.length > LISTED ? [flagged.length - LISTED === 1 ? "The other one is in Timesheets." : `The other ${flagged.length - LISTED} are in Timesheets.`] : []
-    const lines = [...listed.map((f) => flaggedLine(f, scope, data)), ...rest]
-    if (clean.length) paragraphs.push([intro, ...lines].join("\n"))
-    else paragraphs[0] = [`${summary} ${intro}`, ...lines].join("\n")
+  const batch: TimesheetBatch = {
+    ready: clean.length
+      ? {
+          label: "Match the clock",
+          count: clean.length,
+          hours: hours(round2(clean.reduce((s, t) => s + t.hours, 0))),
+          amount: money(round2(clean.reduce((s, t) => s + timesheetAmount(t), 0))),
+          note: closed ? (closed === clean.length ? "Invoiced as soon as you approve" : `${closed} invoiced as soon as you approve`) : undefined,
+        }
+      : undefined,
+    held: listed.map((f) => heldRow(f, scope, data)),
+    heldCount: flagged.length,
+    heldLabel: clean.length ? "Held back" : "Needs your decision",
+    more: flagged.length > LISTED ? `${flagged.length - LISTED} more in Timesheets` : undefined,
   }
 
   const actions: HoursAction[] = []
@@ -332,25 +345,19 @@ export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, t
     actions.push({ label: pro ? `Open ${pro.firstName}'s timesheet` : "Open the timesheet", kind: "link", href: `/timesheets?ts=${flagged[0].t.id}` })
   } else if (flagged.length) {
     const shifts = new Set(flagged.map((f) => f.t.groupId))
-    actions.push({ label: "Review flagged timesheets", kind: "link", href: shifts.size === 1 ? `/timesheets?filter=flagged&shift=${[...shifts][0]}` : "/timesheets?filter=flagged" })
+    actions.push({ label: "Review flagged", kind: "link", href: shifts.size === 1 ? `/timesheets?filter=flagged&shift=${[...shifts][0]}` : "/timesheets?filter=flagged" })
   }
-  if (clean.length || fixable.length) paragraphs.push("Nothing is approved until you click.")
-  return { text: paragraphs.join("\n\n"), actions }
+  return { text, actions, batch }
 }
 
-/** Where the approved hours went: this week's open invoice, which Iris issues on Saturday, or an invoice issued now if their week had closed. */
+/** When the approved hours get billed: on this week's invoice, out on Saturday, or right away if their week has closed. */
 function invoiceLine(rows: Timesheet[], result: ApproveResult, today: string) {
-  const agencies = [...new Set(rows.map((t) => t.supplierId))]
   const saturday = formatDateShort(addDaysISO(weekEndISO(today), 1))
   const closed = rows.filter((t) => weekClosed(t.date, today)).length
-  const open = result.open.length
-    ? agencies.length === 1
-      ? `on ${result.open[0]}, ${supplier(agencies[0]).shortName}'s invoice for this week, which Iris issues on Saturday, ${saturday}`
-      : `on this week's invoices, ${joinNames(result.open)}, which Iris issues on Saturday, ${saturday}`
-    : ""
-  if (!result.invoices.length || !closed) return open ? `${rows.length === 1 ? "It's" : "They're"} ${open}.` : ""
-  if (closed === rows.length) return `${rows.length === 1 ? "Its week has" : "Their weeks have"} closed, so Iris invoiced ${rows.length === 1 ? "it" : "them"} on ${joinNames(result.invoices)}.`
-  return `Hours from weeks that have closed are on ${joinNames(result.invoices)}. This week's are on ${joinNames(result.open)}, which Iris issues on Saturday, ${saturday}.`
+  const one = rows.length === 1
+  if (!result.invoices.length || !closed) return result.open.length ? `${one ? "It goes" : "They go"} out on Saturday's invoice, ${saturday}.` : ""
+  if (closed === rows.length) return `${one ? "Its week has" : "Their weeks have"} closed, so ${one ? "it's" : "they're"} invoiced now.`
+  return `Closed weeks are invoiced now. This week's go out on Saturday, ${saturday}.`
 }
 
 /** The first line after "Approve N timesheets" goes through. `rows` are the ones now approved. */
@@ -364,6 +371,6 @@ export function correctedLine(before: Timesheet, approvedHours: number, reason: 
   const pro = proOf(data, before.proId)
   const agency = supplier(before.supplierId).shortName
   const saving = round2((before.hours - approvedHours) * before.billRate)
-  const billed = `${agency} billed ${before.hours.toFixed(2)}${saving > 0 ? `, so that's ${money(saving)} off the bill` : ""}`
-  return `Approved ${pro ? fullName(pro) : "the timesheet"} at ${approvedHours.toFixed(2)} hrs, ${reason.toLowerCase()}. ${billed}, and the correction is on the timesheet's history for ${agency} to see. ${invoiceLine([before], result, today)}`.trim()
+  const billed = saving > 0 ? ` ${agency} billed ${before.hours.toFixed(2)}, so ${money(saving)} comes off.` : ""
+  return `Approved ${pro ? fullName(pro) : "the timesheet"} at ${approvedHours.toFixed(2)} hrs, ${reason.toLowerCase()}.${billed} ${invoiceLine([before], result, today)}`.trim()
 }

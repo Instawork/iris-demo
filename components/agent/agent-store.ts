@@ -3,7 +3,7 @@
 import { create } from "zustand"
 
 import type { AgencyAction } from "@/lib/agent-agency"
-import type { HoursAction } from "@/lib/agent-hours"
+import type { HoursAction, TimesheetBatch } from "@/lib/agent-hours"
 import type { BookingInput } from "@/lib/store"
 import type { UploadType } from "@/lib/types"
 
@@ -56,6 +56,7 @@ export interface AgentMessage {
   text: string
   draft?: ShiftDraft
   report?: ReportAnswer
+  batch?: TimesheetBatch
   actions?: AgentAction[]
   fileName?: string
 }

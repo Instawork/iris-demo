@@ -431,11 +431,11 @@ const correctedSince = (ctx: TourContext) => ctx.data.timesheets.some((t) => t.b
 
 /** Iris's fix in the chat for the timesheet billed above the clock, or else the first fix she offers. */
 const proposalButton = (ctx: TourContext) => {
-  const fixes = [...(last('[data-tour="agent-plan"]')?.querySelectorAll<HTMLButtonElement>('[data-tour="agent-accept-proposal"]') ?? [])]
+  const plan = last('[data-tour="agent-plan"]')
   const padded = paddedSheet(ctx.data)
-  const name = padded && ctx.data.pros.find((p) => p.id === padded.proId)?.firstName
-  return (name && fixes.find((b) => b.textContent?.includes(name))) || fixes[0] || null
+  return (padded && plan?.querySelector(`[data-ts="${padded.id}"] [data-tour="agent-accept-proposal"]`)) || plan?.querySelector('[data-tour="agent-accept-proposal"]') || null
 }
+
 
 /**
  * A clean Levy timesheet on the first page of Needs approval, for a worker their agency also has another approved role
@@ -779,7 +779,12 @@ export const SCRIPT: TourItem[] = [
     href: () => "/timesheets",
     title: "What doesn't match comes first",
     body: (ctx) => (proposalButton(ctx) ? "Iris proposes the clock's hours." : undefined),
-    action: (ctx) => `Click ${proposalButton(ctx)?.textContent?.trim() || "the proposed hours"}`,
+    action: (ctx) => {
+      const hrs = proposalButton(ctx)?.textContent?.trim()
+      const row = proposalButton(ctx)?.closest('[data-tour="agent-flag"]')
+      const name = row?.querySelector(".font-semibold")?.textContent?.split(" ")[0]
+      return hrs ? `Click ${hrs}${name ? ` for ${name}` : ""}` : "Click the proposed hours"
+    },
     targets: () => [last('[data-tour="agent-plan"]')],
     clicks: proposalButton,
     placement: "left",

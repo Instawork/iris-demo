@@ -4,6 +4,7 @@ import { fullName, hours, money, plural, round2 } from "@/lib/format"
 import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { buyer, location, position } from "@/lib/reference"
 import { readyToSubmit, timesheetAmount, timesheetChecks, withAgency } from "@/lib/timesheets"
+import type { BatchRow, TimesheetBatch } from "@/lib/agent-hours"
 import type { DemoData, Timesheet } from "@/lib/types"
 
 /**
@@ -51,33 +52,37 @@ const proName = (data: DemoData, id: string) => {
   return p ? fullName(p) : "A worker"
 }
 
-function heldLine(t: Timesheet, data: DemoData) {
+function heldRow(t: Timesheet, data: DemoData): BatchRow {
   const check = timesheetChecks(t)[0]
-  const why = t.status === "rejected" ? `Sent back: ${t.rejection?.reason ?? "with a reason"}.` : check ? `${check.label}. ${check.detail}` : "The billed times differ from Iris's clock."
-  return `• ${proName(data, t.proId)}, ${formatDay(t.date, "EEE MMM d")}: ${why}`
+  return {
+    id: t.id,
+    name: proName(data, t.proId),
+    meta: formatDay(t.date, "EEE MMM d"),
+    issue: t.status === "rejected" ? "Sent back" : check ? check.label : "Doesn't match the clock",
+    detail: t.status === "rejected" ? (t.rejection?.reason ?? "") : check ? check.detail : "The billed times differ from Iris's clock.",
+  }
 }
 
-export function submitReply(data: DemoData, supplierId: string, from: string | undefined, still = false): { text: string; actions: AgencyAction[] } {
+export function submitReply(data: DemoData, supplierId: string, from: string | undefined, still = false): { text: string; actions: AgencyAction[]; batch?: TimesheetBatch } {
   const { ready, held } = planSubmit(data, supplierId, from)
   if (!ready.length && !held.length) return { text: still ? "That's everything. Nothing else is waiting on you." : "Nothing to submit. Iris drafts the next ones when your shifts end.", actions: [] }
-  const paragraphs: string[] = []
-  if (ready.length) {
-    const hrs = round2(ready.reduce((s, t) => s + t.hours, 0))
-    const amount = round2(ready.reduce((s, t) => s + timesheetAmount(t), 0))
-    const subject = held.length ? `${ready.length} ${ready.length === 1 ? "is" : "are"} ready` : ready.length === 1 ? "It's ready" : ready.length === 2 ? "Both are ready" : `All ${ready.length} are ready`
-    paragraphs.push(`${plural(ready.length + held.length, "timesheet")} ${still ? "still " : ""}waiting on you. ${subject}: ${hours(hrs)}, ${money(amount)}.`)
-  }
-  if (held.length) {
-    const intro = ready.length
-      ? `${held.length === 1 ? "The other one isn't" : `The other ${held.length} aren't`}, so I held ${held.length === 1 ? "it" : "them"} back:`
-      : `${held.length === 1 ? "It isn't" : `None of the ${held.length} are`} ready yet, so ${held.length === 1 ? "it needs" : "each needs"} a look first:`
-    const more = held.length > LISTED ? [`The other ${held.length - LISTED} are at the top of Timesheets.`] : []
-    paragraphs.push([intro, ...held.slice(0, LISTED).map((t) => heldLine(t, data)), ...more].join("\n"))
+  const batch: TimesheetBatch = {
+    ready: ready.length
+      ? {
+          label: "Ready to submit",
+          count: ready.length,
+          hours: hours(round2(ready.reduce((s, t) => s + t.hours, 0))),
+          amount: money(round2(ready.reduce((s, t) => s + timesheetAmount(t), 0))),
+        }
+      : undefined,
+    held: held.slice(0, LISTED).map((t) => heldRow(t, data)),
+    heldCount: held.length,
+    heldLabel: ready.length ? "Held back" : "Needs a look first",
+    more: held.length > LISTED ? `${held.length - LISTED} more at the top of Timesheets` : undefined,
   }
   const actions: AgencyAction[] = []
   if (ready.length) actions.push({ label: `Submit ${plural(ready.length, "timesheet")}`, kind: "submit-timesheets", ids: ready.map((t) => t.id), from })
-  if (ready.length) paragraphs.push("Nothing goes to the buyer until you click.")
-  return { text: paragraphs.join("\n\n"), actions }
+  return { text: `${plural(ready.length + held.length, "timesheet")} ${still ? "still " : ""}waiting on you.`, actions, batch }
 }
 
 /** The first line after "Submit N timesheets" goes through. */

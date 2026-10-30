@@ -2,13 +2,15 @@
 
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowUp, CalendarPlus, Check, CheckCheck, Download, FileSpreadsheet, Paperclip, Upload, UsersRound } from "lucide-react"
+import { ArrowUp, CalendarPlus, Check, CheckCheck, CircleCheck, Download, FileSpreadsheet, Paperclip, TriangleAlert, Upload, UsersRound } from "lucide-react"
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage, ReportAnswer, ShiftDraft } from "@/components/agent/agent-store"
+import type { TimesheetBatch } from "@/lib/agent-hours"
 import { AGENT_FILE_ACCEPT } from "@/components/agent/use-agent"
 import { LogoMark } from "@/components/brand/logo"
 import { SupplierLogo } from "@/components/brand/org-avatar"
+import { Tip } from "@/components/common/info-tip"
 import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -122,6 +124,69 @@ function DraftCard({ draft, onPick }: { draft: ShiftDraft; onPick?: (supplierId:
         </ol>
       </div>
       {draft.note && <p className="border-t border-border px-4 py-2.5 text-caption-1 text-faded">{draft.note}</p>}
+    </div>
+  )
+}
+
+/** A batch of timesheets at a glance: what goes in one click, then each one held back with Iris's fix beside it. */
+function BatchCard({ batch, fixes, onRun }: { batch: TimesheetBatch; fixes: AgentAction[]; onRun: (action: AgentAction) => void }) {
+  const fixFor = (id: string) => fixes.find((a) => a.kind === "accept-proposal" && a.id === id)
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card text-body-3 shadow-raised">
+      {batch.ready && (
+        <div className={cn("flex items-start justify-between gap-4 px-4 py-3", batch.heldCount > 0 && "border-b border-border")}>
+          <span className="flex min-w-0 flex-col">
+            <span className="flex items-center gap-1.5 text-caption-1 font-medium text-faded">
+              <CircleCheck className="size-3.5 text-positive-fg" />
+              {batch.ready.label}
+            </span>
+            <span className="text-body-1 font-semibold tabular">
+              {batch.ready.count.toLocaleString("en-US")} timesheet{batch.ready.count === 1 ? "" : "s"}
+            </span>
+            {batch.ready.note && <span className="text-caption-1 text-faded">{batch.ready.note}</span>}
+          </span>
+          <span className="flex shrink-0 flex-col items-end">
+            <span className="text-body-1 font-semibold tabular">{batch.ready.amount}</span>
+            <span className="text-caption-1 text-faded tabular">{batch.ready.hours}</span>
+          </span>
+        </div>
+      )}
+      {batch.heldCount > 0 && (
+        <div className="px-4 py-3">
+          <span className="flex items-center gap-1.5 text-caption-1 font-medium text-faded">
+            <TriangleAlert className="size-3.5 text-warning-fg" />
+            {batch.heldLabel} · {batch.heldCount}
+          </span>
+          <ul className="mt-1 flex flex-col divide-y divide-border">
+            {batch.held.map((row) => {
+              const fix = fixFor(row.id)
+              return (
+                <li key={row.id} className="flex items-center gap-3 py-2.5" data-tour="agent-flag" data-ts={row.id}>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex min-w-0 items-baseline gap-1.5">
+                      <span className="truncate font-semibold">{row.name}</span>
+                      {row.meta && <span className="shrink-0 text-caption-1 text-faded">{row.meta}</span>}
+                    </span>
+                    <Tip content={row.detail}>
+                      <span className="w-fit text-caption-1 font-medium text-warning-fg">{row.issue}</span>
+                    </Tip>
+                  </span>
+                  {fix && fix.kind === "accept-proposal" && (
+                    <span className="flex shrink-0 flex-col items-end gap-0.5">
+                      <Button variant="outline" size="sm" className="bg-background" onClick={() => onRun(fix)} data-tour="agent-accept-proposal">
+                        <Check data-icon="inline-start" />
+                        {fix.hours.toFixed(2)} hrs
+                      </Button>
+                      {row.saves && <span className="text-caption-2 text-faded tabular">{row.saves}</span>}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {batch.more && <p className="text-caption-1 text-faded">{batch.more}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -298,9 +363,10 @@ export function AgentMessages({
                   onPick={onPickFirst && message.actions?.some((a) => a.kind === "create-shift") ? (supplierId) => onPickFirst(message.id, supplierId) : undefined}
                 />
               )}
-              {message.actions && (
+              {message.batch && <BatchCard batch={message.batch} fixes={message.actions ?? []} onRun={(item) => onRun(item, message.id)} />}
+              {message.actions?.some((a) => !(message.batch && a.kind === "accept-proposal")) && (
                 <div className="flex flex-wrap gap-2">
-                  {message.actions.map((action) => (
+                  {message.actions.filter((a) => !(message.batch && a.kind === "accept-proposal")).map((action) => (
                     <ActionButton key={action.label} action={action} onRun={(item) => onRun(item, message.id)} />
                   ))}
                 </div>
