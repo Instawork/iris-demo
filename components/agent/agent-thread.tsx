@@ -270,7 +270,7 @@ export function AgentMessages({
             data-tour={
               message.actions?.some((a) => a.kind === "create-shift")
                 ? "agent-draft"
-                : message.actions?.some((a) => a.kind === "submit-timesheets" || a.kind === "assign-workers")
+                : message.actions?.some((a) => a.kind === "submit-timesheets" || a.kind === "assign-workers" || a.kind === "approve-timesheets" || a.kind === "accept-proposal")
                   ? "agent-plan"
                   : undefined
             }

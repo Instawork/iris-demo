@@ -304,7 +304,7 @@ export function hoursReply(data: DemoData, buyerId: string, scope: HoursScope, t
     const intro = clean.length
       ? `Iris flagged ${flagged.length === 1 ? "the other one" : `the other ${flagged.length}`}, so I held ${flagged.length === 1 ? "it" : "them"} back${more}`
       : `Iris flagged ${pending === 1 ? "it" : pending === 2 ? "both" : `all ${pending}`}, so ${pending === 1 ? "it needs" : "each needs"} your decision${more}`
-    const rest = flagged.length > LISTED ? [`The other ${flagged.length - LISTED} are in Timesheets.`] : []
+    const rest = flagged.length > LISTED ? [flagged.length - LISTED === 1 ? "The other one is in Timesheets." : `The other ${flagged.length - LISTED} are in Timesheets.`] : []
     const lines = [...listed.map((f) => flaggedLine(f, scope, data)), ...rest]
     if (clean.length) paragraphs.push([intro, ...lines].join("\n"))
     else paragraphs[0] = [`${summary} ${intro}`, ...lines].join("\n")

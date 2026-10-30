@@ -23,6 +23,8 @@ export interface AdvanceOptions {
   now: Date
   /** Agencies the server plays. Agencies a person is playing are left alone. */
   simulated: (supplierId: string) => boolean
+  /** Agencies switched off in the demo controls. Iris's counters wait only on these, so a tab left open as an agency can't stall a negotiation. */
+  paused?: (supplierId: string) => boolean
 }
 
 /**
@@ -246,11 +248,12 @@ const IRIS_FIRST_SECONDS = 4
 const IRIS_EACH_SECONDS = 0.9
 
 /** Agencies nobody is playing answer Compass's counters on their own: meet the ask, come down to their floor, or hold. */
-function answerCounters(data: DemoData, { now, simulated }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
+function answerCounters(data: DemoData, { now, simulated, paused }: AdvanceOptions): { data: DemoData; notices: Notice[] } {
   const events = data.sourcing ?? []
   const after = (ev: SourcingEvent, m: SourcingMessage) =>
     m.by === IRIS ? IRIS_FIRST_SECONDS + ev.messages.filter((x) => x.by === IRIS && x.at === m.at).indexOf(m) * IRIS_EACH_SECONDS : COUNTER_AFTER_SECONDS
-  const due = (ev: SourcingEvent) => (m: SourcingMessage) => m.open && simulated(m.supplierId) && now.getTime() - Date.parse(m.at) >= after(ev, m) * 1000
+  const answers = (m: SourcingMessage) => (m.by === IRIS ? !paused?.(m.supplierId) : simulated(m.supplierId))
+  const due = (ev: SourcingEvent) => (m: SourcingMessage) => m.open && answers(m) && now.getTime() - Date.parse(m.at) >= after(ev, m) * 1000
   if (!events.some((e) => e.status === "open" && e.messages.some(due(e)))) return { data, notices: [] }
   const notices: Notice[] = []
   const nowISO = now.toISOString()

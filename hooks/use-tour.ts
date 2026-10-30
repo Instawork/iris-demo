@@ -66,7 +66,7 @@ export const useTour = create<TourState>()(
       exit: () => set({ active: false }),
     }),
     {
-      name: "iris-tour-v2",
+      name: "iris-tour-v3",
       storage: createJSONStorage(() => sessionStorage),
       skipHydration: true,
       partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }),

@@ -140,7 +140,7 @@ export class Tenant {
       const playing = playedSuppliers(this.connectedWorkspaces())
       void this.mutate({ kind: "tick", actor: "Iris" }, (data) => {
         const paused = new Set(data.settings?.pausedAgencies ?? [])
-        const { data: next, notices } = advance(data, { now: new Date(), simulated: (supplierId) => !playing.has(supplierId) && !paused.has(supplierId) })
+        const { data: next, notices } = advance(data, { now: new Date(), simulated: (supplierId) => !playing.has(supplierId) && !paused.has(supplierId), paused: (supplierId) => paused.has(supplierId) })
         return { data: next, result: null, notices }
       }).catch((error) => console.error(`[iris] scheduler tick failed for ${this.id}`, error))
     }, TICK_MS)
