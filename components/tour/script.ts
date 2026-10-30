@@ -9,9 +9,10 @@ import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
 import { fullName, moneyCompact, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
-import { location, position } from "@/lib/reference"
+import { buyer, location, position } from "@/lib/reference"
 import { irisCounters } from "@/lib/sourcing"
 import { timesheetChecks } from "@/lib/timesheets"
+import { SAMPLE_UNIT_SHEET } from "@/lib/unit-sheet"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
 import { CHECKS } from "@/lib/verification"
 
@@ -120,6 +121,8 @@ const last = (selector: string) => {
   return all[all.length - 1] ?? null
 }
 const inside = (root: string | Element | null | undefined, selector: string) => (typeof root === "string" ? one(root) : root)?.querySelector(selector) ?? null
+const buttonIn = (root: string | Element | null | undefined, text: string) =>
+  [...((typeof root === "string" ? one(root) : root)?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === text) ?? null
 /* -------------------------------- Autopilot -------------------------------- */
 
 /** The button left lit for the player after Iris fills a screen, until they click it. */
@@ -209,6 +212,23 @@ async function point(target: Element) {
   await sleep(ms + 60)
 }
 
+/** Types into a field a few letters at a time, through the field's own change handler. */
+async function type(el: Element | null | undefined, value: string) {
+  if (!(el instanceof HTMLInputElement)) throw STOPPED
+  if (el.value === value) return
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  el.scrollIntoView({ block: "nearest" })
+  await point(el)
+  el.focus()
+  const pace = value.length > 20 ? 22 : 38
+  for (let i = 1; i <= value.length; i++) {
+    setValue?.call(el, value.slice(0, i))
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    await sleep(pace)
+  }
+  await sleep(220)
+}
+
 /** Presses a button the way a person would: the cursor goes to it, it lights up for a moment, then clicks. */
 async function press(el: Element | null | undefined) {
   if (!(el instanceof HTMLElement)) throw STOPPED
@@ -257,6 +277,41 @@ const nextDate = () => formatDay(addDaysISO(todayISO(), 2), "MMMM do")
 
 export const askExample = () => `Create 8 bartender shifts at West Loop Arena on ${nextDate()} from 4pm to 11pm`
 const reportAsk = () => "What did we spend by agency last week?"
+
+/* ------------------------------- Cost centers ------------------------------ */
+
+const FORM = '[data-tour="unit-form"]'
+const SUBMIT = '[data-tour="unit-submit"]'
+const UNITS_SHEET = '[data-tour="units-sheet"]'
+const UNIT_CC = "LEV-4450"
+const SHEET_CCS = new Set(SAMPLE_UNIT_SHEET.map((r) => r.costCenter))
+
+const newUnit = (ctx: TourContext) => ctx.data.directory.locations.find((l) => l.costCenter === UNIT_CC)
+const unitRow = (ctx: TourContext) => (newUnit(ctx) ? one(`tr[data-row-id="${newUnit(ctx)!.id}"]`) : null)
+const sheetUnits = (ctx: TourContext) => ctx.data.directory.locations.filter((l) => SHEET_CCS.has(l.costCenter))
+const unitsAdded = () => [...document.querySelectorAll("[data-sonner-toast]")].some((t) => /units? added/.test(t.textContent ?? ""))
+
+const toggleOn = async (root: string, text: string) => {
+  const button = buttonIn(root, text)
+  if (button && button.getAttribute("aria-pressed") !== "true") await press(button)
+}
+
+const UNIT_FIELDS: [string, string][] = [
+  ["Soldier Field", "Soldier Field"],
+  [UNIT_CC, UNIT_CC],
+  ["1410 Special Olympics Dr, Chicago, IL", "1410 Special Olympics Dr, Chicago, IL"],
+  ["60605", "60605"],
+]
+
+/** Types the new unit into the form, leaving Add unit for the player. */
+async function fillUnit() {
+  for (const [placeholder, value] of UNIT_FIELDS) {
+    const input = inside(FORM, `input[placeholder="${placeholder}"]`)
+    if (input instanceof HTMLInputElement && input.value !== value) await type(input, value)
+  }
+  await toggleOn(FORM, "Food handler card")
+  return inside(FORM, SUBMIT)
+}
 
 /* ------------------------------- Procurement ------------------------------- */
 
@@ -827,8 +882,71 @@ export const SCRIPT: TourItem[] = [
     chapter: "reporting",
     title: "Invoices and reporting",
     wsId: COMPASS,
-    href: "/invoices",
-    shows: "One invoice a month, and any number you ask for.",
+    href: "/units",
+    shows: "Add cost centers one at a time or by the sheet. Then one invoice a month.",
+  },
+  {
+    kind: "step",
+    id: "unit",
+    chapter: "reporting",
+    label: "Add a cost center",
+    wsId: COMPASS,
+    path: /^\/units/,
+    href: () => "/units",
+    title: () => (one(FORM) ? "Set up Soldier Field" : "Every unit is a cost center"),
+    body: () => (one(FORM) ? "From the ZIP, Iris finds the agencies and workers that can staff it." : "It files itself under its sector, with a cost center for each department."),
+    action: () => (one(FORM) ? "Type the details in grey, then Add unit" : "Click Add a unit"),
+    targets: (ctx) => [unitRow(ctx) ?? one('[data-tour="unit-summary"]') ?? one('[data-tour="add-unit"]')],
+    clicks: () => (one(FORM) ? inside(FORM, SUBMIT) : one('[data-tour="add-unit"]')),
+    placement: "bottom",
+    done: (ctx) => !!newUnit(ctx) && !one(FORM),
+    success: (ctx) => `${newUnit(ctx)?.name ?? "The unit"} filed under ${newUnit(ctx) ? buyer(newUnit(ctx)!.buyerId).name : "its buyer"}`,
+    fill: {
+      when: () => !!one(FORM) && !!(inside(FORM, SUBMIT) as HTMLButtonElement | null)?.disabled,
+      run: fillUnit,
+    },
+    skip: async (_, api) => {
+      if (!one(FORM)) api.push("/units/new")
+      await until(() => one(FORM), 8000)
+      await press(await fillUnit())
+      await until(() => !one(FORM), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "units-sheet",
+    chapter: "reporting",
+    label: "Upload a sheet",
+    wsId: COMPASS,
+    path: /^\/units/,
+    href: () => "/units",
+    title: () => (one('[data-tour="units-import"]') ? "Filed and checked" : one(UNITS_SHEET) ? "A sheet of locations" : "Or a whole sheet at once"),
+    body: () =>
+      one('[data-tour="units-import"]') ? "What it can't place is held back, with the reason." : one(UNITS_SHEET) || unitsAdded() ? undefined : "The way locations arrive today.",
+    action: () =>
+      one('[data-tour="units-import"]')
+        ? `Click ${one('[data-tour="units-import"]')?.textContent?.trim()}`
+        : one(UNITS_SHEET)
+          ? "Click Read the sheet"
+          : unitsAdded()
+            ? undefined
+            : "Click Upload a sheet",
+    targets: () => [one(UNITS_SHEET) ?? one('[data-tour="units-upload"]')],
+    clicks: () => (one(UNITS_SHEET) ? (one('[data-tour="units-import"]') ?? one('[data-tour="units-read"]')) : unitsAdded() ? undefined : one('[data-tour="units-upload"]')),
+    placement: "right",
+    done: (ctx) => sheetUnits(ctx).length > 0 && !one(UNITS_SHEET),
+    success: (ctx) => `${plural(sheetUnits(ctx).length, "unit")} added, each with its cost centers`,
+    onDone: (_, api) => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      api.push("/invoices")
+    },
+    skip: async () => {
+      if (!one(UNITS_SHEET)) await press(one('[data-tour="units-upload"]'))
+      if (!one('[data-tour="units-import"]')) await press(await until(() => one('[data-tour="units-read"]')))
+      const add = await until(() => one('[data-tour="units-import"]'), 4000)
+      await sleep(1200)
+      await press(add)
+    },
   },
   {
     kind: "step",

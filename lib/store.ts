@@ -36,6 +36,7 @@ interface StoreState {
   sendReport: (id: string, recipients?: string[]) => Promise<number>
   /** Adds a unit to a buyer. Resolves to its location id. */
   onboardUnit: (input: UnitInput) => Promise<string | undefined>
+  importUnits: (units: UnitInput[]) => Promise<{ ids: string[]; skipped: number } | undefined>
   /** Adds an agency with its rate card and Pros. Resolves to its id. */
   onboardAgency: (input: AgencyInput) => Promise<string | undefined>
   signOut: () => Promise<void>
@@ -288,6 +289,7 @@ export const useStore = create<StoreState>()((set, get) => {
     scheduleReport: async (id, schedule) => (await send("scheduleReport", { id, schedule })) !== undefined,
     sendReport: async (id, recipients) => (await send("sendReport", { id, recipients })) ?? 0,
     onboardUnit: async (input) => send("onboardUnit", input),
+    importUnits: async (units) => send("importUnits", { units }),
     onboardAgency: async (input) => send("onboardAgency", input),
 
     signOut: async () => {

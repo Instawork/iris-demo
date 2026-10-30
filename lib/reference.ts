@@ -90,6 +90,17 @@ const DEPARTMENTS_BY_KIND: Record<string, { name: string; positionIds: string[] 
   ],
 }
 
+const VENUE_ROLES = ["bartender", "barback", "concessions", "suite", "cashier", "porter"]
+const ROLES_FOR: Record<string, string[]> = {
+  Stadium: VENUE_ROLES,
+  Arena: VENUE_ROLES,
+  Ballpark: VENUE_ROLES,
+  "Convention center": ["server", "bartender", "porter", "linecook", "dishwasher"],
+}
+
+/** The roles a unit of this kind usually orders. */
+export const rolesFor = (kind: string) => ROLES_FOR[kind] ?? ["linecook", "prepcook", "dishwasher", "cashier"]
+
 /** The departments a unit of this kind usually has, each charged to its own cost center under the unit's. */
 export function departmentsFor(kind: string, costCenter: string): Department[] {
   const key = ["Stadium", "Arena", "Ballpark"].includes(kind) ? "venue" : kind === "Convention center" ? kind : "dining"

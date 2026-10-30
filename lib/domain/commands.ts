@@ -27,6 +27,7 @@ import {
   position,
   requirementLabel,
   supplier,
+  syncDirectory,
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
@@ -1599,6 +1600,37 @@ function onboardUnit(data: DemoData, ctx: CommandContext, input: UnitInput): Out
   )
 }
 
+/** Adds a sheet of units at once, each checked like one added by hand and against the rows before it. Rows that fail are left out. */
+function importUnits(data: DemoData, ctx: CommandContext, input: { units: UnitInput[] }): Outcome<{ ids: string[]; skipped: number }> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass adds units from a sheet.")
+  const rows = Array.isArray(input?.units) ? input.units.slice(0, 500) : fail("The sheet has no rows")
+  let next = data
+  const ids: string[] = []
+  try {
+    for (const row of rows) {
+      syncDirectory(next.directory)
+      try {
+        const outcome = onboardUnit(next, ctx, row)
+        next = outcome.data
+        ids.push(outcome.result)
+      } catch (e) {
+        if (!(e instanceof CommandError)) throw e
+      }
+    }
+  } finally {
+    syncDirectory(data.directory)
+  }
+  if (!ids.length) fail("No row on the sheet could be added")
+  const added = next.directory.locations.filter((l) => ids.includes(l.id))
+  const buyers = [...new Set(added.map((l) => l.buyerId))]
+  return done(
+    data,
+    { ids, skipped: rows.length - ids.length },
+    { directory: next.directory },
+    event(data, { text: `${actorName(ctx)} added ${plural(ids.length, "unit")} from a sheet`, actor: actorName(ctx), tone: "primary", ...(buyers.length === 1 ? { buyerId: buyers[0] } : {}) }, ctx.now),
+  )
+}
+
 export interface AgencyInput {
   name: string
   shortName?: string
@@ -1828,6 +1860,7 @@ export const COMMANDS = {
   scheduleReport,
   sendReport,
   onboardUnit,
+  importUnits,
   onboardAgency,
 }
 

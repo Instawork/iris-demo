@@ -16,7 +16,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { canWork, itemState } from "@/lib/compliance"
 import { todayISO } from "@/lib/dates"
 import { plural } from "@/lib/format"
-import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, departmentsFor, marketForZip, requirementLabel, requirementsFor } from "@/lib/reference"
+import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, departmentsFor, marketForZip, requirementLabel, requirementsFor, rolesFor } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
 import type { Department, Pro, RequirementId } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -28,15 +28,6 @@ import { cn } from "@/lib/utils"
  */
 
 const KINDS = ["Stadium", "Arena", "Ballpark", "Convention center", "Campus dining", "Corporate dining", "Hospital", "Senior living"]
-
-const VENUE_ROLES = ["bartender", "barback", "concessions", "suite", "cashier", "porter"]
-const ROLES_FOR: Record<string, string[]> = {
-  Stadium: VENUE_ROLES,
-  Arena: VENUE_ROLES,
-  Ballpark: VENUE_ROLES,
-  "Convention center": ["server", "bartender", "porter", "linecook", "dishwasher"],
-}
-const KITCHEN_ROLES = ["linecook", "prepcook", "dishwasher", "cashier"]
 
 const EXTRA: { id: RequirementId; label: string }[] = [
   { id: "foodHandler", label: "Food handler card" },
@@ -77,7 +68,7 @@ export function NewUnitPage() {
     costCenter: "",
     address: "",
     zip: "",
-    positionIds: ROLES_FOR.Stadium,
+    positionIds: rolesFor("Stadium"),
     requires: [],
     departments: departmentsFor("Stadium", ""),
     ownDepartments: false,
@@ -161,7 +152,7 @@ export function NewUnitPage() {
                 </Select>
               </Field>
               <Field label="Type">
-                <Select value={form.kind} onValueChange={(v) => set({ kind: v, positionIds: ROLES_FOR[v] ?? KITCHEN_ROLES })}>
+                <Select value={form.kind} onValueChange={(v) => set({ kind: v, positionIds: rolesFor(v) })}>
                   <SelectTrigger className="h-9 w-full">
                     <SelectValue />
                   </SelectTrigger>

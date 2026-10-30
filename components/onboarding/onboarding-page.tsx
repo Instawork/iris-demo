@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Building2, ChevronRight, MapPinned, Plus, ShieldCheck } from "lucide-react"
+import { Building2, ChevronRight, FileSpreadsheet, MapPinned, Plus, ShieldCheck } from "lucide-react"
 import { Fragment, useEffect, useState } from "react"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -10,6 +10,7 @@ import { DataTable, type Column } from "@/components/common/data-table"
 import { SearchInput } from "@/components/common/filters"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
+import { UnitSheetDialog } from "@/components/onboarding/unit-sheet-dialog"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { Button } from "@/components/ui/button"
@@ -100,11 +101,13 @@ function Hit({ text, q }: { text: string; q: string }) {
 export function UnitsPage() {
   const data = useData()
   const { ws } = useWorkspace()
-  const fresh = useSearchParams().get("unit") ?? undefined
+  const unitParam = useSearchParams().get("unit") ?? undefined
+  const [fresh, setFresh] = useState<string[]>(() => (unitParam ? [unitParam] : []))
   const [query, setQuery] = useState("")
+  const [uploading, setUploading] = useState(false)
   const [closed, setClosed] = useState<Set<string>>(() => {
     const next = new Set(["s:Education"])
-    const added = fresh ? LOCATIONS.find((l) => l.id === fresh) : undefined
+    const added = unitParam ? LOCATIONS.find((l) => l.id === unitParam) : undefined
     if (added) next.delete(`s:${buyer(added.buyerId).sector}`)
     return next
   })
@@ -121,8 +124,8 @@ export function UnitsPage() {
   const costCenters = LOCATIONS.reduce((n, l) => n + 1 + (l.departments?.length ?? 0), 0)
 
   useEffect(() => {
-    if (!fresh) return
-    const t = setTimeout(() => document.querySelector(`tr[data-row-id="${fresh}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }), 150)
+    if (!fresh.length) return
+    const t = setTimeout(() => document.querySelector(`tr[data-row-id="${fresh[0]}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }), 150)
     return () => clearTimeout(t)
   }, [fresh])
 
@@ -149,7 +152,7 @@ export function UnitsPage() {
           data-row-id={l.id}
           onClick={depts.length ? () => flip(setOpened, l.id) : undefined}
           aria-expanded={depts.length ? open : undefined}
-          className={cn("border-b border-border/70 transition-colors duration-100", depts.length && "cursor-pointer hover:bg-hover", fresh === l.id && "bg-positive-faded hover:bg-positive-faded")}
+          className={cn("border-b border-border/70 transition-colors duration-100", depts.length && "cursor-pointer hover:bg-hover", fresh.includes(l.id) && "bg-positive-faded hover:bg-positive-faded")}
         >
           <td className={td} style={indent(LEVELS.length)}>
             <span className="flex items-center gap-1.5">
@@ -284,11 +287,16 @@ export function UnitsPage() {
         description="Every unit that buys labor, filed under its super sector, sector and regional business. Add one and it's live across Iris."
         actions={
           ws.kind === "compass" && (
-            <Button asChild data-tour="add-unit">
-              <Link href="/units/new">
-                <MapPinned /> Add a unit
-              </Link>
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setUploading(true)} data-tour="units-upload">
+                <FileSpreadsheet /> Upload a sheet
+              </Button>
+              <Button asChild data-tour="add-unit">
+                <Link href="/units/new">
+                  <MapPinned /> Add a unit
+                </Link>
+              </Button>
+            </>
           )
         }
       />
@@ -337,6 +345,17 @@ export function UnitsPage() {
           </table>
         </div>
       </Surface>
+      {ws.kind === "compass" && (
+        <UnitSheetDialog
+          open={uploading}
+          onOpenChange={setUploading}
+          onAdded={(ids) => {
+            setQuery("")
+            setClosed(new Set())
+            setFresh(ids)
+          }}
+        />
+      )}
       {ws.kind === "compass" && (
         <p className="flex items-center gap-1.5 text-caption-1 text-faded">
           <Plus className="size-3.5" />
