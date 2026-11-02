@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/common/status-badge"
 import { INVOICE_STATUS, groupTotals } from "@/components/invoices/invoice-bits"
 import { formatDateShort } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
+import { invoiceStatus, type InvoiceDisplayStatus } from "@/lib/metrics"
 import type { Invoice, InvoiceGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -123,16 +124,23 @@ export function WeeklyTable({
     }
   }
 
-  const invoiceRow = (inv: Invoice, nested: boolean) => (
+  /** An invoice under its week leaves out what the week already says: its dates, and its status when it's the week's. */
+  const nestedCell = (c: Column<Invoice>, inv: Invoice, week: InvoiceDisplayStatus) => {
+    if (c.id === "number") return <span className="block pl-7 font-semibold">{inv.number}</span>
+    if (c.id === "status" && invoiceStatus(inv) === week) return null
+    return c.cell(inv)
+  }
+
+  const invoiceRow = (inv: Invoice, week?: InvoiceDisplayStatus) => (
     <tr
       key={inv.id}
       data-row-id={inv.id}
       onClick={() => onOpenInvoice(inv)}
-      className={cn("cursor-pointer border-b border-border/70 transition-colors duration-100 last:border-b-0 hover:bg-hover", nested && "bg-page-faded/50")}
+      className={cn("cursor-pointer border-b border-border/70 transition-colors duration-100 last:border-b-0 hover:bg-hover", week && "bg-page-faded/50")}
     >
       {columns.map((c) => (
         <td key={c.id} className={td(c)}>
-          {nested && c.id === "number" ? <span className="block pl-7">{c.cell(inv)}</span> : c.cell(inv)}
+          {week ? nestedCell(c, inv, week) : c.cell(inv)}
         </td>
       ))}
     </tr>
@@ -168,10 +176,10 @@ export function WeeklyTable({
                     </td>
                   ))}
                 </tr>
-                {open.has(m.g.id) && [...m.members].sort(newestFirst).map((inv) => invoiceRow(inv, true))}
+                {open.has(m.g.id) && [...m.members].sort(newestFirst).map((inv) => invoiceRow(inv, m.status))}
               </Fragment>
             ))}
-            {loose.map((inv) => invoiceRow(inv, false))}
+            {loose.map((inv) => invoiceRow(inv))}
           </tbody>
         </table>
       </div>
