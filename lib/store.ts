@@ -136,6 +136,18 @@ const offerReload = () => {
   })
 }
 
+let commands = 0
+let inFlight = 0
+let lastAnswer = 0
+/** How many changes this page has asked for, so the guided demo can tell a step the player acted in from one just looked at. */
+export const commandsSent = () => commands
+export const commandsInFlight = () => inFlight > 0
+
+/** Resolves once no change is on its way and none has come back for a moment, as when a screen saves its rows one by one. */
+export async function commandsSettled(quiet = 300) {
+  while (inFlight > 0 || performance.now() - lastAnswer < quiet) await new Promise((r) => window.setTimeout(r, 50))
+}
+
 export const useStore = create<StoreState>()((set, get) => {
   const resync = () =>
     (resyncing ??= fetch("/api/state", { cache: "no-store", redirect: "manual" })
@@ -231,7 +243,18 @@ export const useStore = create<StoreState>()((set, get) => {
   let saving: Promise<unknown> = Promise.resolve()
 
   /** The server keeps each key's result, so a retry after a dropped connection can't apply a command twice. */
-  async function send<N extends CommandName>(type: N, input: CommandInput<N>, key = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`): Promise<CommandResult<N> | undefined> {
+  async function send<N extends CommandName>(type: N, input: CommandInput<N>, key?: string): Promise<CommandResult<N> | undefined> {
+    commands++
+    inFlight++
+    try {
+      return await deliver(type, input, key)
+    } finally {
+      inFlight--
+      lastAnswer = performance.now()
+    }
+  }
+
+  async function deliver<N extends CommandName>(type: N, input: CommandInput<N>, key = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`): Promise<CommandResult<N> | undefined> {
     // A checkpoint is of the data before what the player does next.
     await saving
     let res: Response | undefined

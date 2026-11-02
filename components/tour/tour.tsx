@@ -35,7 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useTour } from "@/hooks/use-tour"
 import { useUi } from "@/hooks/use-ui"
 import { workspace } from "@/lib/reference"
-import { useStore } from "@/lib/store"
+import { commandsInFlight, commandsSent, commandsSettled, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
 const EASE = [0.22, 1, 0.36, 1] as const
@@ -385,7 +385,7 @@ const partBeside = (chapter: ChapterId, by: -1 | 1): ChapterId | undefined => CH
 
 /** A part's number picks it, and Shift with an arrow the part before or after `chapter`. */
 const partKey = (e: KeyboardEvent, chapter?: ChapterId): ChapterId | undefined => {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ownsArrows(e.target)) return undefined
+  if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ownsKeys(e.target)) return undefined
   const n = Number(e.key)
   if (!e.shiftKey && Number.isInteger(n) && n >= 1 && n <= CHAPTER_ORDER.length) return CHAPTER_ORDER[n - 1]
   if (!e.shiftKey || !chapter || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return undefined
@@ -471,6 +471,9 @@ async function jumpTo(index: number, push: (href: string) => void) {
       if (need.inChat) for (let t = 0; t < 40 && !document.querySelector('[data-tour="agent-plan"]'); t++) await new Promise((resolve) => window.setTimeout(resolve, 50))
       await need.skip(contextNow(), { push, remember: (patch) => useTour.getState().remember(patch), now: contextNow })
     }
+    // What the set-up saved can still be on its way; the step begins once it has all landed.
+    await new Promise((resolve) => window.setTimeout(resolve, 150))
+    await commandsSettled()
     if (useTour.getState().enteredAt === at) {
       toast.dismiss()
       const there = item.href(contextNow())
@@ -492,9 +495,13 @@ const ownsEnter = (target: EventTarget | null) =>
   ((target instanceof HTMLTextAreaElement && !!target.value.trim()) ||
     !!target.closest('[data-tour-layer], select, [contenteditable="true"], [role="menu"], [role="listbox"], [role="combobox"], [role="radiogroup"], [role="grid"]'))
 
-/** Keys that belong to what has focus, like arrows in a tab list or a text field. */
-const ownsArrows = (target: EventTarget | null) =>
+/** Keys that belong to what has focus, like typing in a text field or arrows in a tab list. */
+const ownsKeys = (target: EventTarget | null) =>
   target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="tablist"], [role="radiogroup"], [role="menu"], [role="listbox"], [role="slider"], [role="grid"]')
+
+/** Arrows in an empty text field have nothing to move through, like the chat box once Iris sent what a step asked. */
+const ownsArrows = (target: EventTarget | null) =>
+  (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && !target.value ? false : ownsKeys(target)
 
 function StepScreen({ step }: { step: TourStep }) {
   const router = useRouter()
@@ -505,6 +512,8 @@ function StepScreen({ step }: { step: TourStep }) {
   const [celebrate, setCelebrate] = useState<{ step: string; at?: string; message: string; kept: boolean }>()
   /** The visit of the step "Do it for me" is playing, and whether it's typing a screen in. */
   const [piloting, setPiloting] = useState<{ visit: string; filling: boolean }>()
+  /** The visit in which the player changed something or finished the step, so Back starts it again before leaving it. */
+  const [moved, setMoved] = useState<string>()
   const closing = useRef<string>(undefined)
   const leaving = useRef<string>(undefined)
   const vp = useViewport()
@@ -525,6 +534,16 @@ function StepScreen({ step }: { step: TourStep }) {
     let held: Spot | undefined
     let celebrating = false
     let began = false
+    let beganDone = false
+    let sentBefore = 0
+    let shownAt: string | undefined
+    let movedOn = false
+    const visit = useTour.getState().enteredAt
+    const moveOn = () => {
+      if (movedOn) return
+      movedOn = true
+      setMoved(visit)
+    }
     let open: (Spot & { cost: number }) | undefined
     /**
      * Where the card goes for these boxes. The page is read again at most every 200ms, as the card follows each frame.
@@ -574,15 +593,19 @@ function StepScreen({ step }: { step: TourStep }) {
       if (t - checkedAt > 120) {
         checkedAt = t
         const done = !!step.done?.(ctx)
-        // Where the step begins, for a jump back to it. Not once it's done: that's where it ends.
-        if (!began) {
+        // Where the step begins, for a jump back to it, once what came before has landed. Not once it's done: that's where it ends.
+        if (!began && !commandsInFlight()) {
           began = true
+          beganDone = done
+          sentBefore = commandsSent()
           if (!done) {
             useTour.getState().kept(step.id)
             void useStore.getState().saveCheckpoint(step.id)
           }
         }
+        if (began && commandsSent() > sentBefore) moveOn()
         if (done) {
+          if (began && !beganDone) moveOn()
           finished = true
           celebrating = true
           closing.current = useTour.getState().enteredAt
@@ -627,6 +650,9 @@ function StepScreen({ step }: { step: TourStep }) {
       const anchor = step.anchor?.()
       const copy = [titleOf(step, ctx), text(step.body, ctx), text(step.action, ctx), handedOff()?.textContent, step.fill?.when(ctx)].join("|")
       const around = anchor ? boxOf(anchor) : undefined
+      const url = `${window.location.pathname}${window.location.search}`
+      shownAt ??= url
+      if (url !== shownAt) moveOn()
       update({ mode: "ready", boxes: els.map(boxOf), anchor: around, modal: !!modal, copy, spot: spotFor(els, around, ctx, t) })
     }
 
@@ -645,7 +671,7 @@ function StepScreen({ step }: { step: TourStep }) {
       document.querySelectorAll("[data-tour-target]").forEach((el) => el.removeAttribute("data-tour-target"))
       stopPilot()
     }
-  }, [step, router, cardRef])
+  }, [step, router, cardRef, enteredAt])
 
   const ctx = contextNow()
   const mine = view.step === step.id
@@ -710,7 +736,8 @@ function StepScreen({ step }: { step: TourStep }) {
 
   const pointer = mode === "ready" && pos.edge && pos.at !== undefined && !(party && !party.kept)
   const jump = (index: number | undefined) => index !== undefined && void jumpTo(index, router.push)
-  const back = neighbor(step, -1)
+  const again = moved === visit
+  const back = again ? indexOf(step.id) : neighbor(step, -1)
   const ahead = () => (done ? void finish("done") : jump(neighbor(step, 1)))
   const handoffLabel = handoff?.textContent?.trim() || handoff?.getAttribute("aria-label") || undefined
   /** What the card's main button does right now, for Enter. */
@@ -780,6 +807,7 @@ function StepScreen({ step }: { step: TourStep }) {
           handoff={handoffLabel}
           canAdvance={canAdvance}
           canBack={back !== undefined}
+          again={again}
           onNext={() => void finish("done")}
           onAdvance={() => void act()}
           onSkip={() => void skip()}
@@ -853,6 +881,7 @@ function StepCard({
   handoff,
   canAdvance,
   canBack,
+  again,
   onNext,
   onAdvance,
   onSkip,
@@ -870,6 +899,8 @@ function StepCard({
   handoff?: string
   canAdvance: boolean
   canBack: boolean
+  /** Back starts this step again, since it moved on from how it began. */
+  again: boolean
   onNext: () => void
   onAdvance: () => void
   onSkip: () => void
@@ -983,7 +1014,7 @@ function StepCard({
 
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-3.5">
         <span className="-ml-1.5 flex items-center gap-1">
-          <StepArrow label="Previous step" disabled={!canBack} onClick={onBack}>
+          <StepArrow label={again ? "Start this step again" : "Previous step"} disabled={!canBack} onClick={onBack}>
             <ChevronLeft className="size-4" />
           </StepArrow>
           <PartBars chapter={step.chapter} stepId={step.id} onStep={(s) => s.id !== step.id && onJump(indexOf(s.id))} />
