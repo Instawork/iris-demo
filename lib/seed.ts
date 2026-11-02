@@ -29,7 +29,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 22
+export const DATA_VERSION = 23
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -374,10 +374,10 @@ interface FillTarget {
 }
 
 const FILL_TARGET: FillTarget = {
-  instawork: (d) => (d <= 2 ? 0.95 : d <= 7 ? 0.82 : 0.6),
-  crewline: (d) => (d <= 2 ? 0.95 : d <= 7 ? 0.8 : 0.55),
-  harbor: (d) => (d <= 2 ? 0.9 : d <= 7 ? 0.68 : 0.42),
-  metro: (d) => (d <= 2 ? 0.58 : d <= 7 ? 0.44 : 0.28),
+  instawork: (d) => (d <= 2 ? 1.06 : d <= 7 ? 1.04 : 1),
+  crewline: (d) => (d <= 2 ? 1.04 : d <= 7 ? 1.02 : 1),
+  harbor: (d) => (d <= 2 ? 1 : d <= 7 ? 0.96 : 0.9),
+  metro: (d) => (d <= 2 ? 0.7 : d <= 7 ? 0.55 : 0.4),
 }
 
 export function generateDemoData(today = todayISO()): DemoData {
