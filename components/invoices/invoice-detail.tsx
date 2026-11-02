@@ -27,7 +27,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatClockShort, formatDateFull, formatDateShort } from "@/lib/dates"
+import { formatClockShort, formatDateFull, formatDateShort, formatWeek } from "@/lib/dates"
 import { hours, money, plural, rate } from "@/lib/format"
 import {
   ANOMALY_THRESHOLD,
@@ -131,7 +131,7 @@ export function InvoiceDetail({ id }: { id: string }) {
             <h1 className="text-featured-1 font-semibold">{inv.number}</h1>
             <InvoiceStatusBadge invoice={inv} />
             {group && (
-              <Tip content={group.name}>
+              <Tip content={group.week ? formatWeek(group.week) : group.name}>
                 <Link href={`/invoices/groups/${group.id}`}>
                   <StatusBadge>
                     <Layers className="size-3" /> {group.code}

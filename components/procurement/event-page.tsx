@@ -672,13 +672,6 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
   const ready = pending.filter((s) => !openCounters(ev, s).length)
   const [picked, setPicked] = useState<string[]>([])
   const chosen = picked.filter((s) => ready.includes(s))
-  const total = chosen.reduce(
-    (t, s) => {
-      const spend = spendOf(ev, s)
-      return { baseline: t.baseline + spend.baseline, proposed: t.proposed + spend.proposed }
-    },
-    { baseline: 0, proposed: 0 },
-  )
   const go = () =>
     void approve(ev.id, chosen).then((n) => {
       if (!n) return
@@ -700,7 +693,7 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Approve bids</DialogTitle>
-            <DialogDescription>Approved prices go live on each agency&apos;s {city(ev.cityId).name} rate card today.</DialogDescription>
+            <DialogDescription className="sr-only">Pick the bids to approve.</DialogDescription>
           </DialogHeader>
           <ul className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border scrollbar-thin">
             {pending.map((s) => {
@@ -728,11 +721,6 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
               )
             })}
           </ul>
-          {chosen.length > 0 && total.baseline > total.proposed && (
-            <p className="text-body-3 text-faded">
-              Saves <span className="font-semibold text-positive-fg">{moneyYear(total.baseline - total.proposed)}</span> a year against today&apos;s rates.
-            </p>
-          )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>
               Cancel

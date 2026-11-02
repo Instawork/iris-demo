@@ -18,7 +18,7 @@ import { TipSplit } from "@/components/invoices/invoice-detail"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort, formatWeek } from "@/lib/dates"
+import { formatDateShort } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import { inScope, invoiceBalance, invoiceHours, invoiceStatus, invoiceTotal, venueTips } from "@/lib/metrics"
 import { location, position, supplier } from "@/lib/reference"
@@ -97,14 +97,14 @@ export function InvoiceGroupPage({ id }: { id: string }) {
       <div className="flex flex-col gap-4 pt-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2" data-tour="group-title">
-            <h1 className="text-featured-1 font-semibold">{weekly ? formatWeek(live.week!) : live.name}</h1>
+            <h1 className="text-featured-1 font-semibold">{weekly ? live.code : live.name}</h1>
             <StatusBadge tone={INVOICE_STATUS[t.status].tone}>{INVOICE_STATUS[t.status].label}</StatusBadge>
             {t.status === "open" && (
               <InfoTip>{`Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}.`}</InfoTip>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-body-3 text-faded">
-            <code className="font-mono">{live.code}</code>
+            {!weekly && <code className="font-mono">{live.code}</code>}
             <span>{plural(t.members.length, "invoice")}</span>
             <span>
               {formatDateShort(t.from)} – {formatDateShort(t.to)}

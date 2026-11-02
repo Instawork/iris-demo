@@ -535,6 +535,12 @@
   }
 }
 
+/* The tour owns Enter, so a focus ring on the page would read as the tour pointing at that button. */
+[data-tour-on] :focus-visible:not([data-tour-layer] *, [data-tour-next]) {
+  outline: none;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
 [data-tour-next] {
   outline: 2px solid var(--foreground);
   outline-offset: 2px;

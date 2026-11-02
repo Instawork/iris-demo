@@ -135,6 +135,7 @@ export function MarketRates() {
                     <BenchmarkBar
                       b={r.market}
                       marks={[...r.cards.map((c) => ({ value: c.billRate, kind: "bid" as const })), { value: r.you, kind: "today" as const }]}
+                      toned
                     />
                   </td>
                   <td className="pr-3">
@@ -147,7 +148,7 @@ export function MarketRates() {
           {!shown.length && <EmptyState icon={MapPin} title="No roles match" description="Try another role or city." compact />}
         </div>
         <div className="border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
-          <BenchmarkLegend today="You pay" best="" bids="One of your agencies" />
+          <BenchmarkLegend today="You pay" best="" toned />
         </div>
       </Surface>
       <Sheet open={!!selected} onOpenChange={(o) => !o && setOpen(null)}>
@@ -201,7 +202,7 @@ function RoleRates({ row, cityId }: { row: Row; cityId: string }) {
           ))}
         </dl>
         <div className="flex flex-col gap-1.5">
-          <BenchmarkBar b={b} marks={[...row.cards.map((c) => ({ value: c.billRate, kind: "bid" as const })), { value: row.you, kind: "today" as const }]} className="h-5" />
+          <BenchmarkBar b={b} marks={[...row.cards.map((c) => ({ value: c.billRate, kind: "bid" as const })), { value: row.you, kind: "today" as const }]} toned className="h-5" />
           <span className="flex justify-between text-caption-2 text-faded tabular">
             <span>{money(b.low)}</span>
             <span>{money(b.high)}</span>

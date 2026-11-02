@@ -8,7 +8,7 @@ import type { Column } from "@/components/common/data-table"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge } from "@/components/common/status-badge"
 import { INVOICE_STATUS, groupTotals } from "@/components/invoices/invoice-bits"
-import { formatDateShort, formatWeek } from "@/lib/dates"
+import { formatDateShort } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import type { Invoice, InvoiceGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -75,7 +75,7 @@ export function WeeklyTable({
           <span className="flex items-center gap-2">
             <button
               type="button"
-              aria-label={expanded ? `Collapse ${formatWeek(m.g.week!)}` : `Show the invoices in ${formatWeek(m.g.week!)}`}
+              aria-label={expanded ? `Collapse ${m.g.code}` : `Show the invoices in ${m.g.code}`}
               aria-expanded={expanded}
               onClick={(e) => {
                 e.stopPropagation()
@@ -85,10 +85,11 @@ export function WeeklyTable({
             >
               <ChevronRight className={cn("size-4 transition-transform duration-100", expanded && "rotate-90")} />
             </button>
-            <span className="flex flex-col">
-              <span className="font-semibold">{formatWeek(m.g.week!)}</span>
-              <span className="text-caption-1 text-faded">
-                <code className="font-mono">{m.g.code}</code> · {formatDateShort(m.from)} – {formatDateShort(m.to)}
+            <span>
+              <code className="font-mono font-semibold">{m.g.code}</code>
+              <span className="text-faded">
+                {" "}
+                · {formatDateShort(m.from)} – {formatDateShort(m.to)}
               </span>
             </span>
           </span>

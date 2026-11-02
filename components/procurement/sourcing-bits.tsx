@@ -106,9 +106,10 @@ export interface Mark {
 
 /**
  * A rate against the market: the faint line is the full range, the darker band the middle half, the tick the median.
- * A solid dot is the best bid, a ring is what Compass pays today, small dots are other bids.
+ * A solid dot is the best bid, a ring is what Compass pays today, small dots are other bids. Toned, every mark is green
+ * at or under the median and red over it.
  */
-export function BenchmarkBar({ b, marks, className }: { b: Benchmark; marks: Mark[]; className?: string }) {
+export function BenchmarkBar({ b, marks, toned, className }: { b: Benchmark; marks: Mark[]; toned?: boolean; className?: string }) {
   const lo = Math.min(b.low, ...marks.map((m) => m.value)) * 0.99
   const hi = Math.max(b.high, ...marks.map((m) => m.value)) * 1.01
   const at = (v: number) => `${((v - lo) / (hi - lo)) * 100}%`
@@ -126,8 +127,8 @@ export function BenchmarkBar({ b, marks, className }: { b: Benchmark; marks: Mar
             className={cn(
               "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full",
               m.kind === "best" && cn("size-2.5 ring-2 ring-card", m.value <= b.median ? "bg-positive" : "bg-warning"),
-              m.kind === "today" && "size-2.5 bg-card ring-[1.5px] ring-foreground/70",
-              m.kind === "bid" && "size-1.5 bg-foreground/35",
+              m.kind === "today" && cn("size-2.5 bg-card", toned ? cn("ring-2", m.value <= b.median ? "ring-positive" : "ring-critical") : "ring-[1.5px] ring-foreground/70"),
+              m.kind === "bid" && (toned ? cn("size-2", m.value <= b.median ? "bg-positive" : "bg-critical") : "size-1.5 bg-foreground/35"),
             )}
             style={{ left: at(m.value) }}
           />
@@ -137,7 +138,7 @@ export function BenchmarkBar({ b, marks, className }: { b: Benchmark; marks: Mar
 }
 
 /** The legend for BenchmarkBar, for the foot of a table. */
-export function BenchmarkLegend({ today = "Today", best = "Best bid", bids }: { today?: string; best?: string; bids?: string }) {
+export function BenchmarkLegend({ today = "Today", best = "Best bid", bids, toned }: { today?: string; best?: string; bids?: string; toned?: boolean }) {
   return (
     <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption-1 text-faded">
       {best && (
@@ -145,7 +146,17 @@ export function BenchmarkLegend({ today = "Today", best = "Best bid", bids }: { 
           <span className="size-2 rounded-full bg-positive" /> {best}
         </span>
       )}
-      {bids && (
+      {toned && (
+        <>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-positive" /> Under the market
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-critical" /> Over the market
+          </span>
+        </>
+      )}
+      {bids && !toned && (
         <span className="flex items-center gap-1.5">
           <span className="size-1.5 rounded-full bg-foreground/35" /> {bids}
         </span>

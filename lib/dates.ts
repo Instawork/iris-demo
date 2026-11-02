@@ -113,8 +113,8 @@ export const formatDateFull = (iso: string) => format(parseDate(iso), "MMM d, yy
 /** "2026-10" as "October 2026". */
 export const formatMonth = (month: string) => format(parseDate(`${month}-01`), "MMMM yyyy")
 
-/** A week by its Saturday: "Week of Oct 24". */
-export const formatWeek = (week: string) => `Week of ${formatDateShort(week)}`
+/** A week by its Saturday, as its range: "Oct 24 – Oct 30". */
+export const formatWeek = (week: string) => `${formatDateShort(week)} – ${formatDateShort(addDaysISO(week, 6))}`
 
 /** Date group header used on the Shifts list: "Today • Tue Oct 13, 2026". */
 export const formatGroupHeader = (iso: string) => {

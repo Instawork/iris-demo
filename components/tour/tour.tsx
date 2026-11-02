@@ -54,10 +54,11 @@ interface Box {
   h: number
 }
 
+/** `spot`, when the card has nothing to point at, is where it last stood, so it stays there instead of jumping. */
 type View =
-  | { mode: "pending" }
-  | { mode: "ready"; boxes: Box[]; anchor?: Box; modal: boolean; copy: string }
-  | { mode: "lost" }
+  | { mode: "pending"; spot?: Spot }
+  | { mode: "ready"; boxes: Box[]; anchor?: Box; modal: boolean; copy: string; spot: Spot }
+  | { mode: "lost"; spot?: Spot }
   | { mode: "away" }
   | { mode: "paused" }
   | { mode: "preparing" }
@@ -88,10 +89,17 @@ const boxOf = (el: Element): Box => {
 
 const near = (a: number, b: number) => Math.abs(a - b) < 0.5
 const sameBoxes = (a: Box[], b: Box[]) => a.length === b.length && a.every((r, i) => near(r.x, b[i].x) && near(r.y, b[i].y) && near(r.w, b[i].w) && near(r.h, b[i].h))
+const sameSpot = (a?: Spot, b?: Spot) => (!a || !b ? a === b : near(a.x, b.x) && near(a.y, b.y) && a.edge === b.edge && a.at === b.at)
+const spotOf = (v: View) => (v.mode === "ready" || v.mode === "pending" || v.mode === "lost" ? v.spot : undefined)
 const sameView = (a: View, b: View) =>
   a.mode === b.mode &&
+  sameSpot(spotOf(a), spotOf(b)) &&
   (a.mode !== "ready" ||
-    (b.mode === "ready" && a.modal === b.modal && a.copy === b.copy && sameBoxes(a.boxes, b.boxes) && sameBoxes(a.anchor ? [a.anchor] : [], b.anchor ? [b.anchor] : [])))
+    (b.mode === "ready" &&
+      a.modal === b.modal &&
+      a.copy === b.copy &&
+      sameBoxes(a.boxes, b.boxes) &&
+      sameBoxes(a.anchor ? [a.anchor] : [], b.anchor ? [b.anchor] : [])))
 
 const text = (copy: TourStep["body"], ctx: TourContext) => (typeof copy === "function" ? copy(ctx) : copy)
 const titleOf = (step: TourStep, ctx: TourContext) => (typeof step.title === "function" ? step.title(ctx) : step.title)
@@ -141,44 +149,167 @@ interface Spot {
   /** The card's edge that faces the target, and how far along it the pointer sits. */
   edge?: Placement
   at?: number
+  /** Which side and alignment it is, so the card can stay put while it's still a good place. */
+  key?: string
+}
+
+/** Something on the page the card shouldn't sit on, and how much it matters. */
+interface Obstacle extends Box {
+  weight: number
+}
+
+const centered = (size: { w: number; h: number }, vw: number, vh: number): Spot => ({ x: (vw - size.w) / 2, y: Math.max(16, (vh - size.h) / 2) })
+
+const overlap = (a: Box, b: Box) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+
+const onScreen = (b: Box, vw: number, vh: number) => b.x + b.w > 0 && b.x < vw && b.y + b.h > 0 && b.y < vh
+
+/** A spot that points at nothing costs this much more than one beside what the step is about. */
+const UNPOINTED = 6000
+
+/** The emptiest place for the card that points at nothing, the nearer `around` the better. */
+function openSpot(size: { w: number; h: number }, vw: number, vh: number, around: Box | undefined, avoid: Obstacle[], keep?: string): Spot & { cost: number } {
+  const m = 16
+  const step = 24
+  const nx = around ? around.x + around.w / 2 : vw / 2
+  const ny = around ? around.y + around.h / 2 : vh / 2
+  const costAt = (x: number, y: number, limit = Infinity) => {
+    const card = { x, y, w: size.w, h: size.h }
+    let cost = UNPOINTED + Math.hypot(x + size.w / 2 - nx, y + size.h / 2 - ny) * 8
+    for (const o of avoid) {
+      cost += o.weight * overlap(card, o)
+      if (cost >= limit) break
+    }
+    return cost
+  }
+  let best: Spot & { cost: number } = { ...centered(size, vw, vh), cost: Infinity }
+  for (let y = m; y <= vh - size.h - m; y += step) {
+    for (let x = m; x <= vw - size.w - m; x += step) {
+      const cost = costAt(x, y, best.cost)
+      if (cost < best.cost) best = { x, y, key: `open:${x},${y}`, cost }
+    }
+  }
+  const [x, y] = keep?.startsWith("open:") ? keep.slice(5).split(",").map(Number) : []
+  if (x === undefined || y === undefined || x > vw - size.w - m || y > vh - size.h - m) return best
+  const cost = costAt(x, y)
+  return cost <= best.cost * 1.25 + 2000 ? { x, y, key: keep, cost } : best
 }
 
 /**
- * Where the coach card sits: beside the anchor on the preferred side if it fits, else wherever it does. Its pointer
- * aims at the focus, the target itself, when the anchor is something bigger around it.
+ * Where the coach card sits: beside the anchor, pointing at the focus, the target itself when the anchor is something
+ * bigger around it. Of the sides and alignments that fit, it takes the one hiding the least of the page, never the
+ * focus or the button to click when anywhere else will do, and keeps the one it has unless another is clearly better.
+ * `open`, a spot pointing at nothing, competes too, for a card with nothing left to click. Nothing, when no side fits.
  */
-function place(anchor: Box | undefined, size: { w: number; h: number }, prefer: Placement | undefined, vw: number, vh: number, focus = anchor): Spot {
+function place(
+  anchor: Box | undefined,
+  size: { w: number; h: number },
+  prefer: Placement | undefined,
+  vw: number,
+  vh: number,
+  focus = anchor,
+  avoid: Obstacle[] = [],
+  keep?: string,
+  open?: Spot & { cost: number },
+): Spot | undefined {
   const m = 16
   const gap = 16
   if (vw < 640) {
     const low = !!focus && focus.y + focus.h / 2 > vh / 2
     return { x: 12, y: low ? 12 : vh - size.h - 12 }
   }
-  if (!anchor || !focus) return { x: (vw - size.w) / 2, y: Math.max(m, (vh - size.h) / 2) }
+  if (!anchor || !focus) return centered(size, vw, vh)
   const clampX = (x: number) => Math.min(Math.max(m, x), vw - size.w - m)
   const clampY = (y: number) => Math.min(Math.max(m, y), vh - size.h - m)
   const cx = focus.x + focus.w / 2
   const cy = focus.y + focus.h / 2
-  const options: Record<Placement, { x: number; y: number; fits: boolean }> = {
-    bottom: { x: clampX(cx - size.w / 2), y: anchor.y + anchor.h + gap, fits: anchor.y + anchor.h + gap + size.h <= vh - m },
-    top: { x: clampX(cx - size.w / 2), y: anchor.y - gap - size.h, fits: anchor.y - gap - size.h >= m },
-    right: { x: anchor.x + anchor.w + gap, y: clampY(cy - size.h / 2), fits: anchor.x + anchor.w + gap + size.w <= vw - m },
-    left: { x: anchor.x - gap - size.w, y: clampY(cy - size.h / 2), fits: anchor.x - gap - size.w >= m },
-  }
   const facing: Record<Placement, Placement> = { bottom: "top", top: "bottom", right: "left", left: "right" }
-  const covers = (x: number, y: number) => x < focus.x + focus.w && x + size.w > focus.x && y < focus.y + focus.h && y + size.h > focus.y
-  for (const p of [prefer ?? "bottom", "bottom", "top", "right", "left"] as Placement[]) {
-    if (!options[p].fits) continue
-    const x = clampX(options[p].x)
-    const y = clampY(options[p].y)
-    // Clamping a side that barely fits can slide the card onto the thing it points at.
-    if (covers(x, y)) continue
-    const along = p === "bottom" || p === "top" ? cx - x : cy - y
-    const span = p === "bottom" || p === "top" ? size.w : size.h
-    return { x, y, edge: facing[p], at: Math.min(Math.max(22, along), span - 22) }
+  const fits: Record<Placement, boolean> = {
+    bottom: anchor.y + anchor.h + gap + size.h <= vh - m,
+    top: anchor.y - gap - size.h >= m,
+    right: anchor.x + anchor.w + gap + size.w <= vw - m,
+    left: anchor.x - gap - size.w >= m,
   }
-  const above = focus.y - gap - size.h
-  return { x: clampX(cx - size.w / 2), y: above >= m ? above : vh - size.h - m }
+  const sides = [...new Set<Placement>([prefer ?? "bottom", "bottom", "top", "right", "left"])]
+  const spots: (Spot & { cost: number; hides: boolean })[] = []
+  sides.forEach((p, rank) => {
+    if (!fits[p]) return
+    const across = p === "bottom" || p === "top"
+    const aligns = across
+      ? { center: cx - size.w / 2, start: focus.x, end: focus.x + focus.w - size.w }
+      : { center: cy - size.h / 2, start: focus.y, end: focus.y + focus.h - size.h }
+    for (const [align, along] of Object.entries(aligns)) {
+      const x = across ? clampX(along) : p === "right" ? anchor.x + anchor.w + gap : anchor.x - gap - size.w
+      const y = across ? (p === "bottom" ? anchor.y + anchor.h + gap : anchor.y - gap - size.h) : clampY(along)
+      const span = across ? size.w : size.h
+      const at = Math.min(Math.max(22, across ? cx - x : cy - y), span - 22)
+      // The pointer has to land on the focus, not past its end.
+      const tip = (across ? x : y) + at
+      if (across ? tip < focus.x || tip > focus.x + focus.w : tip < focus.y || tip > focus.y + focus.h) continue
+      const card = { x, y, w: size.w, h: size.h }
+      const hides = overlap(card, focus) > 0
+      const cost = avoid.reduce((sum, o) => sum + o.weight * overlap(card, o), 0) + rank * 400 + (align === "center" ? 0 : 150)
+      spots.push({ x, y, edge: facing[p], at, key: `${p}:${align}`, cost, hides })
+    }
+  })
+  const clear = spots.filter((s) => !s.hides)
+  const pool = clear.length ? clear : spots
+  if (open) pool.push({ ...open, hides: false })
+  if (!pool.length) return undefined
+  const best = pool.reduce((a, b) => (b.cost < a.cost ? b : a))
+  const kept = keep ? pool.find((s) => s.key === keep) : undefined
+  const pick = kept && kept.cost <= best.cost * 1.25 + 2000 ? kept : best
+  return { x: pick.x, y: pick.y, edge: pick.edge, at: pick.at, key: pick.key }
+}
+
+const AVOID = 'button, a[href], input, textarea, select, [role="tab"], [role="checkbox"], [role="switch"], [role="combobox"], th, td, h1, h2, h3, label, p, svg, img, canvas'
+
+/**
+ * What the card would hide, read off the page: controls, table cells, headings, text and charts, a little for the
+ * panels they sit in, the sidebar, the toasts, and above all the step's targets and the button it asks for. With a
+ * dialog open, only what's in it counts, since the page behind is dimmed.
+ */
+function obstacles(modal: Element | null, click: Element | null | undefined, targets: Element[]): Obstacle[] {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const view = { x: 0, y: 0, w: vw, h: vh }
+  const frame = modal ? modal.getBoundingClientRect() : undefined
+  const clip = frame ? { x: frame.left, y: frame.top, w: frame.width, h: frame.height } : view
+  const out: Obstacle[] = []
+  const add = (el: Element | Range, weight: number, within: Box) => {
+    const r = el.getBoundingClientRect()
+    const x = Math.max(r.left, within.x)
+    const y = Math.max(r.top, within.y)
+    const w = Math.min(r.right, within.x + within.w) - x
+    const h = Math.min(r.bottom, within.y + within.h) - y
+    if (w > 0 && h > 0) out.push({ x, y, w, h, weight })
+  }
+  for (const el of document.querySelectorAll(AVOID)) {
+    if (el.closest("[data-tour-layer]")) continue
+    if (modal ? !modal.contains(el) : el.closest('[role="dialog"]')) continue
+    add(el, el.matches("th, td, p, h1, h2, h3, svg, img, canvas") ? 1 : 2, clip)
+  }
+  const walker = document.createTreeWalker(modal ?? document.body, NodeFilter.SHOW_TEXT)
+  const range = document.createRange()
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement
+    if (!node.textContent?.trim() || !parent || parent.closest("[data-tour-layer], [data-sonner-toaster]")) continue
+    if (!modal && parent.closest('[role="dialog"]')) continue
+    range.selectNodeContents(node)
+    add(range, 1, clip)
+  }
+  for (const el of (modal ?? document).querySelectorAll('.border[class*="rounded"]')) {
+    if (el.closest("[data-tour-layer]") || (!modal && el.closest('[role="dialog"]'))) continue
+    const r = el.getBoundingClientRect()
+    // Not the frame the whole page sits in.
+    if (r.width * r.height >= 20000 && r.width * r.height < vw * vh * 0.4) add(el, 0.5, clip)
+  }
+  const sidebar = document.querySelector('[data-tour="nav"]')?.closest("aside")
+  if (sidebar && !modal) add(sidebar, 2, clip)
+  for (const el of document.querySelectorAll("[data-sonner-toast]")) add(el, 4, view)
+  for (const el of targets) add(el, 40, view)
+  if (click) add(click, 40, view)
+  return out
 }
 
 function useViewport() {
@@ -209,6 +340,10 @@ export function Tour() {
   const active = useTour((s) => s.active)
   const index = useTour((s) => s.index)
   const item = active ? SCRIPT[Math.min(index, SCRIPT.length - 1)] : undefined
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-tour-on", active)
+    return () => document.documentElement.removeAttribute("data-tour-on")
+  }, [active])
   return (
     <>
       <AnimatePresence mode="wait">{item && item.kind !== "step" && <CardScreen key={item.id} item={item} index={index} />}</AnimatePresence>
@@ -349,21 +484,66 @@ function StepScreen({ step }: { step: TourStep }) {
     let ranAt = 0
     const scrolled = new WeakMap<Element, { times: number; at: number }>()
     const update = (next: View) => setView((prev) => (prev.step === step.id && sameView(prev.view, next) ? prev : { step: step.id, view: next }))
+    let avoid: Obstacle[] = []
+    let readAt = -Infinity
+    let kept: string | undefined
+    let held: Spot | undefined
+    let celebrating = false
+    let open: (Spot & { cost: number }) | undefined
+    /**
+     * Where the card goes for these boxes. The page is read again at most every 200ms, as the card follows each frame.
+     * A card with nothing to point at on screen stays where it stood. Once done, or with no room beside what it points
+     * at, it takes the emptiest place near it.
+     */
+    const spotFor = (els: Element[], anchor: Box | undefined, ctx: TourContext, t: number): Spot => {
+      const card = cardRef.current
+      const size = card ? { w: card.offsetWidth, h: card.offsetHeight } : { w: CARD_W, h: 220 }
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const boxes = els.map(boxOf)
+      const around = anchor ?? boxes[0]
+      const shown = around && onScreen(around, vw, vh) ? around : undefined
+      if (t - readAt > 200) {
+        readAt = t
+        avoid = obstacles(topModal(), handedOff() ?? nextClick(step, ctx), els)
+        open = undefined
+      }
+      const openNow = () => (open ??= openSpot(size, vw, vh, shown ?? (held && { ...held, ...size }), avoid, kept))
+      const spot =
+        (shown && place(shown, size, step.placement, vw, vh, boxes[0], avoid, kept, celebrating ? openNow() : undefined)) ??
+        (shown || celebrating ? openNow() : held && { x: held.x, y: held.y, key: held.key }) ??
+        centered(size, vw, vh)
+      kept = spot.key
+      held = spot
+      return spot
+    }
+    /** Once done, the card keeps pointing at the target while that hides little, and otherwise sits near it. */
+    const follow = (t: number) => {
+      const ctx = contextNow()
+      const modal = topModal()
+      const els = step.targets(ctx).filter((el): el is Element => !!el && el.getClientRects().length > 0 && (!modal || modal.contains(el)))
+      const spot = spotFor(els, undefined, ctx, t)
+      update(els.length ? { mode: "ready", boxes: els.map(boxOf), modal: !!modal, copy: "", spot } : { mode: "pending", spot })
+    }
 
     const tick = () => {
       const t = performance.now()
       ranAt = t
-      if (finished) return
+      if (finished) {
+        if (celebrating) follow(t)
+        return
+      }
       if (preparing === step.id) return update({ mode: "preparing" })
       const ctx = contextNow()
       if (t - checkedAt > 120) {
         checkedAt = t
         if (step.done?.(ctx)) {
           finished = true
+          celebrating = true
           closing.current = useTour.getState().enteredAt
+          readAt = -Infinity
           // Already done on arrival, like a step jumped back to: the card still has to point at it.
-          const els = step.targets(ctx).filter((el): el is Element => !!el && el.getClientRects().length > 0)
-          update(els.length ? { mode: "ready", boxes: els.map(boxOf), modal: !!topModal(), copy: "" } : { mode: "pending" })
+          follow(t)
           setCelebrate({ step: step.id, at: useTour.getState().enteredAt, message: step.success?.(ctx) ?? "Done", kept: !!step.targets(ctx)[0]?.isConnected })
           return
         }
@@ -383,7 +563,7 @@ function StepScreen({ step }: { step: TourStep }) {
           useTour.getState().go(indexOf(step.back))
           return
         }
-        if (t - missingSince > GRACE) update({ mode: "lost" })
+        if (t - missingSince > GRACE) update({ mode: "lost", spot: held })
         return
       }
       missingSince = undefined
@@ -401,7 +581,8 @@ function StepScreen({ step }: { step: TourStep }) {
       if (modal && !modal.contains(primary)) return update({ mode: "paused" })
       const anchor = step.anchor?.()
       const copy = [titleOf(step, ctx), text(step.body, ctx), text(step.action, ctx), handedOff()?.textContent, step.fill?.when(ctx)].join("|")
-      update({ mode: "ready", boxes: els.map(boxOf), anchor: anchor ? boxOf(anchor) : undefined, modal: !!modal, copy })
+      const around = anchor ? boxOf(anchor) : undefined
+      update({ mode: "ready", boxes: els.map(boxOf), anchor: around, modal: !!modal, copy, spot: spotFor(els, around, ctx, t) })
     }
 
     const frame = () => {
@@ -419,17 +600,15 @@ function StepScreen({ step }: { step: TourStep }) {
       document.querySelectorAll("[data-tour-target]").forEach((el) => el.removeAttribute("data-tour-target"))
       stopPilot()
     }
-  }, [step, router])
+  }, [step, router, cardRef])
 
   const ctx = contextNow()
   const mine = view.step === step.id
   const mode = mine ? view.view.mode : "pending"
-  const ready = view.view.mode === "ready" ? view.view : undefined
   const party = celebrate?.step === step.id && celebrate.at === enteredAt ? celebrate : undefined
   const done = party?.message
   const showCard = mode === "ready" || mode === "lost" || mode === "preparing" || !!party
-  const anchor = mode === "ready" ? ready?.boxes[0] : undefined
-  const pos = place(mode === "ready" ? (ready?.anchor ?? anchor) : undefined, cardSize, step.placement, vp.w, vp.h, anchor)
+  const pos = (mine ? spotOf(view.view) : undefined) ?? place(undefined, cardSize, step.placement, vp.w, vp.h) ?? centered(cardSize, vp.w, vp.h)
 
   const api: TourApi = { push: (href) => router.push(href), remember: (patch) => useTour.getState().remember(patch), now: contextNow }
   /** Moves on to the next step once the page the step sends the player to has loaded, so that step starts there. */

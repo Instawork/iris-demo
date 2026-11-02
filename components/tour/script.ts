@@ -7,7 +7,7 @@ import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
-import { addDaysISO, formatDateShort, formatDay, todayISO } from "@/lib/dates"
+import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
 import { templateCsv } from "@/lib/csv"
@@ -295,6 +295,7 @@ const newUnit = (ctx: TourContext) => ctx.data.directory.locations.find((l) => l
 const unitRow = (ctx: TourContext) => (newUnit(ctx) ? one(`tr[data-row-id="${newUnit(ctx)!.id}"]`) : null)
 const sheetUnits = (ctx: TourContext) => ctx.data.directory.locations.filter((l) => SHEET_CCS.has(l.costCenter))
 const unitsAdded = () => [...document.querySelectorAll("[data-sonner-toast]")].some((t) => /units? added/.test(t.textContent ?? ""))
+const sheetFiled = (ctx: TourContext) => !!one(`${UNITS_SHEET}[data-state="closed"]`) && sheetUnits(ctx).length > 0
 
 const toggleOn = async (root: string, text: string) => {
   const button = buttonIn(root, text)
@@ -650,13 +651,21 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: /^\/units/,
     href: () => "/units",
-    title: () => (one('[data-tour="units-import"]') ? "Filed and checked" : one(UNITS_SHEET) ? "Compass's location roster" : "Or the whole roster at once"),
-    body: () =>
-      one('[data-tour="units-import"]') ? "What it can't place is held back, with the reason." : one(UNITS_SHEET) || unitsAdded() ? undefined : "The file Compass keeps today.",
-    action: () =>
+    // Filed stays up while the dialog closes after the import, so the card doesn't flash back to the sheet.
+    title: (ctx) =>
+      one('[data-tour="units-import"]') || sheetFiled(ctx) ? "Filed and checked" : one(UNITS_SHEET) ? "Compass's location roster" : "Or the whole roster at once",
+    body: (ctx) =>
+      one('[data-tour="units-import"]') || sheetFiled(ctx)
+        ? "What it can't place is held back, with the reason."
+        : one(UNITS_SHEET) || unitsAdded()
+          ? undefined
+          : "The file Compass keeps today.",
+    action: (ctx) =>
       one('[data-tour="units-import"]')
         ? `Click ${one('[data-tour="units-import"]')?.textContent?.trim()}`
-        : one(UNITS_SHEET)
+        : sheetFiled(ctx)
+          ? undefined
+          : one(UNITS_SHEET)
           ? "Click Read the sheet"
           : unitsAdded()
             ? undefined
@@ -815,7 +824,7 @@ export const SCRIPT: TourItem[] = [
     clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : renewTarget(ctx)),
     placement: "left",
     anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
-    done: (ctx) => !!verifiedSince(ctx) && !one(VERIFY),
+    done: (ctx) => !!verifiedSince(ctx),
     success: (ctx) => {
       const found = verifiedSince(ctx)
       return found && standingOf(found.pro) === "compliant" ? `Verified with ${found.v.checkedWith}. ${found.pro.firstName} can work again` : `Verified with ${found?.v.checkedWith ?? "the issuer"}`
@@ -858,7 +867,7 @@ export const SCRIPT: TourItem[] = [
     href: () => "/timesheets",
     title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "First, what doesn't match the clock"),
     body: () => (one(SCAN) || justScanned() ? undefined : "It's at the top. Here, a venue that still signs in on paper."),
-    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : one(SCAN) ? "Click Read the sheet" : justScanned() ? undefined : "Click Scan a sign-in sheet"),
+    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : justScanned() ? undefined : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
     targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
     clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
     placement: "right",
@@ -1111,7 +1120,7 @@ export const SCRIPT: TourItem[] = [
     },
     action: (ctx) => {
       const g = tourWeek(ctx.data)
-      return one(GROUP) ? undefined : `Open the week of ${g?.week ? formatDateShort(g.week) : "last week"}`
+      return one(GROUP) ? undefined : `Open ${g?.code ?? "last week's invoice"}`
     },
     targets: (ctx) => {
       if (one(GROUP)) return [one('[data-tour="group-title"]')]
