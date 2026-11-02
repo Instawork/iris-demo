@@ -41,6 +41,13 @@ create table if not exists iris_events (
   changes jsonb,
   primary key (tenant_id, seq)
 );
+create table if not exists iris_checkpoints (
+  tenant_id text not null,
+  name text not null,
+  data jsonb not null,
+  saved_at timestamptz not null default now(),
+  primary key (tenant_id, name)
+);
 `
 
 async function ready() {
@@ -58,6 +65,24 @@ export async function loadTenantRow(id: string): Promise<{ version: number; data
   await ready()
   const { rows } = await pool().query<{ version: string; data: DemoData }>("select version, data from iris_tenants where id = $1", [id])
   return rows[0] ? { version: Number(rows[0].version), data: rows[0].data } : null
+}
+
+/** The tenant's data as the guided demo found it at the start of a step, so a jump back can put it back. */
+export async function saveCheckpointRow(id: string, name: string, json: string) {
+  await ready()
+  await pool().query("insert into iris_checkpoints (tenant_id, name, data) values ($1, $2, $3) on conflict (tenant_id, name) do update set data = $3, saved_at = now()", [id, name, json])
+}
+
+/** The checkpoint as JSON text. */
+export async function loadCheckpointRow(id: string, name: string): Promise<string | null> {
+  await ready()
+  const { rows } = await pool().query<{ data: string }>("select data::text as data from iris_checkpoints where tenant_id = $1 and name = $2", [id, name])
+  return rows[0]?.data ?? null
+}
+
+export async function clearCheckpointRows(id: string) {
+  await ready()
+  await pool().query("delete from iris_checkpoints where tenant_id = $1", [id])
 }
 
 export interface EventRow {

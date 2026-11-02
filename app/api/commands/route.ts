@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       runCommand(type, data, { ws: session.ws, now: new Date().toISOString() }, body.input as never),
     )
     if (key) tenant.remember(key, applied)
+    if (type === "resetDemo") await tenant.beginRun()
     return Response.json({ ok: true, ...applied })
   } catch (error) {
     if (error instanceof CommandError) return Response.json({ error: error.message }, { status: error.status })

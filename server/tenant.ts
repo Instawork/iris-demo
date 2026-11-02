@@ -6,7 +6,7 @@ import { findWorkspace, syncDirectory } from "@/lib/reference"
 import { DATA_VERSION, generateDemoData } from "@/lib/seed"
 import { seedSourcing } from "@/lib/sourcing"
 import type { DemoData } from "@/lib/types"
-import { hasDatabase, loadTenantRow, saveTenantRow } from "@/server/db"
+import { clearCheckpointRows, hasDatabase, loadCheckpointRow, loadTenantRow, saveCheckpointRow, saveTenantRow } from "@/server/db"
 
 // The seed writes venue times through the local clock, so the server's local clock is the program's.
 process.env.TZ = PROGRAM_TIME_ZONE
@@ -61,6 +61,9 @@ export class Tenant {
   private listeners = new Map<Listener, string | undefined>()
   private recent = new Map<string, Applied<unknown>>()
   private timer: ReturnType<typeof setInterval> | undefined
+  /** The data at the start of each guided-demo step this run, as JSON. Also saved to the database, in order, for a restart. */
+  private checkpoints = new Map<string, string>()
+  private writes: Promise<unknown> = Promise.resolve()
 
   constructor(
     readonly id: string,
@@ -119,9 +122,52 @@ export class Tenant {
       this.emit({ kind: outcome.replaced ? "reset" : "change", version, changes, notices: outcome.notices })
       return { result: outcome.result, version, changes, replaced: !!outcome.replaced }
     }
+    return this.serial(run)
+  }
+
+  private serial<T>(run: () => Promise<T>): Promise<T> {
     const next = this.queue.then(run, run)
     this.queue = next.catch(() => undefined)
     return next
+  }
+
+  private persist(write: () => Promise<unknown>) {
+    this.writes = this.writes.then(write).catch((error) => console.error(`[iris] checkpoint write failed for ${this.id}`, error))
+  }
+
+  /** A new run of the guided demo: earlier checkpoints go, and the data as the reset left it is the first. */
+  beginRun() {
+    return this.serial(async () => {
+      this.checkpoints.clear()
+      if (hasDatabase()) this.persist(() => clearCheckpointRows(this.id))
+      this.keep("start")
+    })
+  }
+
+  /** Keeps the data as it is now, after every change before it, under `name`. */
+  checkpoint(name: string) {
+    return this.serial(async () => this.keep(name))
+  }
+
+  private keep(name: string) {
+    const text = JSON.stringify(this.data)
+    this.checkpoints.set(name, text)
+    if (hasDatabase()) this.persist(() => saveCheckpointRow(this.id, name, text))
+  }
+
+  /** Puts the data back as it was at checkpoint `name`, keeping the presenter's settings. False when there's no such checkpoint. */
+  async restore(meta: MutationMeta, name: string): Promise<Applied<boolean>> {
+    if (!this.checkpoints.has(name) && hasDatabase()) {
+      await this.writes
+      const row = await loadCheckpointRow(this.id, name)
+      if (row && !this.checkpoints.has(name)) this.checkpoints.set(name, row)
+    }
+    return this.mutate(meta, (data) => {
+      const text = this.checkpoints.get(name)
+      const saved = text ? (JSON.parse(text) as DemoData) : undefined
+      if (!saved || saved.version !== DATA_VERSION) return { data, result: false }
+      return { data: { ...saved, settings: data.settings }, result: true, replaced: true }
+    })
   }
 
   /** Same command sent twice with one key (a double click, an agent retry) returns the first answer. */

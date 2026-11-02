@@ -371,10 +371,14 @@ function clearStage() {
   useUi.getState().setAgentOpen(false)
 }
 
+/** The visit of the part card a jump opened, so its Continue sets the part up again rather than carry on into it. */
+let partJump: string | undefined
+
 /** Opens a part's card. Its Continue sets the side and page, so parts can be played in any order. */
 function openPart(chapter: ChapterId) {
   clearStage()
   useTour.getState().go(startOf(chapter))
+  partJump = useTour.getState().enteredAt
 }
 
 const partBeside = (chapter: ChapterId, by: -1 | 1): ChapterId | undefined => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(chapter) + by]
@@ -398,19 +402,50 @@ const byId = (id: string | undefined) => (id ? STEPS.find((s) => s.id === id) : 
 /** The step Iris is still setting up after a jump, by playing the step it needs. */
 let preparing: string | undefined
 
+/** While a jump puts the data back, every step holds still: the data under it is about to change. */
+let rewinding = 0
+let jumps = 0
+
+const byIndex = (a: string, b: string) => indexOf(a) - indexOf(b)
+
 /**
- * Moves the tour to any step, back or ahead. Whatever is open closes, the page and side follow, and the step judges
- * only what's done from here on. A step that acts on an earlier one, like a draft the question before it asked for,
- * gets that played for the player first.
+ * Puts the data back to how it was when `step` began this run, so it plays from the start with what came before it
+ * still done. A step not begun this run goes back to the last one begun before it, or the reset, but only once a step
+ * after it has been played: until then nothing ahead of it has touched the data.
+ */
+async function rewind(step: TourStep) {
+  const { saved } = useTour.getState()
+  const at = indexOf(step.id)
+  const from = saved.includes(step.id) ? step.id : saved.some((id) => indexOf(id) > at) ? (saved.filter((id) => indexOf(id) < at).sort(byIndex).at(-1) ?? "start") : undefined
+  if (from) await useStore.getState().restoreCheckpoint(from)
+}
+
+/** Switches side and rewinds for `step`. False when a later jump took over meanwhile. */
+async function setUpFor(step: TourStep) {
+  const run = ++jumps
+  rewinding++
+  try {
+    const store = useStore.getState()
+    if (store.workspaceId !== step.wsId) await store.setWorkspace(step.wsId)
+    await rewind(step)
+  } finally {
+    rewinding--
+  }
+  return run === jumps
+}
+
+/**
+ * Moves the tour to any step, back or ahead. Whatever is open closes, the data goes back to how it was when the step
+ * began, the page and side follow, and the step judges only what's done from here on. A step that acts on an earlier
+ * one, like a draft the question before it asked for, gets that played for the player first.
  */
 async function jumpTo(index: number, push: (href: string) => void) {
   const item = SCRIPT[index]
   if (!item) return
   clearStage()
+  partJump = undefined
   if (item.kind !== "step") return useTour.getState().go(index)
-  const store = useStore.getState()
-  const switching = store.workspaceId !== item.wsId ? store.setWorkspace(item.wsId) : undefined
-  await switching
+  if (!(await setUpFor(item))) return
   const { start } = useTour.getState()
   // A step played earlier in the run still holds, unless it lives in the chat, which the jump empties.
   const judge = (need: TourStep) => ({ ...contextNow(), base: need.inChat || need.startsChat || !start.at ? baseNow() : start })
@@ -489,6 +524,7 @@ function StepScreen({ step }: { step: TourStep }) {
     let kept: string | undefined
     let held: Spot | undefined
     let celebrating = false
+    let began = false
     let open: (Spot & { cost: number }) | undefined
     /**
      * Where the card goes for these boxes. The page is read again at most every 200ms, as the card follows each frame.
@@ -533,11 +569,20 @@ function StepScreen({ step }: { step: TourStep }) {
         if (celebrating) follow(t)
         return
       }
-      if (preparing === step.id) return update({ mode: "preparing" })
+      if (preparing === step.id || rewinding) return update({ mode: "preparing" })
       const ctx = contextNow()
       if (t - checkedAt > 120) {
         checkedAt = t
-        if (step.done?.(ctx)) {
+        const done = !!step.done?.(ctx)
+        // Where the step begins, for a jump back to it. Not once it's done: that's where it ends.
+        if (!began) {
+          began = true
+          if (!done) {
+            useTour.getState().kept(step.id)
+            void useStore.getState().saveCheckpoint(step.id)
+          }
+        }
+        if (done) {
           finished = true
           celebrating = true
           closing.current = useTour.getState().enteredAt
@@ -1132,6 +1177,10 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
 
   const play = async (chapter: TourChapter) => {
     await resetting
+    const jumped = partJump === useTour.getState().enteredAt
+    partJump = undefined
+    const first = SCRIPT[index + 1]
+    if (jumped && first?.kind === "step" && !(await setUpFor(first))) return
     const store = useStore.getState()
     const switching = store.workspaceId !== chapter.wsId ? store.setWorkspace(chapter.wsId) : undefined
     useAgentThreads.getState().clear(chapter.wsId)

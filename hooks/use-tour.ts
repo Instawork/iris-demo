@@ -32,6 +32,8 @@ interface TourState extends TourPicks {
   start: TourBase
   done: string[]
   skipped: string[]
+  /** Steps whose start the server has a checkpoint of this run, besides the reset itself. */
+  saved: string[]
   open: () => void
   /** Starts the demo at `index`, or at the first part. */
   begin: (base: TourBase, index?: number) => void
@@ -41,6 +43,7 @@ interface TourState extends TourPicks {
   go: (index: number) => void
   finish: (id: string, how: "done" | "skipped") => void
   remember: (patch: TourPicks) => void
+  kept: (id: string) => void
   exit: () => void
 }
 
@@ -56,10 +59,11 @@ export const useTour = create<TourState>()(
       start: { sg: 0, inv: 0, rep: 0, at: "" },
       done: [],
       skipped: [],
+      saved: [],
       open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined, sheetId: undefined }),
       begin: (base, index) => set((s) => ({ base, index: index ?? s.index + 1, enteredAt: now() })),
       rebase: (base) => set({ base }),
-      restart: (base) => set({ base, start: base }),
+      restart: (base) => set({ base, start: base, saved: [] }),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>
         set((s) => ({
@@ -69,13 +73,14 @@ export const useTour = create<TourState>()(
           skipped: how === "skipped" ? [...s.skipped.filter((x) => x !== id), id] : s.skipped,
         })),
       remember: (patch) => set(patch),
+      kept: (id) => set((s) => (s.saved.includes(id) ? s : { saved: [...s.saved, id] })),
       exit: () => set({ active: false }),
     }),
     {
       name: "iris-tour-v3",
       storage: createJSONStorage(() => sessionStorage),
       skipHydration: true,
-      partialize: ({ active, index, enteredAt, base, start, done, skipped, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, start, done, skipped, proId, invoiceId, groupId, docId, sheetId }),
+      partialize: ({ active, index, enteredAt, base, start, done, skipped, saved, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, start, done, skipped, saved, proId, invoiceId, groupId, docId, sheetId }),
     },
   ),
 )

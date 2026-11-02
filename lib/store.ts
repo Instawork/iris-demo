@@ -27,6 +27,10 @@ interface StoreState {
   data: DemoData
   connect: () => void
   resetDemo: () => Promise<void>
+  /** Keeps the data as it is now, for the guided demo to come back to the start of step `name`. */
+  saveCheckpoint: (name: string) => Promise<void>
+  /** Puts the data back as it was at checkpoint `name`. False when the server has none, so nothing changed. */
+  restoreCheckpoint: (name: string) => Promise<boolean>
   setAgencyAutoFill: (supplierId: string, enabled: boolean) => Promise<void>
   /** Saves a new report, or over `id`. Resolves to its id. */
   saveReport: (input: { id?: string; name: string; description?: string; spec: ReportSpec }) => Promise<string | undefined>
@@ -223,8 +227,13 @@ export const useStore = create<StoreState>()((set, get) => {
     }
   }
 
+  /** The guided demo's checkpoint being saved, if any. */
+  let saving: Promise<unknown> = Promise.resolve()
+
   /** The server keeps each key's result, so a retry after a dropped connection can't apply a command twice. */
   async function send<N extends CommandName>(type: N, input: CommandInput<N>, key = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`): Promise<CommandResult<N> | undefined> {
+    // A checkpoint is of the data before what the player does next.
+    await saving
     let res: Response | undefined
     for (let attempt = 0; attempt < 5; attempt++) {
       if (attempt) await new Promise((r) => window.setTimeout(r, 800 * attempt))
@@ -261,6 +270,17 @@ export const useStore = create<StoreState>()((set, get) => {
     return body.result
   }
 
+  /** The guided demo's checkpoints. A failure leaves the data as it is, so the tour carries on from there. */
+  async function checkpoint(input: { name: string; restore?: boolean }) {
+    try {
+      const res = await fetch("/api/demo/checkpoint", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), redirect: "manual" })
+      if (!res.ok) return undefined
+      return (await res.json()) as { result?: boolean; version?: number; replaced?: boolean }
+    } catch {
+      return undefined
+    }
+  }
+
   return {
     ready: false,
     connection: "connecting",
@@ -283,6 +303,19 @@ export const useStore = create<StoreState>()((set, get) => {
 
     resetDemo: async () => {
       await send("resetDemo", {} as never)
+    },
+
+    saveCheckpoint: async (name) => {
+      saving = checkpoint({ name })
+      await saving
+    },
+
+    restoreCheckpoint: async (name) => {
+      await saving
+      const body = await checkpoint({ name, restore: true })
+      if (!body?.result) return false
+      await settle(body)
+      return true
     },
 
     setAgencyAutoFill: async (supplierId, enabled) => void (await send("setAgencyAutoFill", { supplierId, enabled })),
