@@ -76,7 +76,7 @@ export interface TourStep {
   back?: string
   /** The step that sets this one up, like the question whose answer it acts on. Played for the player when they jump here, with whatever it needs in turn. */
   needs?: string
-  /** Starts from an empty chat, so the answer it waits for is the one the player asks for. */
+  /** Starts from an empty chat, so the answer it waits for is the one the player asks for, or Home shows its briefing. */
   startsChat?: boolean
   /** Acts on a reply in the bottom-right Agent Chat, so arriving here opens it. */
   inChat?: boolean
@@ -594,6 +594,7 @@ const tourWeek = (data: DemoData) => {
 const GROUP = '[data-tour="group-detail"]'
 const ACCRUALS = '[data-tour="accruals"]'
 const ACCRUE_TAB = '[role="tab"][data-value="accrue"]'
+const PREDICTIONS = '[data-tour="predictions"]'
 
 /** Where Iris's latest answer links to its report. */
 const reportLink = (ctx: TourContext) => {
@@ -1209,6 +1210,26 @@ export const SCRIPT: TourItem[] = [
     back: "ask-report",
     needs: "ask-report",
     skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
+  },
+  {
+    kind: "step",
+    id: "forecast",
+    chapter: "reporting",
+    label: "See the forecast",
+    wsId: COMPASS,
+    path: /^\/$/,
+    href: () => "/",
+    title: "What Iris expects next",
+    body: "A location whose last week ran above its normal week, and shifts in the next three days likely to start under 80% filled.",
+    targets: () => [one(PREDICTIONS)],
+    clicks: () => null,
+    placement: "top",
+    startsChat: true,
+    skip: async (_, api) => {
+      useAgentThreads.getState().clear(COMPASS)
+      api.push("/")
+      await until(() => one(PREDICTIONS), 8000)
+    },
   },
 
   /* ------------------------------ 7. Procurement ----------------------------- */

@@ -695,6 +695,15 @@ function StepScreen({ step }: { step: TourStep }) {
         router.push(href)
       },
     })
+    // A step that doesn't say where the next one starts still lands the player there, on an empty chat if it starts from one.
+    const next = SCRIPT[indexOf(step.id) + 1]
+    const now = contextNow()
+    if (!to && next?.kind === "step" && (next.startsChat || now.wsId !== next.wsId || !next.path.test(now.path))) {
+      if (now.wsId !== next.wsId) await useStore.getState().setWorkspace(next.wsId)
+      if (next.startsChat) useAgentThreads.getState().clear(next.wsId)
+      to = next.href(contextNow())
+      router.push(to)
+    }
     if (to) await arrivedAt(to)
     if (useTour.getState().enteredAt === at) useTour.getState().finish(step.id, how)
   }
