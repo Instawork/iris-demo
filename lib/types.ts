@@ -615,8 +615,8 @@ export interface InvoiceGroup {
   code: string
   name: string
   buyerId?: string
-  /** Set on the consolidated invoice Iris keeps for each month across all of Compass, as "YYYY-MM". Groups made by hand have none. */
-  month?: string
+  /** Set on the consolidated invoice Iris keeps for each Saturday to Friday week across all of Compass, as its Saturday. Groups made by hand have none. */
+  week?: string
   createdOn: string
   createdBy: string
   invoiceIds: string[]

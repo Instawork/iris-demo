@@ -18,14 +18,14 @@ import { TipSplit } from "@/components/invoices/invoice-detail"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort, formatMonth } from "@/lib/dates"
+import { formatDateShort, formatWeek } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import { inScope, invoiceBalance, invoiceHours, invoiceStatus, invoiceTotal, venueTips } from "@/lib/metrics"
 import { location, position, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 import { expensesOf } from "@/lib/timesheets"
 
-/** One invoice group on its own page: the month's bill for all of Compass down to each cost center, or a hand-made group of invoices. */
+/** One invoice group on its own page: the week's bill for all of Compass down to each cost center, or a hand-made group of invoices. */
 export function InvoiceGroupPage({ id }: { id: string }) {
   const data = useData()
   const router = useRouter()
@@ -43,11 +43,11 @@ export function InvoiceGroupPage({ id }: { id: string }) {
     )
   }
 
-  const monthly = !!live.month
-  const shown = monthly ? view : "invoices"
+  const weekly = !!live.week
+  const shown = weekly ? view : "invoices"
   const agencies = new Set(t.members.map((m) => m.supplierId)).size
   const totalHours = t.members.reduce((s, m) => s + invoiceHours(m), 0)
-  const canManage = !monthly && ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
+  const canManage = !weekly && ws.kind !== "supplier" && t.members.length === live.invoiceIds.length
   const payable = ws.kind === "buyer" ? t.members.filter((m) => invoiceBalance(m) > 0 && invoiceStatus(m) !== "in_process" && invoiceStatus(m) !== "open") : []
   const payTotal = payable.reduce((s, m) => s + invoiceBalance(m), 0)
   const tips = t.members
@@ -59,14 +59,15 @@ export function InvoiceGroupPage({ id }: { id: string }) {
       toCsv(
         t.members.flatMap((inv) =>
           inv.lines.map((l) => {
-            const [superSector, sector, business, unit, dept] = placeOf(inv, l)
+            const [superSector, sector, region, district, unit, dept] = placeOf(inv, l)
             return {
             invoice_group_id: live.code,
             invoice_number: inv.number,
             supplier: supplier(inv.supplierId).name,
             super_sector: superSector.name,
             sector: sector.name,
-            regional_business: business.name,
+            region: region.name,
+            district: district.name,
             unit: unit.name,
             department: dept?.name ?? "",
             cost_center: dept?.costCenter || unit.costCenter,
@@ -96,10 +97,10 @@ export function InvoiceGroupPage({ id }: { id: string }) {
       <div className="flex flex-col gap-4 pt-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2" data-tour="group-title">
-            <h1 className="text-featured-1 font-semibold">{monthly ? formatMonth(live.month!) : live.name}</h1>
+            <h1 className="text-featured-1 font-semibold">{weekly ? formatWeek(live.week!) : live.name}</h1>
             <StatusBadge tone={INVOICE_STATUS[t.status].tone}>{INVOICE_STATUS[t.status].label}</StatusBadge>
             {t.status === "open" && (
-              <InfoTip>{monthly ? "Iris adds each week's invoices as it goes." : `Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}.`}</InfoTip>
+              <InfoTip>{`Iris adds approved hours and issues it on ${formatDateShort(t.members[0].issuedOn)}.`}</InfoTip>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-body-3 text-faded">
@@ -108,7 +109,7 @@ export function InvoiceGroupPage({ id }: { id: string }) {
             <span>
               {formatDateShort(t.from)} – {formatDateShort(t.to)}
             </span>
-            {!monthly && t.status !== "open" && <span>Created by {live.createdBy}</span>}
+            {!weekly && t.status !== "open" && <span>Created by {live.createdBy}</span>}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -154,7 +155,7 @@ export function InvoiceGroupPage({ id }: { id: string }) {
       </Surface>
 
       <Surface elevated className="overflow-hidden" data-tour="group-detail">
-        {monthly && (
+        {weekly && (
           <div className="border-b border-border px-5 py-3">
             <PillTabs
               size="sm"

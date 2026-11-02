@@ -7,7 +7,7 @@ import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { canWork, requirementRows } from "@/lib/compliance"
-import { addDaysISO, formatDay, formatMonth, todayISO } from "@/lib/dates"
+import { addDaysISO, formatDateShort, formatDay, todayISO } from "@/lib/dates"
 import { fullName, money, plural } from "@/lib/format"
 import { standingOf } from "@/lib/pro-profile"
 import { templateCsv } from "@/lib/csv"
@@ -96,7 +96,7 @@ export interface TourChapter {
   chapter: ChapterId
   title: string
   wsId: string
-  href: string
+  href: string | ((ctx: TourContext) => string)
   /** What this part does, in a few words. */
   shows: string
 }
@@ -477,6 +477,11 @@ const hoursApproved = (ctx: TourContext) =>
 const scannedSince = (ctx: TourContext) =>
   ctx.data.timesheets.filter((t) => t.supplierId === "harbor" && t.history.some((h) => h.at >= ctx.base.at && `${h.note ?? ""} ${h.reason ?? ""}`.includes("sign-in sheet"))).length
 
+const sheetOwner = (ctx: TourContext, t: Timesheet | undefined) => {
+  const pro = t && ctx.data.pros.find((p) => p.id === t.proId)
+  return pro ? `${pro.firstName}'s timesheet` : "the timesheet"
+}
+
 const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart)
 
 const SHEET = '[data-tour="timesheet-sheet"]'
@@ -557,6 +562,12 @@ const movable = (data: DemoData) => {
   return options.find((o) => o.t.positionId === "concessions" && o.card.positionId === "barback") ?? options[0]
 }
 
+/** The worker's timesheet, opened on arrival so the step starts at the split. */
+const splitHref = (ctx: TourContext) => {
+  const m = movable(ctx.data)
+  return m ? `/timesheets?ts=${m.t.id}` : "/timesheets"
+}
+
 /** Picks the role the step names, or else any other role the worker can move to. */
 const pickRole = async (ctx: TourContext) => {
   const m = movable(ctx.data)
@@ -569,9 +580,15 @@ const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.mov
 
 /* ------------------------------ Invoices, reports ------------------------------ */
 
-/** The latest month's consolidated invoice for all of Compass. */
-const thisMonth = (data: DemoData) =>
-  data.invoiceGroups.filter((g) => !!g.month && g.invoiceIds.length > 0).sort((a, b) => b.month!.localeCompare(a.month!))[0]
+/** The consolidated invoice the tour opens: the latest closed week with venue tips on it, as any weekday has one. */
+const tourWeek = (data: DemoData) => {
+  const today = todayISO()
+  const weeks = data.invoiceGroups.filter((g) => !!g.week && g.invoiceIds.length > 0).sort((a, b) => b.week!.localeCompare(a.week!))
+  const ids = new Set(data.invoices.filter((i) => i.lines.some((l) => l.tips > 0)).map((i) => i.id))
+  const tipped = (g: (typeof weeks)[number]) => g.invoiceIds.some((id) => ids.has(id))
+  const closed = weeks.filter((g) => addDaysISO(g.week!, 6) < today)
+  return closed.find(tipped) ?? weeks.find(tipped) ?? closed[0] ?? weeks[0]
+}
 
 const GROUP = '[data-tour="group-detail"]'
 const ACCRUALS = '[data-tour="accruals"]'
@@ -694,7 +711,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "create",
     chapter: "shifts",
-    label: "Book it",
+    label: "Book the shifts",
     wsId: LEVY,
     path: /^\/$/,
     href: () => "/",
@@ -792,7 +809,7 @@ export const SCRIPT: TourItem[] = [
       const doc = blocker(pro)
       return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : undefined
     },
-    action: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Click Ask ${askedIssuer()}` : "Attach any file, tick the attestation, then Verify") : openPro(ctx) ? "Click the highlighted button" : "Open the highlighted worker"),
+    action: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Click Ask ${askedIssuer()}` : "Attach any file, tick the attestation, then Verify") : openPro(ctx) ? `Click ${renewTarget(ctx)?.textContent?.trim() || "Renew"}` : `Open ${chosenPro(ctx)?.firstName ?? "the worker"}`),
     fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: attest },
     targets: (ctx) => [one(VERIFY) ?? renewTarget(ctx)],
     clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : renewTarget(ctx)),
@@ -870,9 +887,10 @@ export const SCRIPT: TourItem[] = [
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: parkingHref,
+    needs: "paper",
     title: () => (one(EXPENSE_FORM) ? "Parking, at cost" : "Then what it paid for the shift"),
     body: () => (one(EXPENSE_FORM) ? "No markup. The buyer approves it with the hours." : "Event parking, or a background check the event required."),
-    action: () => (one(EXPENSE_FORM) ? `Enter $${PARKING}, then Add` : one(SHEET) ? "Click Add expense" : "Open the highlighted timesheet"),
+    action: (ctx) => (one(EXPENSE_FORM) ? `Enter $${PARKING}, then Add` : one(SHEET) ? "Click Add expense" : `Open ${sheetOwner(ctx, parkingSheet(ctx.data))}`),
     targets: (ctx) => {
       if (one(EXPENSE_FORM)) return [one(EXPENSE_FORM)]
       if (one(SHEET)) return [one('[data-tour="expense-add"]')]
@@ -901,10 +919,11 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "expense-sheet",
     chapter: "timesheets",
-    label: "Expenses from a sheet",
+    label: "Upload an expense sheet",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
+    needs: "paper",
     startsChat: true,
     title: () => (uploadSave() ? "Matched to every shift" : "Or the whole week, from a sheet"),
     body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
@@ -937,25 +956,24 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     title: "Timesheets",
     wsId: LEVY,
-    href: "/timesheets",
+    href: (ctx) => splitHref(ctx),
     shows: "Split a shift by role, then approve the week in one message.",
   },
   {
     kind: "step",
     id: "split",
     chapter: "timesheets",
-    label: "Split by role",
+    label: "Split a shift by role",
     wsId: LEVY,
     path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: () => (one(MOVE) ? "Pick the role and when they switched" : one(SHEET) ? "Split it by role" : "Someone switched roles mid-shift"),
+    href: splitHref,
+    title: () => (one(MOVE) ? "Pick the role and when they switched" : "Someone switched roles mid-shift"),
     body: (ctx) => {
       if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
-      if (one(SHEET)) return undefined
       const m = movable(ctx.data)
       return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
     },
-    action: () => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : "Open the highlighted timesheet"),
+    action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
     targets: (ctx) => {
       if (one(MOVE)) return [one(MOVE)]
       if (one(SHEET)) return [one('[data-tour="split-role"]')]
@@ -1076,33 +1094,33 @@ export const SCRIPT: TourItem[] = [
     title: "Invoices and reporting",
     wsId: COMPASS,
     href: "/invoices",
-    shows: "One invoice a month, and any number you ask for.",
+    shows: "One invoice a week, and any number you ask for.",
   },
   {
     kind: "step",
-    id: "monthly",
+    id: "weekly",
     chapter: "reporting",
-    label: "Monthly invoice",
+    label: "Open the weekly invoice",
     wsId: COMPASS,
     path: /^\/invoices(\/groups\/[^/]+)?$/,
     href: () => "/invoices",
-    title: () => (one(GROUP) ? "Down to each cost center" : "One invoice a month for all of Compass"),
+    title: () => (one(GROUP) ? "Down to each cost center" : "One invoice a week for all of Compass"),
     body: (ctx) => {
-      const g = thisMonth(ctx.data)
-      return !one(GROUP) && g ? `${plural(g.invoiceIds.length, "agency invoice")} in one.` : undefined
+      const g = tourWeek(ctx.data)
+      return !one(GROUP) && g ? `${plural(g.invoiceIds.length, "agency invoice")}, one number to pay.` : undefined
     },
     action: (ctx) => {
-      const g = thisMonth(ctx.data)
-      return one(GROUP) ? undefined : `Open ${g?.month ? formatMonth(g.month) : "this month"}`
+      const g = tourWeek(ctx.data)
+      return one(GROUP) ? undefined : `Open the week of ${g?.week ? formatDateShort(g.week) : "last week"}`
     },
     targets: (ctx) => {
       if (one(GROUP)) return [one('[data-tour="group-title"]')]
-      const g = thisMonth(ctx.data)
+      const g = tourWeek(ctx.data)
       return [g && one(`tr[data-row-id="${g.id}"]`)]
     },
     placement: "right",
     skip: async (ctx, api) => {
-      const g = thisMonth(ctx.data)
+      const g = tourWeek(ctx.data)
       if (g) api.push(`/invoices/groups/${g.id}`)
     },
   },
@@ -1110,11 +1128,11 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "tips",
     chapter: "reporting",
-    label: "Tips",
+    label: "Check the tips",
     wsId: COMPASS,
     path: /^\/invoices\/groups\/[^/]+$/,
     href: (ctx) => {
-      const g = thisMonth(ctx.data)
+      const g = tourWeek(ctx.data)
       return g ? `/invoices/groups/${g.id}` : "/invoices"
     },
     title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
@@ -1132,7 +1150,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "accruals",
     chapter: "reporting",
-    label: "Accruals",
+    label: "Review accruals",
     wsId: COMPASS,
     path: /^\/invoices$/,
     href: () => "/invoices?filter=accrue",
@@ -1244,7 +1262,7 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "coverage",
     chapter: "procurement",
-    label: "Market rates",
+    label: "Compare market rates",
     wsId: COMPASS,
     path: /^\/procurement$/,
     href: () => "/procurement?tab=rates",

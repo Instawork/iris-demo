@@ -5,6 +5,7 @@ import { ArrowRight, Building2, Check, FileSpreadsheet } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { PerformanceBadge } from "@/components/agencies/performance-badge"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { InfoTip } from "@/components/common/info-tip"
@@ -18,7 +19,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { readiness, summaryOf } from "@/lib/compliance"
 import { addDaysISO, daysFromToday, formatDateShort, todayISO } from "@/lib/dates"
 import { money, pct, plural } from "@/lib/format"
-import { complianceScore, formatTimeToFill, metricsFor, supplierScore } from "@/lib/metrics"
+import { agencyPerformance, complianceScore, formatTimeToFill, metricsFor } from "@/lib/metrics"
 import { BUYERS, POSITIONS, SUPPLIERS, city, locationsFor, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
 
@@ -62,7 +63,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
   const [cityId, setCityId] = useState(cities[0] ?? "")
   const m = metricsFor(data, sup.id, buyerId)
   const roster = complianceScore(data, sup.id)
-  const score = supplierScore(metricsFor(data, sup.id))
+  const performance = agencyPerformance(data, sup.id)
   const approved = buyerId ? (data.approvals[buyerId] ?? []).includes(sup.id) : false
   const approvedBy = BUYERS.filter((b) => (data.approvals[b.id] ?? []).includes(sup.id))
   const cards = data.rateCards
@@ -94,7 +95,7 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-featured-1 font-semibold">{sup.name}</h1>
-              <StatusBadge tone="neutral">Score {score}</StatusBadge>
+              <PerformanceBadge performance={performance} size="md" />
               {sup.onboarded && <StatusBadge tone="primary">New</StatusBadge>}
             </div>
             <span className="text-body-2 text-faded">

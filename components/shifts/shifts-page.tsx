@@ -27,7 +27,7 @@ import { BUYERS, LOCATIONS, POSITIONS, SUPPLIERS, buyer, location, locationsFor,
 import type { ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Tab = "upcoming" | "past"
+type Tab = "upcoming" | "unfilled" | "past"
 
 interface HoursState {
   label: string
@@ -71,7 +71,9 @@ export function ShiftsPage() {
   const view = useUi((s) => s.shiftsView)
   const setView = useUi((s) => s.setShiftsView)
   const openUpload = useUi((s) => s.openUpload)
-  const [tab, setTab] = useState<Tab>(params.get("filter") === "hours" || params.get("timeframe") === "past" ? "past" : "upcoming")
+  const [tab, setTab] = useState<Tab>(
+    params.get("filter") === "hours" || params.get("timeframe") === "past" ? "past" : params.get("filter") === "unfilled" ? "unfilled" : "upcoming",
+  )
   const [locations, setLocations] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [buyers, setBuyers] = useState<string[]>([])
@@ -108,7 +110,8 @@ export function ShiftsPage() {
     () => rows.filter((r) => groupPhase(r.group) === "past").sort((a, b) => b.group.date.localeCompare(a.group.date) || b.group.start.localeCompare(a.group.start)),
     [rows],
   )
-  const list = tab === "upcoming" ? upcoming : past
+  const unfilled = useMemo(() => upcoming.filter((r) => !r.group.cancelledAt && filledCount(r.group) < r.group.slots.length), [upcoming])
+  const list = tab === "upcoming" ? upcoming : tab === "unfilled" ? unfilled : past
 
   const hasFilters = locations.length + suppliers.length + buyers.length + positions.length > 0 || !!range.from
   const reset = () => {
@@ -172,6 +175,7 @@ export function ShiftsPage() {
             onChange={setTab}
             items={[
               { value: "upcoming", label: "Upcoming", count: upcoming.length },
+              { value: "unfilled", label: "Unfilled", count: unfilled.length, tooltip: "Upcoming shifts with spots still open" },
               { value: "past", label: "Past", count: past.length },
             ]}
           />
@@ -209,9 +213,11 @@ export function ShiftsPage() {
       ) : list.length === 0 ? (
         <EmptyState
           icon={CalendarPlus}
-          title="No shifts"
+          title={tab === "unfilled" && !hasFilters ? "Every upcoming shift is filled" : "No shifts"}
           description={
-            hasFilters
+            tab === "unfilled" && !hasFilters
+              ? "Shifts with open spots show up here."
+              : hasFilters
               ? "Try changing or clearing your filters."
               : ws.kind === "supplier"
                 ? "Shifts appear here when a buyer that approved you posts one."
@@ -302,14 +308,21 @@ function columnsFor(ws: Workspace, actions: { onHours: (g: ShiftGroup) => void; 
     id: "filled",
     header: "Filled",
     sortValue: (r) => fillRatio(r.group),
-    cell: ({ group: g }) => (
-      <span className="flex items-center gap-2.5 whitespace-nowrap">
-        <FillPipe ratio={fillRatio(g)} tone={g.cancelledAt ? "neutral" : fillTone(g)} />
-        <span className="tabular">
-          {filledCount(g)} / {g.slots.length}
+    cell: ({ group: g }) => {
+      const open = g.slots.length - filledCount(g)
+      const tone = fillTone(g)
+      return (
+        <span className="flex items-center gap-2.5 whitespace-nowrap">
+          <FillPipe ratio={fillRatio(g)} tone={g.cancelledAt ? "neutral" : tone} />
+          <span className="tabular">
+            {filledCount(g)} / {g.slots.length}
+          </span>
+          {open > 0 && !g.cancelledAt && groupPhase(g) !== "past" && (
+            <span className={cn("text-caption-1 font-semibold tabular", tone === "critical" ? "text-critical-fg" : tone === "warning" ? "text-warning-fg" : "text-faded")}>{open} open</span>
+          )}
         </span>
-      </span>
-    ),
+      )
+    },
   }
   const suppliersCol: Column<Row> = {
     id: "suppliers",

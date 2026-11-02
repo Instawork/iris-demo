@@ -23,6 +23,9 @@ export function wallClock(at = new Date()) {
   return { date: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute) }
 }
 
+/** The program date an instant falls on. A plain date is already one. */
+export const dateOf = (iso: string) => (iso.length <= 10 ? iso : wallClock(new Date(iso)).date)
+
 /** The instant a program wall-clock time happens. */
 export function instantAt(date: string, hhmm: string) {
   const target = Date.parse(`${date}T${hhmm}:00Z`)
@@ -110,6 +113,9 @@ export const formatDateFull = (iso: string) => format(parseDate(iso), "MMM d, yy
 /** "2026-10" as "October 2026". */
 export const formatMonth = (month: string) => format(parseDate(`${month}-01`), "MMMM yyyy")
 
+/** A week by its Saturday: "Week of Oct 24". */
+export const formatWeek = (week: string) => `Week of ${formatDateShort(week)}`
+
 /** Date group header used on the Shifts list: "Today • Tue Oct 13, 2026". */
 export const formatGroupHeader = (iso: string) => {
   const diff = daysFromToday(iso)
@@ -142,7 +148,7 @@ export const timeAgo = (iso: string) => {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days}d ago`
-  return formatDateShort(iso.slice(0, 10))
+  return formatDateShort(dateOf(iso))
 }
 
 export const isPastShift = (date: string, end: string, start: string) => {

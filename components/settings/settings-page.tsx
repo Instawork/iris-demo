@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, specsFor, templateCsv } from "@/lib/csv"
+import { todayISO } from "@/lib/dates"
 import { plural } from "@/lib/format"
 import { POSITIONS, SUPPLIERS, buyer, city, locationsFor, requirementsFor, requirementLabel, supplier, teamFor, termsOf } from "@/lib/reference"
 import type { Location, Position, Workspace } from "@/lib/types"
@@ -205,7 +206,7 @@ function LocationsSection({ ws }: { ws: Workspace }) {
       id: "upcoming",
       header: "Upcoming shifts",
       align: "right",
-      cell: (l) => data.groups.filter((g) => g.locationId === l.id && !g.cancelledAt && g.date >= new Date().toISOString().slice(0, 10)).length,
+      cell: (l) => data.groups.filter((g) => g.locationId === l.id && !g.cancelledAt && g.date >= todayISO()).length,
     },
   ]
   return (

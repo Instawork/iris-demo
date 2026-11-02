@@ -24,7 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
-import { formatDateShort } from "@/lib/dates"
+import { dateOf, formatDateShort } from "@/lib/dates"
 import { money, pct } from "@/lib/format"
 import { formatTimeToFill, metricsFor } from "@/lib/metrics"
 import { CITIES, POSITIONS, PROGRAM, city, locationsFor, policyFor, position, supplier } from "@/lib/reference"
@@ -107,7 +107,7 @@ function MyRates({ embedded }: { embedded: boolean }) {
       sortValue: (c) => c.updatedAt,
       cell: (c) => (
         <span className="flex flex-col">
-          <span>{formatDateShort(c.updatedAt.slice(0, 10))}</span>
+          <span>{formatDateShort(dateOf(c.updatedAt))}</span>
           <span className="text-caption-1 text-faded">{c.source === "api" ? "Synced by API" : c.source === "upload" ? "CSV upload" : "Edited in Iris"}</span>
         </span>
       ),

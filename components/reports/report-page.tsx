@@ -11,6 +11,7 @@ import { SelectFilter } from "@/components/common/filters"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
 import { Surface } from "@/components/common/surface"
+import { LocationTree } from "@/components/reports/location-tree"
 import { ReportChart } from "@/components/reports/report-chart"
 import { ScheduleDialog } from "@/components/reports/schedule-dialog"
 import { Button } from "@/components/ui/button"
@@ -266,6 +267,13 @@ function ResultTable({ page, result, canOpenAgency, onOpenAgency }: { page: Repo
       ]
     }),
   ]
+  if (groupBy === "location") {
+    return (
+      <Surface elevated className="overflow-hidden" data-tour="report-table">
+        <LocationTree page={page} result={result} />
+      </Surface>
+    )
+  }
   return (
     <Surface elevated className="overflow-hidden" data-tour="report-table">
       <DataTable

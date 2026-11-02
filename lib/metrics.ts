@@ -2,6 +2,7 @@ import { readiness, summaryOf } from "@/lib/compliance"
 import { addDaysISO, daysFromToday, isPastShift, minutesOf, paidHours, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
+import { benchmark, vsMarket } from "@/lib/market"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
 import { expensesOf, readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
 import type { DemoData, Invoice, InvoiceLine, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
@@ -329,6 +330,48 @@ export const supplierScore = (m: SupplierMetrics) =>
   Math.round(
     100 * (0.35 * m.fillRate + 0.25 * Math.max(0, 1 - m.noShowRate * 5) + 0.25 * m.compliance + 0.15 * Math.max(0, 1 - m.hoursToFill / 48)),
   )
+
+export type Grade = "A" | "B" | "C" | "D"
+
+export interface Performance {
+  score: number
+  grade: Grade
+  /** What the score is made of, for its tooltip. */
+  parts: { label: string; value: string }[]
+}
+
+/**
+ * How an agency performs on the program, out of 100 with a letter grade: filling shifts, showing up, cost against
+ * the market, compliance and speed to fill. Cost is its active rates against the market median: at the median scores 90, 10% under scores full.
+ */
+export function agencyPerformance(data: DemoData, supplierId: string, buyerId?: string): Performance {
+  const m = metricsFor(data, supplierId, buyerId)
+  const cards = data.rateCards.filter((c) => c.supplierId === supplierId && c.status === "active")
+  const premium = cards.length ? cards.reduce((s, c) => s + vsMarket(c.billRate, benchmark(c.cityId, c.positionId)), 0) / cards.length : 0
+  const compliance = complianceScore(data, supplierId)
+  const clamp = (x: number) => Math.min(1, Math.max(0, x))
+  const score = Math.round(
+    100 *
+      (0.3 * m.fillRate +
+        0.15 * clamp(1 - m.noShowRate * 5) +
+        0.25 * clamp(0.9 - premium * 3) +
+        0.2 * (compliance.active ? compliance.score / 100 : 1) +
+        0.1 * clamp(1 - m.hoursToFill / 48)),
+  )
+  const grade: Grade = score >= 85 ? "A" : score >= 75 ? "B" : score >= 65 ? "C" : "D"
+  const vs = Math.round(premium * 100)
+  return {
+    score,
+    grade,
+    parts: [
+      { label: "Fill rate", value: `${Math.round(m.fillRate * 100)}%` },
+      { label: "No-shows", value: `${(m.noShowRate * 100).toFixed(1)}%` },
+      { label: "Cost", value: vs === 0 ? "At market" : `${Math.abs(vs)}% ${vs < 0 ? "under" : "over"} market` },
+      { label: "Compliance", value: compliance.active ? `${compliance.score}%` : "No workers yet" },
+      { label: "Time to fill", value: formatTimeToFill(m.hoursToFill) },
+    ],
+  }
+}
 
 /** A supplier's average bill rate for the roles it staffs in these cities. */
 export const avgBillRate = (data: DemoData, supplierId: string, cityIds: string[]) => {

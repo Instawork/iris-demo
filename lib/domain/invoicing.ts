@@ -1,4 +1,4 @@
-import { addDaysISO, formatMonth, weekEndISO, weekStartISO } from "@/lib/dates"
+import { addDaysISO, formatWeek, weekEndISO, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
 import { billingFindings } from "@/lib/metrics"
 import { PROGRAM, termsOf } from "@/lib/reference"
@@ -9,7 +9,7 @@ import type { DemoData, Invoice, InvoiceCredit, InvoiceGroup, InvoiceLine, Pro, 
  * How approved hours become invoices. Each agency has one invoice per buyer and Saturday to Friday week. It stays open
  * and collects the week's approved hours until the week closes, then Iris issues it on the agency's payment terms.
  * Hours approved after their week closed go on an invoice of their own, issued right away. Every invoice also sits in
- * the month's consolidated invoice for all of Compass, which breaks down by sector, business and cost center.
+ * the week's consolidated invoice for all of Compass: one number Compass pays, broken down to each cost center.
  */
 
 /** One line per timesheet, keyed by it, so a line keeps its id as the invoice it's on changes. */
@@ -44,14 +44,14 @@ const inOrder = (a: InvoiceLine, b: InvoiceLine) =>
 /** A week's invoices go out the Saturday after it ends. */
 export const issueDateOf = (weekStart: string) => addDaysISO(weekEndISO(weekStart), 1)
 
-/** The month an invoice is consolidated in: the one its week ends in. */
-export const monthOf = (inv: Pick<Invoice, "periodEnd">) => inv.periodEnd.slice(0, 7)
+/** The week an invoice is consolidated in, by its Saturday. */
+export const weekOf = (inv: Pick<Invoice, "periodStart">) => weekStartISO(inv.periodStart)
 
-const monthlyGroup = (month: string, createdOn: string): InvoiceGroup => ({
-  id: `ig-${month}`,
-  code: `IG-${month}`,
-  name: `${PROGRAM.name}, ${formatMonth(month)}`,
-  month,
+const weeklyGroup = (week: string, createdOn: string): InvoiceGroup => ({
+  id: `ig-${week}`,
+  code: `IG-${weekEndISO(week).replaceAll("-", "")}`,
+  name: `${PROGRAM.name}, ${formatWeek(week)}`,
+  week,
   createdOn,
   createdBy: "Iris",
   invoiceIds: [],
@@ -77,25 +77,25 @@ export function rebuildLines(invoices: Invoice[], timesheets: Timesheet[], ids: 
 }
 
 /**
- * Puts these invoices in the month's consolidated invoice, creating it when needed. Invoices already in a group,
+ * Puts these invoices in the week's consolidated invoice, creating it when needed. Invoices already in a group,
  * including ones grouped by hand, stay where they are.
  */
 export function consolidate(data: Pick<DemoData, "invoices" | "invoiceGroups" | "counters">, ids: Set<string>, today: string) {
   const ig = data.counters.ig
   const groups = new Map(data.invoiceGroups.map((g) => [g.id, g]))
-  const monthly = new Map<string, string>()
-  for (const g of data.invoiceGroups) if (g.month) monthly.set(g.month, g.id)
+  const weekly = new Map<string, string>()
+  for (const g of data.invoiceGroups) if (g.week) weekly.set(g.week, g.id)
   const created: string[] = []
   const groupOf = new Map<string, string>()
   for (const inv of data.invoices) {
     if (inv.groupId || !ids.has(inv.id)) continue
-    const month = monthOf(inv)
-    let id = monthly.get(month)
+    const week = weekOf(inv)
+    let id = weekly.get(week)
     if (!id) {
-      const g = monthlyGroup(month, today)
+      const g = weeklyGroup(week, today)
       id = g.id
       groups.set(id, g)
-      monthly.set(month, id)
+      weekly.set(week, id)
       created.push(id)
     }
     const g = groups.get(id)!
@@ -260,16 +260,16 @@ export function creditSentBack(data: DemoData, invoiceId: string, by: string, no
   }
 }
 
-/** The monthly consolidated invoices for invoices that were never grouped, for the seed. */
-export function monthlyGroups(invoices: Invoice[]) {
+/** The weekly consolidated invoices for invoices that were never grouped, for the seed. */
+export function weeklyGroups(invoices: Invoice[]) {
   const groups = new Map<string, InvoiceGroup>()
   for (const inv of invoices) {
     if (inv.groupId) continue
-    const month = monthOf(inv)
-    let g = groups.get(month)
+    const week = weekOf(inv)
+    let g = groups.get(week)
     if (!g) {
-      g = monthlyGroup(month, inv.issuedOn)
-      groups.set(month, g)
+      g = weeklyGroup(week, inv.issuedOn)
+      groups.set(week, g)
     }
     g.invoiceIds.push(inv.id)
     inv.groupId = g.id

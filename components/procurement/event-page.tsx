@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
+import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, plural, round2 } from "@/lib/format"
 import { city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
@@ -887,7 +887,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
       <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
         {approvedAt ? (
           <Banner tone="positive" icon={CircleCheck}>
-            Compass approved your bid on {formatDateFull(approvedAt.slice(0, 10))}. These rates are live on your rate card.{" "}
+            Compass approved your bid on {formatDateFull(dateOf(approvedAt))}. These rates are live on your rate card.{" "}
             <Link href="/procurement?tab=rates" className="font-medium underline underline-offset-4">
               See your rate cards
             </Link>

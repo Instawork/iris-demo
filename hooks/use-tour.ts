@@ -28,12 +28,16 @@ interface TourState extends TourPicks {
   index: number
   enteredAt: string
   base: TourBase
+  /** The base as the demo reset left it, so a step played any time in this run counts as done. */
+  start: TourBase
   done: string[]
   skipped: string[]
   open: () => void
   /** Starts the demo at `index`, or at the first part. */
   begin: (base: TourBase, index?: number) => void
   rebase: (base: TourBase) => void
+  /** Rebases at the start of a run. */
+  restart: (base: TourBase) => void
   go: (index: number) => void
   finish: (id: string, how: "done" | "skipped") => void
   remember: (patch: TourPicks) => void
@@ -49,11 +53,13 @@ export const useTour = create<TourState>()(
       index: 0,
       enteredAt: "",
       base: { sg: 0, inv: 0, rep: 0, at: "" },
+      start: { sg: 0, inv: 0, rep: 0, at: "" },
       done: [],
       skipped: [],
       open: () => set({ active: true, index: 0, enteredAt: now(), done: [], skipped: [], proId: undefined, invoiceId: undefined, groupId: undefined, docId: undefined, sheetId: undefined }),
       begin: (base, index) => set((s) => ({ base, index: index ?? s.index + 1, enteredAt: now() })),
       rebase: (base) => set({ base }),
+      restart: (base) => set({ base, start: base }),
       go: (index) => set({ index, enteredAt: now() }),
       finish: (id, how) =>
         set((s) => ({
@@ -69,7 +75,7 @@ export const useTour = create<TourState>()(
       name: "iris-tour-v3",
       storage: createJSONStorage(() => sessionStorage),
       skipHydration: true,
-      partialize: ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, done, skipped, proId, invoiceId, groupId, docId, sheetId }),
+      partialize: ({ active, index, enteredAt, base, start, done, skipped, proId, invoiceId, groupId, docId, sheetId }) => ({ active, index, enteredAt, base, start, done, skipped, proId, invoiceId, groupId, docId, sheetId }),
     },
   ),
 )

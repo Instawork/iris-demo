@@ -4,7 +4,7 @@ import { addDaysISO, hhmmFromMinutes, minutesOf, paidHours, todayISO, weekStartI
 import { billFrom, round2, roundTo } from "@/lib/format"
 import { createRandom, hashString, type Random } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, SUPPLIERS, city, emptyDirectory, location, position, requirementsFor, supplier, syncDirectory, termsOf } from "@/lib/reference"
-import { lineOf, monthlyGroups } from "@/lib/domain/invoicing"
+import { lineOf, weeklyGroups } from "@/lib/domain/invoicing"
 import { seedRateLog } from "@/lib/rate-log"
 import { defaultReports } from "@/lib/reports"
 import { seedSourcing } from "@/lib/sourcing"
@@ -29,7 +29,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 21
+export const DATA_VERSION = 22
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -997,7 +997,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
     .sort((a, b) => a.periodStart.localeCompare(b.periodStart))[0]
   if (oldestMetro) oldestMetro.dueOn = addDaysISO(today, -3)
 
-  return { invoices, invoiceGroups: monthlyGroups(invoices) }
+  return { invoices, invoiceGroups: weeklyGroups(invoices) }
 }
 
 /**

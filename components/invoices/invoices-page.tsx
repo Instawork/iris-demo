@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { AccrualTable } from "@/components/invoices/accrual-table"
 import { AnomalyFlag, DeltaText, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
-import { MonthlyTable } from "@/components/invoices/monthly-table"
+import { WeeklyTable } from "@/components/invoices/weekly-table"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { accrualCsvRows, accruals } from "@/lib/accruals"
@@ -56,7 +56,7 @@ const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
     "Every invoice in the program, built from approved hours at each agency's rates. Iris flags hours billed above its clock, which go back to the agency for a credit, and invoices priced well above what other agencies charge.",
-  buyer: "Each agency's invoice for the week fills as you approve hours, and Iris issues it on Saturday. Every month rolls into one consolidated invoice, so there's nothing to upload.",
+  buyer: "Each agency's invoice for the week fills as you approve hours, and Iris issues it on Saturday in one consolidated invoice. Nothing to upload.",
   supplier: "What you're owed. Your invoice for the week fills as the buyer approves your hours, and Iris issues it on Saturday.",
 }
 
@@ -117,7 +117,7 @@ export function InvoicesPage() {
     return list.sort((a, b) => Number(billingToReview(data, b)) - Number(billingToReview(data, a)) || newestFirst(a, b))
   }, [data, filtered, matches, quick])
   const groupOf = useMemo(() => new Map(data.invoiceGroups.map((g) => [g.id, g])), [data.invoiceGroups])
-  const byMonth = ws.kind !== "supplier" && quick === "all"
+  const byWeek = ws.kind !== "supplier" && quick === "all"
   const accruing = quick === "accrue"
   const accrued = useMemo(() => {
     if (!accruing) return undefined
@@ -304,7 +304,7 @@ export function InvoicesPage() {
                   : q === "accrue"
                     ? "Hours worked that no issued invoice covers yet, to accrue at month end"
                   : q === "all" && ws.kind !== "supplier"
-                    ? "One invoice a month, broken down by sector, business and cost center"
+                    ? "One invoice a week, broken down by sector, region and cost center"
                     : undefined,
             }))}
         />
@@ -318,7 +318,7 @@ export function InvoicesPage() {
           </span>
         )}
       </div>
-      <motion.div key={accruing ? "accrue" : byMonth ? "months" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
+      <motion.div key={accruing ? "accrue" : byWeek ? "weeks" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput value={query} onChange={setQuery} placeholder={accruing ? "Search units" : "Search invoices"} className="w-52" />
           {ws.kind !== "supplier" && (
@@ -334,13 +334,13 @@ export function InvoicesPage() {
         </div>
         {accrued ? (
           <AccrualTable accruals={accrued} />
-        ) : byMonth ? (
-          <MonthlyTable
+        ) : byWeek ? (
+          <WeeklyTable
             invoices={rows}
             groups={data.invoiceGroups}
             columns={columns}
             toReview={isCompass ? (i) => needsReview(data, i) : undefined}
-            onOpenMonth={(id) => router.push(`/invoices/groups/${id}`)}
+            onOpenWeek={(id) => router.push(`/invoices/groups/${id}`)}
             onOpenInvoice={(i) => router.push(`/invoices/${i.id}`)}
             empty={invoicesEmpty}
           />
@@ -360,7 +360,7 @@ export function InvoicesPage() {
       </motion.div>
 
       <AnimatePresence>
-        {payable.length > 0 && !byMonth && (
+        {payable.length > 0 && !byWeek && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}

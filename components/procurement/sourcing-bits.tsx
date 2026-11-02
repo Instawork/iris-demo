@@ -3,7 +3,7 @@
 import { Check } from "lucide-react"
 
 import { StatusBadge, type Tone } from "@/components/common/status-badge"
-import { formatDateFull, formatDateShort, todayISO } from "@/lib/dates"
+import { dateOf, formatDateFull, formatDateShort, todayISO } from "@/lib/dates"
 import type { Benchmark } from "@/lib/market"
 import { STAGE_LABEL, latestBid, openCounters, stageOf, type Stage } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
@@ -46,7 +46,7 @@ export function stepsOf(ev: SourcingEvent): Step[] {
   const approved = Object.keys(ev.approved).length
   const bidders = ev.invited.filter((s) => latestBid(ev, s)).length
   return [
-    { label: "Agencies invited", detail: formatDateFull(ev.openedAt.slice(0, 10)), done: true },
+    { label: "Agencies invited", detail: formatDateFull(dateOf(ev.openedAt)), done: true },
     {
       label: earlyClose ? "All bids in" : today > ev.closesOn ? "Bids closed" : "Bids due",
       detail: formatDateFull(earlyClose && lastFirstBid ? lastFirstBid : ev.closesOn),

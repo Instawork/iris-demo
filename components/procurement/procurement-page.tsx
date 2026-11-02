@@ -18,7 +18,7 @@ import { Change, StageBadge, VsMarket, agencyStatus, moneyYear } from "@/compone
 import { RatesPage } from "@/components/rates/rates-page"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
+import { dateOf, daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
 import { benchmark } from "@/lib/market"
 import { latestBid, responded, spendOf } from "@/lib/sourcing"
 import type { SourcingEvent } from "@/lib/types"
@@ -234,7 +234,7 @@ function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
       </span>
       <span className="hidden flex-col items-end sm:flex">
         <span className="text-caption-1 text-faded">Approved</span>
-        <span className="text-body-3 tabular">{ev.awardedAt ? formatDateFull(ev.awardedAt.slice(0, 10)) : "—"}</span>
+        <span className="text-body-3 tabular">{ev.awardedAt ? formatDateFull(dateOf(ev.awardedAt)) : "—"}</span>
       </span>
       <span className="flex w-28 flex-col items-end">
         <span className="text-caption-1 text-faded">{supplierId ? "Your bid" : "vs the year before"}</span>

@@ -5,14 +5,14 @@ import { Fragment, useMemo, useState } from "react"
 
 import { InfoTip } from "@/components/common/info-tip"
 import { money } from "@/lib/format"
-import { PROGRAM, buyer, departmentOf, location } from "@/lib/reference"
+import { ORG_LEVELS, PROGRAM, departmentOf, location, orgPath } from "@/lib/reference"
 import { expensesOf } from "@/lib/timesheets"
 import type { Invoice, InvoiceLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /**
- * Spend broken down the way Compass is organized: super sector, sector, regional business, then each unit and
- * department by cost center. The monthly invoice uses it for what was billed, less credits, so the tree adds up to the
+ * Spend broken down the way Compass is organized: super sector, sector, region, district, then each unit and
+ * department by cost center. The weekly invoice uses it for what was billed, less credits, so the tree adds up to the
  * invoice; accruals use it for what was worked and isn't invoiced yet.
  */
 
@@ -43,17 +43,14 @@ export interface BreakdownColumn {
   info?: string
 }
 
-const LEVELS = ["Super sector", "Sector", "Regional business"]
+const LEVELS = ORG_LEVELS
 
 /** Where a charge sits in Compass, top down. */
 export function placeAt(item: Pick<BreakdownItem, "buyerId" | "locationId" | "departmentId" | "positionId">): Place[] {
-  const b = buyer(item.buyerId)
   const unit = location(item.locationId)
   const dept = departmentOf(item.locationId, item.departmentId, item.positionId)
   return [
-    { id: `s:${b.sector}`, name: b.sector },
-    { id: `b:${b.brand}`, name: b.brand },
-    { id: `r:${b.id}`, name: b.name },
+    ...orgPath({ ...unit, buyerId: item.buyerId }),
     { id: `u:${unit.id}`, name: unit.name, costCenter: unit.costCenter },
     ...(dept ? [{ id: `d:${unit.id}:${dept.id}`, name: dept.name, costCenter: dept.costCenter }] : []),
   ]

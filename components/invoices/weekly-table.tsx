@@ -8,24 +8,24 @@ import type { Column } from "@/components/common/data-table"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge } from "@/components/common/status-badge"
 import { INVOICE_STATUS, groupTotals } from "@/components/invoices/invoice-bits"
-import { formatDateShort, formatMonth } from "@/lib/dates"
+import { formatDateShort, formatWeek } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import type { Invoice, InvoiceGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /**
- * Every invoice under the month it's consolidated in. Each month is one invoice for all of Compass, laid out in the same
+ * Every invoice under the week it's consolidated in. Each week is one invoice for all of Compass, laid out in the same
  * columns as the agency invoices inside it: open it for the breakdown, or expand it to see those invoices in place.
  */
 
 const newestFirst = (a: Invoice, b: Invoice) => b.issuedOn.localeCompare(a.issuedOn) || b.number.localeCompare(a.number)
 
-export function MonthlyTable({
+export function WeeklyTable({
   invoices,
   groups,
   columns,
   toReview,
-  onOpenMonth,
+  onOpenWeek,
   onOpenInvoice,
   empty,
 }: {
@@ -33,19 +33,19 @@ export function MonthlyTable({
   groups: InvoiceGroup[]
   columns: Column<Invoice>[]
   toReview?: (invoice: Invoice) => boolean
-  onOpenMonth: (groupId: string) => void
+  onOpenWeek: (groupId: string) => void
   onOpenInvoice: (invoice: Invoice) => void
   empty: React.ReactNode
 }) {
   const [open, setOpen] = useState<Set<string>>(new Set())
-  const months = groups
-    .filter((g) => !!g.month)
+  const weeks = groups
+    .filter((g) => !!g.week)
     .map((g) => ({ g, ...groupTotals(g, invoices) }))
     .filter((m) => m.members.length > 0)
-    .sort((a, b) => b.g.month!.localeCompare(a.g.month!))
-  const grouped = new Set(months.flatMap((m) => m.members.map((i) => i.id)))
+    .sort((a, b) => b.g.week!.localeCompare(a.g.week!))
+  const grouped = new Set(weeks.flatMap((m) => m.members.map((i) => i.id)))
   const loose = invoices.filter((i) => !grouped.has(i.id)).sort(newestFirst)
-  if (!months.length && !loose.length) return <>{empty}</>
+  if (!weeks.length && !loose.length) return <>{empty}</>
 
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -57,7 +57,7 @@ export function MonthlyTable({
 
   const td = (c: Column<Invoice>) => cn("px-3 py-2.5 align-middle text-body-3 whitespace-nowrap", c.align === "right" && "text-right tabular", c.className)
 
-  const monthCell = (c: Column<Invoice>, m: (typeof months)[number]) => {
+  const weekCell = (c: Column<Invoice>, m: (typeof weeks)[number]) => {
     const expanded = open.has(m.g.id)
     switch (c.id) {
       case "flag": {
@@ -75,7 +75,7 @@ export function MonthlyTable({
           <span className="flex items-center gap-2">
             <button
               type="button"
-              aria-label={expanded ? `Collapse ${formatMonth(m.g.month!)}` : `Show the invoices in ${formatMonth(m.g.month!)}`}
+              aria-label={expanded ? `Collapse ${formatWeek(m.g.week!)}` : `Show the invoices in ${formatWeek(m.g.week!)}`}
               aria-expanded={expanded}
               onClick={(e) => {
                 e.stopPropagation()
@@ -86,7 +86,7 @@ export function MonthlyTable({
               <ChevronRight className={cn("size-4 transition-transform duration-100", expanded && "rotate-90")} />
             </button>
             <span className="flex flex-col">
-              <span className="font-semibold">{formatMonth(m.g.month!)}</span>
+              <span className="font-semibold">{formatWeek(m.g.week!)}</span>
               <span className="text-caption-1 text-faded">
                 <code className="font-mono">{m.g.code}</code> · {formatDateShort(m.from)} – {formatDateShort(m.to)}
               </span>
@@ -138,7 +138,7 @@ export function MonthlyTable({
   )
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-raised" data-tour="monthly-invoices">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-raised" data-tour="weekly-invoices">
       <div className="overflow-x-auto scrollbar-thin">
         <table className="w-full border-collapse text-left">
           <thead>
@@ -154,16 +154,16 @@ export function MonthlyTable({
             </tr>
           </thead>
           <tbody>
-            {months.map((m) => (
+            {weeks.map((m) => (
               <Fragment key={m.g.id}>
                 <tr
                   data-row-id={m.g.id}
-                  onClick={() => onOpenMonth(m.g.id)}
+                  onClick={() => onOpenWeek(m.g.id)}
                   className="cursor-pointer border-b border-border/70 transition-colors duration-100 last:border-b-0 hover:bg-hover"
                 >
                   {columns.map((c) => (
                     <td key={c.id} className={td(c)}>
-                      {monthCell(c, m)}
+                      {weekCell(c, m)}
                     </td>
                   ))}
                 </tr>

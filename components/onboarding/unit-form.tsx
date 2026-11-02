@@ -16,7 +16,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { canWork, itemState } from "@/lib/compliance"
 import { todayISO } from "@/lib/dates"
 import { plural } from "@/lib/format"
-import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, departmentsFor, marketForZip, requirementLabel, requirementsFor, rolesFor } from "@/lib/reference"
+import { BUYERS, POSITIONS, SUPPLIERS, WORKSPACES, buyer, departmentsFor, marketForZip, orgPath, requirementLabel, requirementsFor, rolesFor } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
 import type { Department, Pro, RequirementId } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -258,7 +258,7 @@ export function NewUnitPage() {
         <Surface elevated className="flex flex-col gap-4 p-5 lg:sticky lg:top-4" data-tour="unit-summary">
           <div className="flex flex-col gap-1">
             <span className="flex flex-wrap items-center gap-1 text-caption-1 text-faded">
-              {[b.sector, b.brand, b.name].map((x, i) => (
+              {(market ? orgPath({ buyerId: form.buyerId, cityId: market.id, kind: form.kind }).map((p) => p.name) : [b.sector, b.brand, b.name]).map((x, i) => (
                 <span key={x} className="flex items-center gap-1">
                   {i > 0 && <ChevronRight className="size-3" />}
                   {x}

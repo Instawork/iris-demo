@@ -4,6 +4,7 @@ import Link from "next/link"
 import { AlertTriangle, ArrowRight, Download, ShieldCheck } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { PerformanceBadge } from "@/components/agencies/performance-badge"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { Tip } from "@/components/common/info-tip"
@@ -26,6 +27,7 @@ import {
   amountAtRisk,
   fillFor,
   fillTrendFor,
+  agencyPerformance,
   formatTimeToFill,
   invoiceBenchmark,
   invoiceTotal,
@@ -34,9 +36,9 @@ import {
   needsReview,
   spendBetween,
   spendFor,
-  supplierScore,
   todosFor,
   type LocationRank,
+  type Performance,
   type SupplierMetrics,
 } from "@/lib/metrics"
 import { BUYERS, LOCATIONS, SUPPLIERS, buyer, location, supplier } from "@/lib/reference"
@@ -45,6 +47,7 @@ import { cn } from "@/lib/utils"
 interface SupplierRank {
   id: string
   score: number
+  performance: Performance
   m: SupplierMetrics
 }
 
@@ -90,8 +93,9 @@ export function CompassHome() {
   const suppliers = useMemo<SupplierRank[]>(
     () =>
       SUPPLIERS.map((s) => {
-        const m = metricsFor(data, s.id, operatorId === "all" ? undefined : operatorId)
-        return { id: s.id, m, score: supplierScore(m) }
+        const buyerId = operatorId === "all" ? undefined : operatorId
+        const performance = agencyPerformance(data, s.id, buyerId)
+        return { id: s.id, m: metricsFor(data, s.id, buyerId), performance, score: performance.score }
       }).sort((a, b) => b.score - a.score),
     [data, operatorId],
   )
@@ -159,11 +163,11 @@ export function CompassHome() {
     {
       id: "score",
       header: "Score",
-      info: "Out of 100, from fill rate, no-shows, compliance and time to fill over the last 28 days.",
+      info: "Out of 100, graded A to D: fill rate, no-shows, cost against the market, compliance and time to fill over the last 28 days.",
       sortValue: (r) => r.score,
       cell: (r) => (
         <span className="flex items-center gap-2.5">
-          <span className="w-7 font-semibold tabular">{r.score}</span>
+          <PerformanceBadge performance={r.performance} />
           <span className="hidden h-1 w-16 overflow-hidden rounded-full bg-muted sm:block">
             <span className="block h-full rounded-full bg-foreground" style={{ width: `${r.score}%` }} />
           </span>
@@ -199,6 +203,7 @@ export function CompassHome() {
           rank: i + 1,
           supplier: supplier(r.id).name,
           score: r.score,
+          grade: r.performance.grade,
           fill_rate: pct(r.m.fillRate),
           no_show_rate: pct(r.m.noShowRate, 1),
           compliance: pct(r.m.compliance),

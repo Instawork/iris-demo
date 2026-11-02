@@ -5,16 +5,16 @@ import { ArrowRight } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { PerformanceBadge } from "@/components/agencies/performance-badge"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { InfoTip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
-import { StatusBadge } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { money, pct } from "@/lib/format"
-import { formatTimeToFill, metricsFor, supplierScore } from "@/lib/metrics"
+import { agencyPerformance, formatTimeToFill, metricsFor } from "@/lib/metrics"
 import { BUYERS, POSITIONS, city, locationsFor, supplier } from "@/lib/reference"
 import { useStore } from "@/lib/store"
 
@@ -39,7 +39,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
   }, [buyerId, sup.cityIds])
   const [cityId, setCityId] = useState(cities[0] ?? "")
   const m = metricsFor(data, sup.id, buyerId)
-  const score = supplierScore(metricsFor(data, sup.id))
+  const performance = agencyPerformance(data, sup.id)
   const approved = buyerId ? (data.approvals[buyerId] ?? []).includes(sup.id) : false
   const approvedBy = BUYERS.filter((b) => (data.approvals[b.id] ?? []).includes(sup.id))
   const cards = data.rateCards
@@ -54,9 +54,7 @@ function ProfileBody({ supplierId }: { supplierId: string }) {
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <DialogTitle className="flex items-center gap-2">
             {sup.name}
-            <StatusBadge tone="neutral" size="sm">
-              Score {score}
-            </StatusBadge>
+            <PerformanceBadge performance={performance} />
           </DialogTitle>
           <DialogDescription className="truncate">{sup.tagline}</DialogDescription>
         </div>

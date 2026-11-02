@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useRouter } from "next/navigation"
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, MousePointerClick, RotateCcw, WandSparkles, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads } from "@/components/agent/agent-store"
@@ -230,6 +231,7 @@ const neighbor = (step: TourStep, by: -1 | 1) => {
 /** Stops Iris's cursor and closes the dialog or agent sheet a step left open. */
 function clearStage() {
   stopPilot()
+  toast.dismiss()
   if (topModal()) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
   useUi.getState().setAgentOpen(false)
 }
@@ -273,13 +275,17 @@ async function jumpTo(index: number, push: (href: string) => void) {
   if (item.kind !== "step") return useTour.getState().go(index)
   const store = useStore.getState()
   const switching = store.workspaceId !== item.wsId ? store.setWorkspace(item.wsId) : undefined
-  const href = item.href(contextNow())
+  await switching
+  const { start } = useTour.getState()
+  // A step played earlier in the run still holds, unless it lives in the chat, which the jump empties.
+  const judge = (need: TourStep) => ({ ...contextNow(), base: need.inChat || need.startsChat || !start.at ? baseNow() : start })
+  const setUp: TourStep[] = []
+  for (let need = byId(item.needs); need && !need.done?.(judge(need)); need = byId(need.needs)) setUp.unshift(need)
+  const href = (setUp[0] ?? item).href(contextNow())
   push(href)
-  await Promise.all([switching, arrivedAt(href)])
+  await arrivedAt(href)
   if (item.startsChat) useAgentThreads.getState().clear(item.wsId)
   useTour.getState().rebase(baseNow())
-  const setUp: TourStep[] = []
-  for (let need = byId(item.needs); need && !need.done?.(contextNow()); need = byId(need.needs)) setUp.unshift(need)
   if (setUp[0]?.startsChat) useAgentThreads.getState().clear(item.wsId)
   preparing = setUp.length ? item.id : undefined
   useTour.getState().go(index)
@@ -294,6 +300,14 @@ async function jumpTo(index: number, push: (href: string) => void) {
       if (useTour.getState().enteredAt !== at) break
       if (need.inChat) for (let t = 0; t < 40 && !document.querySelector('[data-tour="agent-plan"]'); t++) await new Promise((resolve) => window.setTimeout(resolve, 50))
       await need.skip(contextNow(), { push, remember: (patch) => useTour.getState().remember(patch), now: contextNow })
+    }
+    if (useTour.getState().enteredAt === at) {
+      toast.dismiss()
+      const there = item.href(contextNow())
+      if (there !== `${window.location.pathname}${window.location.search}`) {
+        push(there)
+        await arrivedAt(there)
+      }
     }
   } catch (error) {
     if (!pilotStopped(error)) throw error
@@ -922,7 +936,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     resetting = useStore
       .getState()
       .resetDemo()
-      .then(() => useTour.getState().rebase(baseNow()))
+      .then(() => useTour.getState().restart(baseNow()))
       .finally(() => {
         resetting = undefined
       })
@@ -943,9 +957,12 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     const switching = store.workspaceId !== chapter.wsId ? store.setWorkspace(chapter.wsId) : undefined
     useAgentThreads.getState().clear(chapter.wsId)
     useUi.getState().setAgentOpen(false)
-    router.push(chapter.href)
+    toast.dismiss()
+    await switching
+    const href = typeof chapter.href === "string" ? chapter.href : chapter.href(contextNow())
+    router.push(href)
     // The part's first step must not judge the page being left: its sheet or labels can look like that step done.
-    await Promise.all([switching, arrivedAt(chapter.href)])
+    await arrivedAt(href)
     useTour.getState().go(index + 1)
   }
 

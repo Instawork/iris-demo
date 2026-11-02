@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Building2, ChevronRight, FileSpreadsheet, MapPinned, Plus, ShieldCheck } from "lucide-react"
 import { Fragment, useEffect, useState } from "react"
 
+import { PerformanceBadge } from "@/components/agencies/performance-badge"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { SearchInput } from "@/components/common/filters"
@@ -15,10 +16,10 @@ import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
-import { daysFromToday, formatDateShort } from "@/lib/dates"
+import { dateOf, daysFromToday, formatDateShort } from "@/lib/dates"
 import { plural } from "@/lib/format"
-import { complianceScore, scoreTone } from "@/lib/metrics"
-import { BUYERS, LOCATIONS, SUPPLIERS, buyer, city, position, requirementLabel } from "@/lib/reference"
+import { agencyPerformance, complianceScore, scoreTone } from "@/lib/metrics"
+import { BUYERS, LOCATIONS, ORG_LEVELS, SUPPLIERS, buyer, city, districtOf, orgPath, position, requirementLabel } from "@/lib/reference"
 import type { DemoData, Location, Supplier } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +31,7 @@ import { cn } from "@/lib/utils"
 const added = (o?: { at: string; by: string }) =>
   o ? (
     <span className="flex flex-col">
-      <span className="font-medium">{formatDateShort(o.at.slice(0, 10))}</span>
+      <span className="font-medium">{formatDateShort(dateOf(o.at))}</span>
       <span className="text-caption-1 text-faded">{o.by}</span>
     </span>
   ) : (
@@ -47,7 +48,7 @@ const averageMarkup = (data: DemoData, supplierId: string) => {
 
 const coiDays = (s: Supplier) => (s.onboarded ? daysFromToday(s.onboarded.coiExpiresOn) : s.coiExpiresInDays)
 
-const LEVELS = ["Super sector", "Sector", "Regional business"]
+const LEVELS = ORG_LEVELS
 
 interface Branch {
   id: string
@@ -57,19 +58,16 @@ interface Branch {
   units: Location[]
 }
 
-/** The units, filed the way Compass is organized. A unit lands under its buyer, so a new one files itself. */
+/** The units, filed the way Compass is organized. A unit lands under its buyer and district, so a new one files itself. */
 function unitTree(units: Location[]) {
   const root: Branch = { id: "root", name: "", depth: -1, children: [], units: [] }
-  for (const b of BUYERS) {
-    const mine = units.filter((l) => l.buyerId === b.id)
-    if (!mine.length) continue
-    const path = [
-      [`s:${b.sector}`, b.sector],
-      [`b:${b.brand}`, b.brand],
-      [`r:${b.id}`, b.name],
-    ]
+  const order = new Map(BUYERS.map((b, i) => [b.id, i]))
+  const sorted = [...units].sort(
+    (x, y) => (order.get(x.buyerId) ?? 0) - (order.get(y.buyerId) ?? 0) || Number(!!y.onboarded) - Number(!!x.onboarded) || x.name.localeCompare(y.name),
+  )
+  for (const l of sorted) {
     let node = root
-    for (const [depth, [id, name]] of path.entries()) {
+    for (const [depth, { id, name }] of orgPath(l).entries()) {
       let child = node.children.find((c) => c.id === id)
       if (!child) {
         child = { id, name, depth, children: [], units: [] }
@@ -77,7 +75,7 @@ function unitTree(units: Location[]) {
       }
       node = child
     }
-    node.units.push(...[...mine].sort((x, y) => Number(!!y.onboarded) - Number(!!x.onboarded) || x.name.localeCompare(y.name)))
+    node.units.push(l)
   }
   return root.children
 }
@@ -116,7 +114,7 @@ export function UnitsPage() {
 
   const unitHit = (l: Location) => {
     const b = buyer(l.buyerId)
-    return [l.name, l.kind, l.costCenter, city(l.cityId).name, b.name, b.brand, b.sector].some((t) => has(t, q))
+    return [l.name, l.kind, l.costCenter, city(l.cityId).name, b.name, b.brand, b.sector, districtOf(l)].some((t) => has(t, q))
   }
   const deptHits = (l: Location) => (l.departments ?? []).filter((d) => has(d.name, q) || has(d.costCenter, q))
   const shown = q ? LOCATIONS.filter((l) => unitHit(l) || deptHits(l).length > 0) : LOCATIONS
@@ -284,7 +282,7 @@ export function UnitsPage() {
       <PageHeader
         className="pt-4"
         title="Units"
-        description="Every unit that buys labor, filed under its super sector, sector and regional business. Add one and it's live across Iris."
+        description="Every unit that buys labor, filed under its super sector, sector, region and district. Add one and it's live across Iris."
         actions={
           ws.kind === "compass" && (
             <>
@@ -395,6 +393,13 @@ export function AgenciesPage() {
           </span>
         </span>
       ),
+    },
+    {
+      id: "score",
+      header: "Score",
+      info: "Out of 100, graded A to D: fill rate, no-shows, cost against the market, compliance and time to fill.",
+      sortValue: (s) => agencyPerformance(data, s.id).score,
+      cell: (s) => <PerformanceBadge performance={agencyPerformance(data, s.id)} />,
     },
     {
       id: "markets",

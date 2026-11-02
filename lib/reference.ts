@@ -592,6 +592,30 @@ export const position = (id: string) => positionMap.get(id) ?? POSITIONS[0]
 export const supplier = (id: string) => supplierMap.get(id) ?? SUPPLIERS[0]
 export const workspace = (id: string) => workspaceMap.get(id) ?? WORKSPACES[0]
 
+/** The levels Compass files a unit under, top down. */
+export const ORG_LEVELS = ["Super sector", "Sector", "Region", "District"]
+
+const SPORTS_VENUES = new Set(["Stadium", "Arena", "Ballpark"])
+
+/** The district a unit reports into: a Levy market's sports venues or its event venues, or a Chartwells city's campuses. */
+export function districtOf(loc: Pick<Location, "buyerId" | "cityId" | "kind">) {
+  const where = city(loc.cityId).name
+  if (buyer(loc.buyerId).brand !== "Levy") return `${where} Campuses`
+  return SPORTS_VENUES.has(loc.kind) ? `${where} Sports` : `${where} Events`
+}
+
+/** Where a unit sits in Compass, one entry per level in `ORG_LEVELS`. */
+export function orgPath(loc: Pick<Location, "buyerId" | "cityId" | "kind">) {
+  const b = buyer(loc.buyerId)
+  const district = districtOf(loc)
+  return [
+    { id: `s:${b.sector}`, name: b.sector },
+    { id: `b:${b.brand}`, name: b.brand },
+    { id: `r:${b.id}`, name: b.name },
+    { id: `t:${b.id}:${district}`, name: district },
+  ]
+}
+
 export const termsOf = (supplierId: string): ContractTerms => supplier(supplierId).contract ?? { vaPct: 0, netDays: PROGRAM.paymentTermsDays, years: 1 }
 
 /** The VA tier a year's spend reaches, and the next one up if there is one. */

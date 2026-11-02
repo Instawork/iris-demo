@@ -16,7 +16,7 @@ const COLUMNS: BreakdownColumn[] = [
   { header: "To accrue" },
 ]
 
-/** What to accrue, laid out like the monthly invoice: sector, business, then each cost center. */
+/** What to accrue, laid out like the weekly invoice, down to each cost center. */
 export function AccrualTable({ accruals }: { accruals: Accruals }) {
   const items = useMemo(
     () =>

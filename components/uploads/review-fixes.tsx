@@ -41,17 +41,19 @@ export function ReviewFixes({ session, onChange, onDone }: { session: ReviewSess
   return (
     <>
       <div className="flex flex-col gap-2 border-b border-border px-6 pt-5 pr-12 pb-4">
-        <DialogTitle className="text-featured-3 font-bold break-all">Review fixes: {session.fileName}</DialogTitle>
+        <DialogTitle className="text-featured-3 font-bold break-all">{items.length ? "Review fixes" : "Ready to save"}: {session.fileName}</DialogTitle>
         <DialogDescription asChild>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body-3 text-faded">
             <span className="inline-flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-positive" />
               <span className="font-semibold text-foreground tabular">{okCount}</span> {okCount === 1 ? "row" : "rows"} ready
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-warning" />
-              <span className="font-semibold text-foreground tabular">{errorCount}</span> {errorCount === 1 ? "row needs" : "rows need"} your review
-            </span>
+            {errorCount > 0 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-warning" />
+                <span className="font-semibold text-foreground tabular">{errorCount}</span> {errorCount === 1 ? "row needs" : "rows need"} your review
+              </span>
+            )}
           </div>
         </DialogDescription>
       </div>
@@ -61,42 +63,53 @@ export function ReviewFixes({ session, onChange, onDone }: { session: ReviewSess
         </p>
       )}
       <div className="max-h-[min(56svh,540px)] overflow-y-auto scrollbar-thin">
-        <table className="w-full text-left text-body-3">
-          <thead className="sticky top-0 z-10 bg-page-faded">
-            <tr className="border-b border-border text-caption-1 text-faded">
-              <th className="w-16 py-2 pr-2 pl-6 font-medium">Row</th>
-              <th className="px-3 py-2 font-medium">Field</th>
-              <th className="px-3 py-2 font-medium">Problem</th>
-              <th className="px-3 py-2 font-medium">Suggested fix</th>
-              <th className="py-2 pr-6 pl-3 text-right font-medium">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <FixRow
-                key={item.key}
-                session={session}
-                item={item}
-                decision={decisions[item.key]}
-                dropped={tally.dropped.has(item.issue.row)}
-                onDecide={(action) => decide(item, action)}
-                onEdit={(value) => setDecisions((prev) => ({ ...prev, [item.key]: { action: "edit", value } }))}
-              />
-            ))}
-            {!items.length && (
-              <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-body-3 text-faded">
-                  Nothing to fix. Every row is ready to save.
-                </td>
+        {!items.length ? (
+          <ul className="divide-y divide-border/70 text-body-3">
+            {session.plan.rows
+              .filter((r) => r.ok)
+              .map((r) => (
+                <li key={r.row} className="flex items-center gap-3 px-6 py-2.5">
+                  <span className="w-10 shrink-0 font-mono text-caption-1 text-faded tabular">{r.row}</span>
+                  <Check className="size-3.5 shrink-0 text-positive-fg" />
+                  <span className="min-w-0 truncate">{r.summary || "Ready to save"}</span>
+                </li>
+              ))}
+          </ul>
+        ) : (
+          <table className="w-full text-left text-body-3">
+            <thead className="sticky top-0 z-10 bg-page-faded">
+              <tr className="border-b border-border text-caption-1 text-faded">
+                <th className="w-16 py-2 pr-2 pl-6 font-medium">Row</th>
+                <th className="px-3 py-2 font-medium">Field</th>
+                <th className="px-3 py-2 font-medium">Problem</th>
+                <th className="px-3 py-2 font-medium">Suggested fix</th>
+                <th className="py-2 pr-6 pl-3 text-right font-medium">Action</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <FixRow
+                  key={item.key}
+                  session={session}
+                  item={item}
+                  decision={decisions[item.key]}
+                  dropped={tally.dropped.has(item.issue.row)}
+                  onDecide={(action) => decide(item, action)}
+                  onEdit={(value) => setDecisions((prev) => ({ ...prev, [item.key]: { action: "edit", value } }))}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-page-faded px-6 py-3">
-        <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={!acceptable.length} onClick={acceptAll}>
-          <CheckCheck className="size-4" /> Accept all
-        </Button>
+        {items.length > 0 ? (
+          <Button variant="outline" className="h-9 gap-1.5 rounded-lg text-body-3" disabled={!acceptable.length} onClick={acceptAll}>
+            <CheckCheck className="size-4" /> Accept all
+          </Button>
+        ) : (
+          <span />
+        )}
         <div className="flex items-center gap-3">
           {tally.pending > 0 && <span className="text-caption-1 text-faded tabular">{tally.pending} left to review</span>}
           <Button className="h-9 rounded-lg px-4 text-body-3 font-semibold" disabled={tally.pending > 0 || !tally.rows} onClick={save} data-tour="upload-save">
