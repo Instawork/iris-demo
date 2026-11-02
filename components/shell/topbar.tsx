@@ -67,7 +67,7 @@ export function Topbar({ scrolled }: { scrolled: boolean }) {
   const setPalette = useUi((s) => s.setPalette)
 
   return (
-    <header className="relative z-20 flex h-12 shrink-0 items-center gap-1.5 px-3">
+    <header data-tour="topbar" className="relative z-20 flex h-12 shrink-0 items-center gap-1.5 px-3">
       <Button variant="ghost" size="icon" className="text-faded md:hidden" onClick={() => setMobileNav(true)} aria-label="Open menu">
         <Menu className="size-4" />
       </Button>

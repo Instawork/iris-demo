@@ -156,13 +156,32 @@ interface Spot {
 /** Something on the page the card shouldn't sit on, and how much it matters. */
 interface Obstacle extends Box {
   weight: number
+  /** A control: covering any of it costs as much as covering all of it, since a clipped button looks broken. */
+  whole?: boolean
 }
 
-const centered = (size: { w: number; h: number }, vw: number, vh: number): Spot => ({ x: (vw - size.w) / 2, y: Math.max(16, (vh - size.h) / 2) })
+const hidden = (card: Box, o: Obstacle) => {
+  const area = overlap(card, o)
+  return o.whole && area > 0 ? o.w * o.h + CONTROL : area
+}
+
+/** What hiding any control costs on top of its size, so a small button counts for as much as a strip of text. */
+const CONTROL = 1500
+
+/** The highest the card may sit: under the app's top bar, so it never hides the search, seat or menu. */
+const ceiling = () => {
+  const bar = document.querySelector('[data-tour="topbar"]')?.getBoundingClientRect()
+  return bar && bar.height > 0 && bar.bottom > 0 ? Math.max(16, bar.bottom + 8) : 16
+}
+
+const centered = (size: { w: number; h: number }, vw: number, vh: number): Spot => ({ x: (vw - size.w) / 2, y: Math.max(ceiling(), (vh - size.h) / 2) })
 
 const overlap = (a: Box, b: Box) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
 
 const onScreen = (b: Box, vw: number, vh: number) => b.x + b.w > 0 && b.x < vw && b.y + b.h > 0 && b.y < vh
+
+/** How far inside a dialog the button can sit for a card beside the dialog to still point at it. */
+const REACH = 96
 
 /** A spot that points at nothing costs this much more than one beside what the step is about. */
 const UNPOINTED = 6000
@@ -170,6 +189,7 @@ const UNPOINTED = 6000
 /** The emptiest place for the card that points at nothing, the nearer `around` the better. */
 function openSpot(size: { w: number; h: number }, vw: number, vh: number, around: Box | undefined, avoid: Obstacle[], keep?: string): Spot & { cost: number } {
   const m = 16
+  const top = ceiling()
   const step = 24
   const nx = around ? around.x + around.w / 2 : vw / 2
   const ny = around ? around.y + around.h / 2 : vh / 2
@@ -177,20 +197,20 @@ function openSpot(size: { w: number; h: number }, vw: number, vh: number, around
     const card = { x, y, w: size.w, h: size.h }
     let cost = UNPOINTED + Math.hypot(x + size.w / 2 - nx, y + size.h / 2 - ny) * 8
     for (const o of avoid) {
-      cost += o.weight * overlap(card, o)
+      cost += o.weight * hidden(card, o)
       if (cost >= limit) break
     }
     return cost
   }
   let best: Spot & { cost: number } = { ...centered(size, vw, vh), cost: Infinity }
-  for (let y = m; y <= vh - size.h - m; y += step) {
+  for (let y = top; y <= vh - size.h - m; y += step) {
     for (let x = m; x <= vw - size.w - m; x += step) {
       const cost = costAt(x, y, best.cost)
       if (cost < best.cost) best = { x, y, key: `open:${x},${y}`, cost }
     }
   }
   const [x, y] = keep?.startsWith("open:") ? keep.slice(5).split(",").map(Number) : []
-  if (x === undefined || y === undefined || x > vw - size.w - m || y > vh - size.h - m) return best
+  if (x === undefined || y === undefined || x > vw - size.w - m || y < top || y > vh - size.h - m) return best
   const cost = costAt(x, y)
   return cost <= best.cost * 1.25 + 2000 ? { x, y, key: keep, cost } : best
 }
@@ -211,29 +231,39 @@ function place(
   avoid: Obstacle[] = [],
   keep?: string,
   open?: Spot & { cost: number },
-): Spot | undefined {
+  reach = Infinity,
+  tag = "",
+): (Spot & { cost: number }) | undefined {
   const m = 16
   const gap = 16
   if (vw < 640) {
     const low = !!focus && focus.y + focus.h / 2 > vh / 2
-    return { x: 12, y: low ? 12 : vh - size.h - 12 }
+    return { x: 12, y: low ? 12 : vh - size.h - 12, cost: 0 }
   }
-  if (!anchor || !focus) return centered(size, vw, vh)
+  if (!anchor || !focus) return { ...centered(size, vw, vh), cost: UNPOINTED }
+  const top = ceiling()
   const clampX = (x: number) => Math.min(Math.max(m, x), vw - size.w - m)
-  const clampY = (y: number) => Math.min(Math.max(m, y), vh - size.h - m)
+  const clampY = (y: number) => Math.max(top, Math.min(y, vh - size.h - m))
   const cx = focus.x + focus.w / 2
   const cy = focus.y + focus.h / 2
   const facing: Record<Placement, Placement> = { bottom: "top", top: "bottom", right: "left", left: "right" }
   const fits: Record<Placement, boolean> = {
     bottom: anchor.y + anchor.h + gap + size.h <= vh - m,
-    top: anchor.y - gap - size.h >= m,
+    top: anchor.y - gap - size.h >= top,
     right: anchor.x + anchor.w + gap + size.w <= vw - m,
     left: anchor.x - gap - size.w >= m,
+  }
+  // How far in from the anchor's edge the focus sits, so a pointer on the edge still reads as pointing at it.
+  const inward: Record<Placement, number> = {
+    bottom: anchor.y + anchor.h - (focus.y + focus.h),
+    top: focus.y - anchor.y,
+    right: anchor.x + anchor.w - (focus.x + focus.w),
+    left: focus.x - anchor.x,
   }
   const sides = [...new Set<Placement>([prefer ?? "bottom", "bottom", "top", "right", "left"])]
   const spots: (Spot & { cost: number; hides: boolean })[] = []
   sides.forEach((p, rank) => {
-    if (!fits[p]) return
+    if (!fits[p] || inward[p] > reach) return
     const across = p === "bottom" || p === "top"
     const aligns = across
       ? { center: cx - size.w / 2, start: focus.x, end: focus.x + focus.w - size.w }
@@ -248,8 +278,8 @@ function place(
       if (across ? tip < focus.x || tip > focus.x + focus.w : tip < focus.y || tip > focus.y + focus.h) continue
       const card = { x, y, w: size.w, h: size.h }
       const hides = overlap(card, focus) > 0
-      const cost = avoid.reduce((sum, o) => sum + o.weight * overlap(card, o), 0) + rank * 400 + (align === "center" ? 0 : 150)
-      spots.push({ x, y, edge: facing[p], at, key: `${p}:${align}`, cost, hides })
+      const cost = avoid.reduce((sum, o) => sum + o.weight * hidden(card, o), 0) + rank * 400 + (align === "center" ? 0 : 150)
+      spots.push({ x, y, edge: facing[p], at, key: `${tag}${p}:${align}`, cost, hides })
     }
   })
   const clear = spots.filter((s) => !s.hides)
@@ -259,13 +289,24 @@ function place(
   const best = pool.reduce((a, b) => (b.cost < a.cost ? b : a))
   const kept = keep ? pool.find((s) => s.key === keep) : undefined
   const pick = kept && kept.cost <= best.cost * 1.25 + 2000 ? kept : best
-  return { x: pick.x, y: pick.y, edge: pick.edge, at: pick.at, key: pick.key }
+  return { x: pick.x, y: pick.y, edge: pick.edge, at: pick.at, key: pick.key, cost: pick.cost + (pick.hides ? HIDES_FOCUS : 0) }
 }
 
-const AVOID = 'button, a[href], input, textarea, select, [role="tab"], [role="checkbox"], [role="switch"], [role="combobox"], th, td, h1, h2, h3, label, p, svg, img, canvas'
+/** What a spot that covers the thing it points at costs, against spots elsewhere. */
+const HIDES_FOCUS = 1_000_000
+
+/** Of the spots pointing at different things, the one hiding least, or the one the card has while that's still a good place. */
+function cheapest(spots: (Spot & { cost: number })[], keep?: string) {
+  if (!spots.length) return undefined
+  const best = spots.reduce((a, b) => (b.cost < a.cost ? b : a))
+  const kept = spots.find((s) => s.key === keep)
+  return kept && kept.cost <= best.cost * 1.25 + 2000 ? kept : best
+}
+
+const AVOID = 'button, a[href], input, textarea, select, [role="tab"], [role="checkbox"], [role="switch"], [role="combobox"], th, td, label, svg, img, canvas'
 
 /**
- * What the card would hide, read off the page: controls, table cells, headings, text and charts, a little for the
+ * What the card would hide, read off the page: controls, table cells, text and charts, a little for the
  * panels they sit in, the sidebar, the toasts, and above all the step's targets and the button it asks for. With a
  * dialog open, only what's in it counts, since the page behind is dimmed.
  */
@@ -276,18 +317,20 @@ function obstacles(modal: Element | null, click: Element | null | undefined, tar
   const frame = modal ? modal.getBoundingClientRect() : undefined
   const clip = frame ? { x: frame.left, y: frame.top, w: frame.width, h: frame.height } : view
   const out: Obstacle[] = []
-  const add = (el: Element | Range, weight: number, within: Box) => {
+  const add = (el: Element | Range, weight: number, within: Box, whole = false) => {
     const r = el.getBoundingClientRect()
     const x = Math.max(r.left, within.x)
     const y = Math.max(r.top, within.y)
     const w = Math.min(r.right, within.x + within.w) - x
     const h = Math.min(r.bottom, within.y + within.h) - y
-    if (w > 0 && h > 0) out.push({ x, y, w, h, weight })
+    if (w > 0 && h > 0) out.push({ x, y, w, h, weight, whole })
   }
   for (const el of document.querySelectorAll(AVOID)) {
     if (el.closest("[data-tour-layer]")) continue
     if (modal ? !modal.contains(el) : el.closest('[role="dialog"]')) continue
-    add(el, el.matches("th, td, p, h1, h2, h3, svg, img, canvas") ? 1 : 2, clip)
+    const content = el.matches("th, td, svg, img, canvas")
+    const r = el.getBoundingClientRect()
+    add(el, content ? 1 : 6, clip, !content && r.width * r.height >= 400 && r.width * r.height < 12000)
   }
   const walker = document.createTreeWalker(modal ?? document.body, NodeFilter.SHOW_TEXT)
   const range = document.createRange()
@@ -545,6 +588,8 @@ function StepScreen({ step }: { step: TourStep }) {
       setMoved(visit)
     }
     let open: (Spot & { cost: number }) | undefined
+    let dialog: Element | undefined
+    let aim: Element | undefined
     /**
      * Where the card goes for these boxes. The page is read again at most every 200ms, as the card follows each frame.
      * A card with nothing to point at on screen stays where it stood. Once done, or with no room beside what it points
@@ -555,17 +600,35 @@ function StepScreen({ step }: { step: TourStep }) {
       const size = card ? { w: card.offsetWidth, h: card.offsetHeight } : { w: CARD_W, h: 220 }
       const vw = window.innerWidth
       const vh = window.innerHeight
-      const boxes = els.map(boxOf)
-      const around = anchor ?? boxes[0]
-      const shown = around && onScreen(around, vw, vh) ? around : undefined
       if (t - readAt > 200) {
         readAt = t
-        avoid = obstacles(topModal(), handedOff() ?? nextClick(step, ctx), els)
+        const modal = topModal()
+        avoid = obstacles(modal, handedOff() ?? nextClick(step, ctx), els)
         open = undefined
+        // In a dialog, the card stands outside it so the dialog stays readable. Beside a target holding the button it asks for, it points at the button.
+        const button = handedOff() ?? step.clicks?.(ctx)
+        dialog = modal && els[0] && modal.contains(els[0]) && !anchor ? modal : undefined
+        aim = button && els[0] && button !== els[0] && els[0].contains(button) && button.getClientRects().length > 0 ? button : undefined
       }
+      const boxes = els.map(boxOf)
+      const button = aim?.isConnected ? boxOf(aim) : boxes[0]
+      const around = anchor ?? (dialog?.isConnected ? boxOf(dialog) : undefined) ?? boxes[0]
+      const shown = around && onScreen(around, vw, vh) ? around : undefined
       const openNow = () => (open ??= openSpot(size, vw, vh, shown ?? (held && { ...held, ...size }), avoid, kept))
+      const extra = celebrating ? openNow() : undefined
+      // Beside what's around the button, pointing at it; at a composer holding it, whichever of the two hides less. Failing that,
+      // at what the step is about, then right beside the button.
+      const beside = (by: Box | undefined, focus: Box | undefined, tag = "") =>
+        (by && focus && onScreen(by, vw, vh) && place(by, size, step.placement, vw, vh, focus, avoid, kept, extra, by === focus ? Infinity : REACH, tag)) || undefined
+      const atButton = beside(shown, button)
+      // Level with the button, on the target's edge.
+      const row = { x: boxes[0]?.x ?? 0, w: boxes[0]?.w ?? 0, y: button?.y ?? 0, h: button?.h ?? 0 }
+      const atTarget = button !== boxes[0] ? beside(shown, row, "target:") : undefined
+      const composer = !!els[0]?.matches('[data-slot="input-group"]')
       const spot =
-        (shown && place(shown, size, step.placement, vw, vh, boxes[0], avoid, kept, celebrating ? openNow() : undefined)) ??
+        (composer ? cheapest([atButton, atTarget && { ...atTarget, cost: atTarget.cost + 1500 }].filter((s) => !!s), kept) : atButton) ??
+        atTarget ??
+        (shown !== button ? beside(button, button) : undefined) ??
         (shown || celebrating ? openNow() : held && { x: held.x, y: held.y, key: held.key }) ??
         centered(size, vw, vh)
       kept = spot.key
@@ -1090,7 +1153,7 @@ function StepArrow({ label, disabled, onClick, children }: { label: string; disa
 }
 
 /** How wide each step's segment is in the part being played, so a part's bar stays about the same length however many steps it has. */
-const segmentWidth = (steps: number) => (steps === 1 ? 40 : Math.max(8, Math.round((40 - 2 * (steps - 1)) / steps)))
+const segmentWidth = (steps: number) => (steps === 1 ? 40 : Math.max(5, Math.round((40 - 2 * (steps - 1)) / steps)))
 
 /**
  * One bar per part, each a way into it. The part being played is split into its steps, each a way to that step, and
@@ -1165,7 +1228,7 @@ function PartBars({
                 type="button"
                 onClick={() => openPart(id)}
                 aria-label={`Part ${part.number}: ${part.label}`}
-                className="group/part flex h-6 items-center rounded-md px-[2px] outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+                className="group/part flex h-6 items-center rounded-md px-px outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
               >
                 <span className={cn("h-1 w-2 rounded-full transition-[height,background-color] group-hover/part:h-1.5", c < at ? before : after)} />
               </button>

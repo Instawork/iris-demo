@@ -239,7 +239,7 @@ function ResultTable({ page, result, canOpenAgency, onOpenAgency }: { page: Repo
         id: m,
         header: measureLabel(page, m),
         info: measureInfo(m).info,
-        align: "right",
+        align: m === "hours" ? "center" : "right",
         sortValue: (g) => g.values[m] ?? -Infinity,
         cell: (g) => <span className={cn("tabular", i === 0 && "font-semibold")}>{formatValue(m, g.values[m])}</span>,
       }

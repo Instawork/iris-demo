@@ -91,7 +91,7 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Move {pro.firstName} to another {departments.length ? "role or department" : "role"}</DialogTitle>
+        <DialogTitle>Move to another {departments.length ? "role or department" : "role"}</DialogTitle>
         <DialogDescription>
           {where(current, currentDepartment)} at {loc.name}
         </DialogDescription>
@@ -204,7 +204,7 @@ function MoveBody({ group, slot, onDone }: { group: ShiftGroup; slot: Slot; onDo
           Cancel
         </Button>
         <Button onClick={submit} disabled={!chosen || outside || unchanged || busy} data-tour="move-submit">
-          Move {pro.firstName}
+          Move
         </Button>
       </DialogFooter>
     </>

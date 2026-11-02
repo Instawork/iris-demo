@@ -569,6 +569,14 @@ const splitHref = (ctx: TourContext) => {
   return m ? `/timesheets?ts=${m.t.id}` : "/timesheets"
 }
 
+/** What the split step is about: the move dialog, the sheet's Split by role, or the worker's row. */
+const splitTarget = (ctx: TourContext) => {
+  if (one(MOVE)) return one(MOVE)
+  if (one(SHEET)) return one('[data-tour="split-role"]')
+  const m = movable(ctx.data)
+  return m && one(`tr[data-row-id="${m.t.id}"]`)
+}
+
 /** Picks the role the step names, or else any other role the worker can move to. */
 const pickRole = async (ctx: TourContext) => {
   const m = movable(ctx.data)
@@ -771,6 +779,14 @@ export const SCRIPT: TourItem[] = [
             ? "Click Request workers by name, and pick two"
             : `Click ${one('[data-tour="booking-post"]')?.textContent?.trim() || "Post"}`,
     targets: () => (!one(DISPATCH) ? [one('[data-tour="booking-review"]')] : prosPicked() ? [one('[data-tour="booking-post"]'), one(DISPATCH)] : [one(DISPATCH)]),
+    clicks: () =>
+      !one(DISPATCH)
+        ? one('[data-tour="booking-review"]')
+        : !oneAgency()
+          ? one(AGENCY_TAB)
+          : !prosPicked()
+            ? (one(`${DISPATCH} [data-tour="request-workers"]`) ?? one(DISPATCH))
+            : one('[data-tour="booking-post"]'),
     placement: "left",
     done: (ctx) => !!requestedOrder(ctx),
     success: (ctx) => {
@@ -984,12 +1000,8 @@ export const SCRIPT: TourItem[] = [
       return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
     },
     action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
-    targets: (ctx) => {
-      if (one(MOVE)) return [one(MOVE)]
-      if (one(SHEET)) return [one('[data-tour="split-role"]')]
-      const m = movable(ctx.data)
-      return [m && one(`tr[data-row-id="${m.t.id}"]`)]
-    },
+    targets: (ctx) => [splitTarget(ctx)],
+    clicks: (ctx) => (one(MOVE) ? one('[data-tour="move-submit"]') : splitTarget(ctx)),
     placement: "left",
     anchor: () => (one(MOVE) ? undefined : one(SHEET)),
     done: (ctx) => !!movedSince(ctx),
