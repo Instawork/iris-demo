@@ -322,3 +322,14 @@ export function withOvertime(timesheets: Timesheet[], keys?: Set<string>): Times
     return next === undefined || next === t.otHours ? t : { ...t, otHours: next }
   })
 }
+
+/** Each worker's share: the same amount each, or the pool by hours with the last cent on the longest shift. */
+export function shareTips(sheets: Timesheet[], amount: number, each: boolean) {
+  if (each) return sheets.map((t) => ({ timesheetId: t.id, tips: amount }))
+  const hours = sheets.reduce((s, t) => s + t.hours, 0)
+  if (!hours) return []
+  const entries = sheets.map((t) => ({ timesheetId: t.id, tips: round2((amount * t.hours) / hours) }))
+  const longest = sheets.reduce((a, b) => (b.hours > a.hours ? b : a))
+  const short = round2(amount - entries.reduce((s, e) => s + e.tips, 0))
+  return entries.map((e) => (e.timesheetId === longest.id ? { ...e, tips: round2(e.tips + short) } : e))
+}

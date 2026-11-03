@@ -62,6 +62,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
 import { buyer, city, departmentOf, location, position, supplier } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
+import { expensesOf, shareTips } from "@/lib/timesheets"
 import type { Pro, ShiftGroup, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -159,11 +160,12 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
 
   const tz = city(loc.cityId).tz
   const hasTips = group.badges.includes("TIPS") || rows.some((r) => (r.ts?.tips ?? 0) > 0)
+  const hasExpenses = rows.some((r) => r.parts.some((t) => t.expenses?.length))
   const timed = rows.some((r) => r.ts)
   const staffed = rows.filter((r) => r.pro)
   const openSpots = rows.filter((r) => !r.pro && !r.otherSupplier).length
   const elsewhere = [...rows.reduce((m, r) => (!r.pro && r.otherSupplier ? m.set(r.otherSupplier, (m.get(r.otherSupplier) ?? 0) + 1) : m), new Map<string, number>())]
-  const lead = timed ? 5 + (hasTips ? 1 : 0) : 1
+  const lead = timed ? 5 + (hasTips ? 1 : 0) + (hasExpenses ? 1 : 0) : 1
 
   return (
     <>
@@ -250,7 +252,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
               )}
               {isBuyer && hasTips && phase === "past" && (
                 <DropdownMenuItem onSelect={() => setTipsOpen(true)}>
-                  <Coins /> Pay tips
+                  <Coins /> Add tips
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onSelect={exportRoster}>
@@ -287,8 +289,8 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                   </Button>
                 )}
                 {isBuyer && hasTips && phase === "past" && (
-                  <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg text-caption-1" onClick={() => setTipsOpen(true)}>
-                    <Coins className="size-3.5" /> Pay tips
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg text-caption-1" onClick={() => setTipsOpen(true)} data-tour="tips-open">
+                    <Coins className="size-3.5" /> Add tips
                   </Button>
                 )}
                 {isBuyer && upcoming && (
@@ -310,6 +312,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                         <th className="px-3 py-2">Break (mins)</th>
                         <th className="px-3 py-2 text-right">Hours</th>
                         {hasTips && <th className="px-3 py-2 text-right">Tips</th>}
+                        {hasExpenses && <th className="px-3 py-2 text-right">Expenses</th>}
                       </>
                     )}
                     <th className="px-3 py-2">Status</th>
@@ -334,7 +337,7 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                                 {roster?.status === "favorite" && <Heart className="ml-1 inline size-3 fill-critical text-critical" />}
                               </span>
                               <span className="inline-flex items-center gap-1 text-caption-1 text-faded">
-                                <Star className="size-3 fill-warning text-warning" /> {pro.rating ? pro.rating.toFixed(2) : "New"} · {isSupplier ? pro.code : supplier(pro.supplierId).shortName}
+                                <Star className="size-3 fill-warning text-warning" /> {pro.rating ? pro.rating.toFixed(1) : "New"} · {isSupplier ? pro.code : supplier(pro.supplierId).shortName}
                               </span>
                               {slot.moves?.length ? (
                                 <Tip content={slot.moves.map((m) => `${position(m.positionId).name} from ${formatClockShort(m.at)} at ${money(m.billRate)}/hr, by ${m.by}${m.note ? `: ${m.note}` : ""}`).join(". ")}>
@@ -354,6 +357,11 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                           <td className="px-3 py-2.5 tabular">{shown ? shown.breakMins : <span className="text-subtle">--</span>}</td>
                           <td className="px-3 py-2.5 text-right font-semibold tabular">{shown ? shown.hours.toFixed(2) : <span className="font-normal text-subtle">--</span>}</td>
                           {hasTips && <td className="px-3 py-2.5 text-right tabular">{shown?.tips ? money(shown.tips) : <span className="text-subtle">--</span>}</td>}
+                          {hasExpenses && (
+                            <td className="px-3 py-2.5 text-right tabular" data-tour="shift-expense">
+                              {spentOn(parts) ?? <span className="text-subtle">--</span>}
+                            </td>
+                          )}
                         </>
                       )}
                       <td className="px-3 py-2.5">
@@ -697,11 +705,11 @@ function TipsDialog({
   const [values, setValues] = useState<Record<string, string>>({})
   const [pool, setPool] = useState("")
   const editable = rows.filter((r) => !r.ts.invoiceId)
-  const totalHours = editable.reduce((s, r) => s + r.ts.hours, 0)
   const split = () => {
     const amount = Number(pool)
-    if (!amount || !totalHours) return
-    setValues(Object.fromEntries(editable.map((r) => [r.ts.id, (Math.round((amount * r.ts.hours) / totalHours * 100) / 100).toFixed(2)])))
+    if (!amount) return
+    const shares = shareTips(editable.map((r) => r.ts), amount, false)
+    if (shares.length) setValues((v) => ({ ...v, ...Object.fromEntries(shares.map((e) => [e.timesheetId, e.tips.toFixed(2)])) }))
   }
   const sum = Object.values(values).reduce((s, v) => s + (Number(v) || 0), 0)
   return (
@@ -712,9 +720,9 @@ function TipsDialog({
         onOpenChange(o)
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" data-tour="tips-dialog">
         <DialogHeader>
-          <DialogTitle>Pay tips</DialogTitle>
+          <DialogTitle>Add tips</DialogTitle>
           <DialogDescription>Tips pass straight through to workers with no markup. Split a pool by hours, or enter each worker&apos;s tip.</DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-lg bg-page-faded p-3">
@@ -723,9 +731,10 @@ function TipsDialog({
             value={pool}
             onChange={(e) => setPool(e.target.value.replace(/[^\d.]/g, ""))}
             placeholder="Tip pool, like 840"
+            data-tour="tips-pool"
             className="h-9 flex-1 rounded-md border border-input bg-card px-3 text-body-3 outline-none focus:border-primary/60"
           />
-          <Button variant="outline" className="h-9 rounded-lg" onClick={split} disabled={!Number(pool)}>
+          <Button variant="outline" className="h-9 rounded-lg" onClick={split} disabled={!Number(pool)} data-tour="tips-split">
             Split by hours
           </Button>
         </div>
@@ -750,6 +759,7 @@ function TipsDialog({
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-body-3 font-semibold">Total {money(sum)}</span>
           <Button
+            data-tour="tips-save"
             onClick={() => {
               onSave(Object.entries(values).map(([timesheetId, v]) => ({ timesheetId, tips: Number(v) || 0 })))
               toast.success(`${money(sum)} in tips saved`, { description: "They'll appear on the next invoice." })
@@ -770,7 +780,7 @@ function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], 
   items.push({
     at: group.createdAt,
     text: a
-      ? `${group.createdBy} asked for ${group.slots.length} spots, ${(a.overPct * 100).toFixed(1)}% over the week's budget`
+      ? `${group.createdBy} asked for ${group.slots.length} spots, ${Math.round(a.overPct * 100)}% over the week's budget`
       : group.supplierReleases && !group.supplierIds.length
         ? `${group.createdBy} posted ${group.slots.length} spots, held until ${formatTimestamp(group.supplierReleases[0].releasedAt)}`
         : `${group.createdBy} posted ${group.slots.length} spots${group.supplierIds.length ? ` and notified ${joinNames(group.supplierIds.map((id) => supplier(id).shortName))}` : ""}${group.source === "upload" ? " by CSV upload" : ""}`,
@@ -812,6 +822,12 @@ function buildTimeline(group: ShiftGroup, pros: Pro[], timesheets: Timesheet[], 
     if (inv) items.push({ at: new Date(`${inv.issuedOn}T07:00:00`).toISOString(), text: `Billed on invoice ${inv.number}`, dot: "bg-border-strong" })
   }
   return items.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** What the agency billed in expenses for a worker's shift, across every part of it. */
+function spentOn(parts: Timesheet[]) {
+  const total = round2(parts.reduce((s, t) => s + expensesOf(t), 0))
+  return total ? money(total) : undefined
 }
 
 /** A worker's timesheets on a shift, in order, and the times they add up to when a role change split them. */

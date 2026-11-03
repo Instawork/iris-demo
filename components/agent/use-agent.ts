@@ -5,16 +5,18 @@ import { useCallback, useRef } from "react"
 import { NO_MESSAGES, useAgentThreads, type AgentAction, type AgentMessage } from "@/components/agent/agent-store"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
-import { asksToAssign, asksToSubmit, assignReply, submitFrom, submitReply, submittedLine } from "@/lib/agent-agency"
+import { asksToAssign, asksToExpense, asksToSubmit, assignReply, expenseReply, submitFrom, submitReply, submittedLine } from "@/lib/agent-agency"
 import { approvedLine, correctedLine, hoursReply, parseHoursApproval } from "@/lib/agent-hours"
 import { parseReportRequest, reportReply } from "@/lib/agent-report"
+import { asksToTip, tipsReply } from "@/lib/agent-tips"
 import { looksLikeShiftRequest, parseAgentShift, type ParsedAgentShift } from "@/lib/agent-shift"
 import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateName } from "@/lib/csv"
 import { formatClockShort, formatDay, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
 import { previewOrder } from "@/lib/domain/order"
 import { money, round2 } from "@/lib/format"
-import { PROGRAM, approversFor, departmentOf, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
+import { PROGRAM, approversFor, buyer as buyerOf, departmentOf, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
 import { detectUploadType, isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
+import { EXPENSE_LABEL } from "@/lib/timesheets"
 import { joinNames, notifiedSuppliers, pickedOffer, useStore, type BookingInput } from "@/lib/store"
 import type { DemoData, UploadType } from "@/lib/types"
 
@@ -79,6 +81,11 @@ export function useAgent() {
 
       if (ws.kind === "buyer") {
         const data = useStore.getState().data
+        if (asksToTip(text)) {
+          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1]
+          add({ from: "agent", ...tipsReply(data, ws.buyerId!, text, todayISO(), onScreen) })
+          return
+        }
         const request = parseHoursApproval(text, data, ws.buyerId!, todayISO())
         if (request?.ambiguous.length) {
           const names = request.ambiguous
@@ -93,6 +100,11 @@ export function useAgent() {
 
       if (ws.kind === "supplier" && ws.supplierId) {
         const data = useStore.getState().data
+        if (asksToExpense(text)) {
+          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1]
+          add({ from: "agent", ...expenseReply(data, ws.supplierId, text, todayISO(), onScreen) })
+          return
+        }
         if (asksToSubmit(text)) {
           add({ from: "agent", ...submitReply(data, ws.supplierId, submitFrom(text, todayISO())) })
           return
@@ -265,6 +277,42 @@ export function useAgent() {
           }
           const next = hoursReply(data, ws.buyerId!, action.scope, today, true)
           add({ from: "agent", text: `${lead}\n\n${next.text}`, actions: next.actions, batch: next.batch })
+        } finally {
+          approving.current.delete(key)
+        }
+        return
+      }
+      if (action.kind === "add-expenses") {
+        const key = messageId ?? 0
+        if (approving.current.has(key)) return
+        approving.current.add(key)
+        try {
+          const n = await useStore.getState().addExpenses(action.ids, action.expense, action.amount, action.note)
+          if (!n) return
+          if (messageId) dropActions(ws.id, messageId)
+          const buyers = [...new Set(useStore.getState().data.timesheets.filter((t) => action.ids.includes(t.id)).map((t) => t.buyerId))]
+          add({
+            from: "agent",
+            text: `Added ${money(action.amount)} ${EXPENSE_LABEL[action.expense].toLowerCase()} to ${n} timesheet${n === 1 ? "" : "s"}. ${buyers.length === 1 ? buyerOf(buyers[0]).name : "The buyer"} approves it with the hours.`,
+            actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }],
+          })
+        } finally {
+          approving.current.delete(key)
+        }
+        return
+      }
+      if (action.kind === "set-tips") {
+        const key = messageId ?? 0
+        if (approving.current.has(key)) return
+        approving.current.add(key)
+        try {
+          if (!(await useStore.getState().setTips(action.entries))) return
+          if (messageId) dropActions(ws.id, messageId)
+          const group = useStore.getState().data.groups.find((g) => g.id === action.groupId)
+          add({
+            from: "agent",
+            text: `Added ${money(action.total)} in tips for ${action.entries.length} worker${action.entries.length === 1 ? "" : "s"}${group ? ` on ${position(group.positionId).name}, ${location(group.locationId).name}` : ""}. They go to the workers as entered, with no markup.`,
+          })
         } finally {
           approving.current.delete(key)
         }

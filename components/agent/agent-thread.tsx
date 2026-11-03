@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowUp, CalendarPlus, Check, CheckCheck, CircleCheck, Download, FileSpreadsheet, Paperclip, TriangleAlert, Upload, UsersRound } from "lucide-react"
+import { ArrowUp, CalendarPlus, Check, CheckCheck, CircleCheck, Coins, Download, FileSpreadsheet, Paperclip, Receipt, TriangleAlert, Upload, UsersRound } from "lucide-react"
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage, ReportAnswer, ShiftDraft } from "@/components/agent/agent-store"
@@ -43,10 +43,14 @@ function ActionButton({ action, onRun }: { action: AgentAction; onRun: (action: 
           ? CheckCheck
           : action.kind === "assign-workers"
             ? UsersRound
-            : action.kind === "accept-proposal"
+            : action.kind === "add-expenses"
+              ? Receipt
+              : action.kind === "set-tips"
+              ? Coins
+              : action.kind === "accept-proposal"
               ? Check
               : Upload
-  const primary = action.kind === "create-shift" || action.kind === "approve-timesheets" || action.kind === "submit-timesheets" || action.kind === "assign-workers"
+  const primary = action.kind === "create-shift" || action.kind === "approve-timesheets" || action.kind === "submit-timesheets" || action.kind === "assign-workers" || action.kind === "add-expenses" || action.kind === "set-tips"
   return (
     <Button
       variant={primary ? "default" : "outline"}
@@ -335,7 +339,7 @@ export function AgentMessages({
             data-tour={
               message.actions?.some((a) => a.kind === "create-shift")
                 ? "agent-draft"
-                : message.actions?.some((a) => a.kind === "submit-timesheets" || a.kind === "assign-workers" || a.kind === "approve-timesheets" || a.kind === "accept-proposal")
+                : message.actions?.some((a) => a.kind === "submit-timesheets" || a.kind === "assign-workers" || a.kind === "add-expenses" || a.kind === "set-tips" || a.kind === "approve-timesheets" || a.kind === "accept-proposal")
                   ? "agent-plan"
                   : undefined
             }

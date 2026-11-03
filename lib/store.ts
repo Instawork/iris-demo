@@ -70,8 +70,9 @@ interface StoreState {
   editTimesheet: (id: string, times: TimesInput, note?: string) => Promise<boolean>
   removeTimesheet: (id: string, reason: string) => Promise<boolean>
   addExpense: (timesheetId: string, kind: ExpenseKind, amount: number, note?: string) => Promise<boolean>
+  addExpenses: (timesheetIds: string[], kind: ExpenseKind, amount: number, note?: string) => Promise<number>
   removeExpense: (timesheetId: string, expenseId: string) => Promise<boolean>
-  setTips: (entries: { timesheetId: string; tips: number }[]) => Promise<void>
+  setTips: (entries: { timesheetId: string; tips: number }[]) => Promise<boolean>
   createInvoiceGroup: (name: string, invoiceIds: string[]) => Promise<string>
   removeFromGroup: (invoiceId: string) => Promise<void>
   deleteInvoiceGroup: (groupId: string) => Promise<void>
@@ -370,7 +371,7 @@ export const useStore = create<StoreState>()((set, get) => {
       listen()
     },
 
-    bookShifts: async (input, key) => (await send("createJobPosting", input, key)) ?? [],
+    bookShifts: async (input, key) => (await send("createShifts", input, key)) ?? [],
     decideApproval: async (groupIds, decision, note) => (await send("decideApproval", { groupIds, decision, note })) ?? 0,
     releaseNextTier: async (groupId) => (await send("releaseNextTier", { groupId })) ?? null,
     cancelGroup: async (groupId) => void (await send("cancelGroup", { groupId })),
@@ -390,8 +391,9 @@ export const useStore = create<StoreState>()((set, get) => {
     editTimesheet: async (id, times, note) => (await send("editTimesheet", { id, ...times, note })) !== undefined,
     removeTimesheet: async (id, reason) => (await send("removeTimesheet", { id, reason })) !== undefined,
     addExpense: async (timesheetId, kind, amount, note) => (await send("addExpense", { timesheetId, kind, amount, note })) !== undefined,
+    addExpenses: async (timesheetIds, kind, amount, note) => (await send("addExpenses", { timesheetIds, kind, amount, note })) ?? 0,
     removeExpense: async (timesheetId, expenseId) => (await send("removeExpense", { timesheetId, expenseId })) !== undefined,
-    setTips: async (entries) => void (await send("setTips", { entries })),
+    setTips: async (entries) => (await send("setTips", { entries })) !== undefined,
     createInvoiceGroup: async (name, invoiceIds) => (await send("createInvoiceGroup", { name, invoiceIds })) ?? "",
     removeFromGroup: async (invoiceId) => void (await send("removeFromGroup", { invoiceId })),
     deleteInvoiceGroup: async (groupId) => void (await send("deleteInvoiceGroup", { groupId })),

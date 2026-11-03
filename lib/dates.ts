@@ -51,7 +51,7 @@ const dayNumber = (iso: string) => Math.round(Date.parse(`${iso.slice(0, 10)}T00
 
 export const daysFromToday = (iso: string) => dayNumber(iso) - dayNumber(todayISO())
 
-/** Compass's work week runs Saturday to Friday, as its postings are set up in Fieldglass. Timesheets, invoices and budgets share it. */
+/** Compass's work week runs Saturday to Friday, as it is set up in Fieldglass. Timesheets, invoices and budgets share it. */
 export const weekStartISO = (iso: string) => toISODate(startOfWeek(parseDate(iso), { weekStartsOn: 6 }))
 
 export const weekEndISO = (iso: string) => addDaysISO(weekStartISO(iso), 6)

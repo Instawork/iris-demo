@@ -4,6 +4,7 @@ import { create } from "zustand"
 
 import type { AgencyAction } from "@/lib/agent-agency"
 import type { HoursAction, TimesheetBatch } from "@/lib/agent-hours"
+import type { TipsAction } from "@/lib/agent-tips"
 import type { BookingInput } from "@/lib/store"
 import type { UploadType } from "@/lib/types"
 
@@ -16,6 +17,7 @@ export type AgentAction =
   | { label: string; kind: "create-shift"; input: BookingInput; key: string }
   | HoursAction
   | AgencyAction
+  | TipsAction
 
 /** A shift order Iris drafted from a sentence, shown as a card above its actions. */
 export interface ShiftDraft {

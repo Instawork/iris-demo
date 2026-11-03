@@ -33,7 +33,7 @@ App: https://cruber-demo.replit.app (no passcode)
 | Onboarding | Upload buyer | Easy to create | Units, Add a unit. A buyer's admin can also add one from Settings, Work locations |
 | Onboarding | Upload supplier | Easy to create | Agencies, Add an agency |
 | Onboarding | Upload rate card | Easy to manage and audit | The agency's page: its rates and every change to them. Supplier Rates compares them all |
-| Job Posting | Shift | Easy to create | The chat, the New shift form, CSV upload, Iris predicts |
+| Shifts | Shift creation | Easy to create | The chat, the New shift form, CSV upload, Iris predicts |
 | Job Seeker | Worker assignment | Easy to view | The shift's Pros and agencies, the agency's Assign Pros |
 | Attestations | Compliance | Verification | Professionals, Documents: attest, verify, and Compass's review |
 | Timesheet | Timesheet | Easy to edit, view discrepancies | Timesheets: Iris's clock beside what was billed and the schedule |

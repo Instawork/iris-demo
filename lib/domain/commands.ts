@@ -132,7 +132,7 @@ function released(g: ShiftGroup, ordered: string[], now: string): ShiftGroup {
   return { ...g, supplierReleases: plan, supplierIds: plan.filter((r) => r.releasedAt <= now).map((r) => r.supplierId), liveFill: { startedAt: now } }
 }
 
-function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInput): Outcome<string[]> {
+function createShifts(data: DemoData, ctx: CommandContext, input: BookingInput): Outcome<string[]> {
   const loc = need(findLocation(str(input?.locationId, "Location")), "That location doesn't exist")
   if (ctx.ws.kind !== "buyer" || ctx.ws.buyerId !== loc.buyerId) forbid("Only this location's buyer can post shifts here.")
   const pos = need(findPosition(str(input.positionId, "Position")), "That position doesn't exist")
@@ -227,7 +227,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
   const first = groups[0]
   const booked = first.slots.filter((x) => x.proId).length
   const text = approval
-    ? `${actorName(ctx)} asked for ${spots} ${pos.name} spots at ${loc.name}. It's ${(approval.overPct * 100).toFixed(1)}% over that week's budget, so it's waiting for ${joinNames(approvers.map((a) => a.user.name))}`
+    ? `${actorName(ctx)} asked for ${spots} ${pos.name} spots at ${loc.name}. It's ${Math.round(approval.overPct * 100)}% over that week's budget, so it's waiting for ${joinNames(approvers.map((a) => a.user.name))}`
     : first.supplierIds.length
       ? `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${supplier(card.supplierId).shortName} ${only ? "is the only agency that sees them" : "received them first"}${booked ? `, and Iris booked ${plural(booked, "requested worker")}` : ""}`
       : `${actorName(ctx)} posted ${spots} ${pos.name} spots at ${loc.name}. ${policy.sector} releases them ${policy.releaseLeadHours} hours before the shift`
@@ -236,7 +236,7 @@ function createJobPosting(data: DemoData, ctx: CommandContext, input: BookingInp
     notices: approval
       ? [
           {
-            text: `${actorName(ctx)} needs your approval: ${spots} ${pos.name} spots at ${loc.name}, ${(approval.overPct * 100).toFixed(1)}% over budget`,
+            text: `${actorName(ctx)} needs your approval: ${spots} ${pos.name} spots at ${loc.name}, ${Math.round(approval.overPct * 100)}% over budget`,
             tone: "warning",
             workspaceIds: approvers.map((a) => a.id),
           },
@@ -861,6 +861,21 @@ function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: s
     history: [...t.history, change(ctx.now, actorName(ctx), "edited", { note: `Added ${EXPENSE_LABEL[kind].toLowerCase()}, ${money(amount)}` })],
   }
   return done(data, id, { timesheets: replaceSheets(data, [next]) })
+}
+
+/** One cost for a whole crew, like the parking an agency paid for everyone on a shift. A timesheet that already has it is left alone. */
+function addExpenses(data: DemoData, ctx: CommandContext, input: { timesheetIds: string[]; kind: ExpenseKind; amount: number; note?: string }): Outcome<number> {
+  const ids = strList(input?.timesheetIds, "Timesheets", 200)
+  const amount = round2(num(input.amount, "The amount", 0.01, EXPENSE_MAX))
+  let next = data
+  let added = 0
+  for (const id of ids) {
+    if (timesheetOf(next, id).expenses?.some((e) => e.kind === input.kind && e.amount === amount)) continue
+    next = addExpense(next, ctx, { timesheetId: id, kind: input.kind, amount, note: input.note }).data
+    added++
+  }
+  if (!added) fail("They all have it already.")
+  return done(next, added)
 }
 
 function removeExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; expenseId: string }): Outcome<null> {
@@ -1846,7 +1861,7 @@ function sendReport(data: DemoData, ctx: CommandContext, input: { id: string; re
 /* -------------------------------- Registry --------------------------------- */
 
 export const COMMANDS = {
-  createJobPosting,
+  createShifts,
   decideApproval,
   releaseNextTier,
   cancelGroup,
@@ -1866,6 +1881,7 @@ export const COMMANDS = {
   editTimesheet,
   removeTimesheet,
   addExpense,
+  addExpenses,
   removeExpense,
   setTips,
   createInvoiceGroup,

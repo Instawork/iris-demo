@@ -3,19 +3,21 @@ import { eligiblePros, joinNames } from "@/lib/domain/core"
 import { fullName, hours, money, plural, round2 } from "@/lib/format"
 import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { buyer, location, position } from "@/lib/reference"
-import { readyToSubmit, timesheetAmount, timesheetChecks, withAgency } from "@/lib/timesheets"
+import { EXPENSE_LABEL, canEditBilled, readyToSubmit, timesheetAmount, timesheetChecks, withAgency } from "@/lib/timesheets"
 import type { BatchRow, TimesheetBatch } from "@/lib/agent-hours"
-import type { DemoData, Timesheet } from "@/lib/types"
+import type { DemoData, ExpenseKind, Timesheet } from "@/lib/types"
 
 /**
- * The agency's two longest chores, in a sentence. "Submit this week's timesheets" sends every draft that's ready and
+ * The agency's longest chores, in a sentence. "Submit this week's timesheets" sends every draft that's ready and
  * holds back, by name, the ones that aren't. "Assign workers" fills every open spot the agency has with its
- * best cleared workers. Either way the chat lays the plan out first, and nothing happens until the agency clicks.
+ * best cleared workers. "Add $20 parking to everyone on this shift" bills the crew's cost at once. Either way the chat
+ * lays the plan out first, and nothing happens until the agency clicks.
  */
 
 export type AgencyAction =
   | { label: string; kind: "submit-timesheets"; ids: string[]; from?: string }
   | { label: string; kind: "assign-workers"; plan: { groupId: string; proIds: string[] }[] }
+  | { label: string; kind: "add-expenses"; ids: string[]; expense: ExpenseKind; amount: number; note?: string }
 
 const LISTED = 3
 
@@ -27,6 +29,19 @@ export const asksToSubmit = (text: string) => {
 }
 
 export const asksToAssign = (text: string) => /\b(assign|staff|fill)\b/.test(lowerOf(text)) && !asksToSubmit(text)
+
+const AMOUNT = /\$\s?(\d{1,3}(?:\.\d{1,2})?)\b/
+
+export const asksToExpense = (text: string) => /\b(expenses?|parking|reimburse\w*)\b/.test(lowerOf(text)) && AMOUNT.test(text)
+
+/** The cost a sentence names: "$20 parking", "a $35 background check", or anything else with an amount. */
+export function expenseFrom(text: string): { kind: ExpenseKind; amount: number; note?: string } {
+  const lower = lowerOf(text)
+  const amount = round2(Number(AMOUNT.exec(text)?.[1] ?? 0))
+  if (/\bparking\b/.test(lower)) return { kind: "parking", amount }
+  if (/\bbackground\b/.test(lower)) return { kind: "background_check", amount }
+  return { kind: "other", amount, note: "Shift expense" }
+}
 
 /** The first day a sentence asks about, looking back from today. Everything still with the agency when it names none. */
 export function submitFrom(text: string, today: string) {
@@ -90,6 +105,41 @@ export function submittedLine(rows: Timesheet[]) {
   if (!rows.length) return "Those changed since, so none went in."
   const buyers = [...new Set(rows.map((t) => buyer(t.buyerId).name))]
   return `Submitted ${plural(rows.length, "timesheet")}, ${hours(round2(rows.reduce((s, t) => s + t.hours, 0)))}. ${joinNames(buyers)} can approve ${rows.length === 1 ? "it" : "them"} now.`
+}
+
+/* -------------------------------- Expenses --------------------------------- */
+
+/** The shift a crew expense is for: the one open on screen, or else the agency's latest shift that's been worked. */
+export function crewShift(data: DemoData, supplierId: string, today: string, groupId?: string) {
+  const worked = (id: string) => data.timesheets.filter((t) => t.groupId === id && t.supplierId === supplierId && t.status !== "removed" && !!t.clockIn && !!t.clockOut)
+  const open = groupId ? data.groups.find((g) => g.id === groupId) : undefined
+  if (open && worked(open.id).length) return { group: open, sheets: worked(open.id) }
+  const latest = data.groups
+    .filter((g) => g.date <= today && worked(g.id).some(canEditBilled))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.end.localeCompare(a.end))[0]
+  return latest ? { group: latest, sheets: worked(latest.id) } : undefined
+}
+
+export function expenseReply(data: DemoData, supplierId: string, text: string, today: string, groupId?: string): { text: string; actions: AgencyAction[] } {
+  const { kind, amount, note } = expenseFrom(text)
+  const shift = crewShift(data, supplierId, today, groupId)
+  if (!shift) return { text: "None of your workers has finished a shift you can still bill, so there's nothing to add it to.", actions: [] }
+  const { group, sheets } = shift
+  const where = `${position(group.positionId).name}, ${location(group.locationId).name}, ${formatDay(group.date, "EEE MMM d")}`
+  const has = (t: Timesheet) => t.expenses?.some((e) => e.kind === kind && e.amount === amount)
+  const adds = sheets.filter((t) => canEditBilled(t) && !has(t))
+  const sent = sheets.filter((t) => !canEditBilled(t) && !has(t)).length
+  const label = EXPENSE_LABEL[kind].toLowerCase()
+  if (!adds.length) return { text: sent ? `Everyone on ${where} is already submitted, so expenses can't change.` : `Everyone on ${where} already has ${money(amount)} ${label}.`, actions: [] }
+  const names = adds.map((t) => proName(data, t.proId).split(" ")[0])
+  const shown = names.length > LISTED + 1 ? `${names.slice(0, LISTED).join(", ")} and ${names.length - LISTED} more` : joinNames(names)
+  return {
+    text: [
+      `${money(amount)} ${label} for each of the ${plural(adds.length, "worker")} on ${where}: ${shown}. ${money(round2(amount * adds.length))} at cost, approved with their hours.`,
+      `${sent ? `${plural(sent, "timesheet")} already submitted ${sent === 1 ? "stays" : "stay"} as ${sent === 1 ? "it is" : "they are"}. ` : ""}Nothing is added until you click.`,
+    ].join("\n\n"),
+    actions: [{ label: `Add ${money(amount)} to ${plural(adds.length, "timesheet")}`, kind: "add-expenses", ids: adds.map((t) => t.id), expense: kind, amount, ...(note ? { note } : {}) }],
+  }
 }
 
 /* -------------------------------- Assigning -------------------------------- */
