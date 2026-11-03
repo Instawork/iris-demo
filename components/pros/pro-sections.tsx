@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkspace } from "@/hooks/use-app"
 import { requirementRows, type RequirementRow } from "@/lib/compliance"
-import { daysFromToday, formatDateFull, formatDay, todayISO } from "@/lib/dates"
+import { dateOf, daysFromToday, formatDateFull, formatDay, todayISO } from "@/lib/dates"
 import { plural, rate } from "@/lib/format"
 import { standingOf, type ProInterview, type ProOffer, type ProResume } from "@/lib/pro-profile"
 import { REQUIREMENTS, buyer, cityLabel, location, position, supplier } from "@/lib/reference"
@@ -187,8 +187,8 @@ function docDetail(row: RequirementRow) {
 function proofLine(row: RequirementRow) {
   const v = row.item?.verification
   if (!v || v.result !== "verified") return undefined
-  const by = CHECKS[row.id].fromIssuer ? "asked by" : "attested by"
-  return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : `Verified with ${v.checkedWith}`} · ${v.reference} · ${by} ${v.attestedBy}`
+  if (CHECKS[row.id].attested) return `Attested by ${v.attestedBy} · ${formatDateFull(dateOf(v.at))}`
+  return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : `Verified with ${v.checkedWith}`} · ${v.reference} · asked by ${v.attestedBy}`
 }
 
 export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: boolean }) {
@@ -232,7 +232,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
           const Icon = meta.icon
           const actionable = canComplete && row.state !== "complete"
           const held = row.item?.verification?.result === "needs_review" && row.state === "pending"
-          const issuer = CHECKS[row.id].fromIssuer ? readDocument(row.id, pro.id, todayISO()).provider : undefined
+          const issuer = CHECKS[row.id].attested ? undefined : readDocument(row.id, pro.id, todayISO()).provider
           const proof = proofLine(row)
           return (
             <li key={row.id} className="flex flex-col gap-2 px-3 py-2.5">
@@ -268,7 +268,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                     data-doc-state={row.state}
                     data-doc-id={row.id}
                   >
-                    {issuer ? `Ask ${issuer}` : held ? "Fix it" : row.state === "missing" || row.state === "pending" ? "Add" : "Renew"}
+                    {issuer ? `Ask ${issuer}` : "Attest"}
                   </Button>
                 ) : (
                   <StatusBadge size="sm" tone={meta.tone}>

@@ -375,9 +375,9 @@ export const REQUIREMENTS: { id: RequirementId; label: string; short: string; de
   },
   {
     id: "i9",
-    label: "I-9 / work authorization",
+    label: "Work authorization (I-9)",
     short: "I-9",
-    description: "Identity and employment eligibility verified (E-Verify). Required before any shift.",
+    description: "Identity and the right to work in the US, on the agency's Form I-9. The agency attests it. Required before any shift.",
     renews: false,
   },
   {

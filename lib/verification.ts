@@ -4,8 +4,9 @@ import type { RequirementId } from "@/lib/types"
 
 /**
  * How Iris checks each kind of document before it clears a Pro: who issues it, what reference identifies it, and how
- * long it lasts. The provider lookups are simulated in the demo; what passes and what gets held for Compass are the
- * rules Iris applies.
+ * long it lasts. Training and certifications are verified with whoever issued them. Work authorization is the
+ * agency's to attest, as the employer that completes the I-9. The provider lookups are simulated in the demo; what
+ * passes and what gets held for Compass are the rules Iris applies.
  */
 
 export interface DocumentCheck {
@@ -14,8 +15,8 @@ export interface DocumentCheck {
   issuedLabel: string
   /** Renewable documents last this long from the day they're issued. */
   validYears?: number
-  /** Iris asks the issuer directly. A certificate still comes from the agency, as a file. */
-  fromIssuer?: boolean
+  /** The agency attests it. Anything else Iris asks the issuer for directly. */
+  attested?: boolean
 }
 
 export const CHECKS: Record<RequirementId, DocumentCheck> = {
@@ -24,19 +25,17 @@ export const CHECKS: Record<RequirementId, DocumentCheck> = {
     reference: { label: "Report ID", placeholder: "STR-4831207", pattern: /^[A-Z]{2,4}-?\d{6,9}$/i },
     issuedLabel: "Completed on",
     validYears: 1,
-    fromIssuer: true,
   },
   i9: {
-    providers: ["E-Verify"],
-    reference: { label: "E-Verify case number", placeholder: "2026298123456AB", pattern: /^\d{13}[A-Z]{2}$/i },
-    issuedLabel: "Confirmed on",
-    fromIssuer: true,
+    providers: ["Form I-9"],
+    reference: { label: "Form", placeholder: "I-9", pattern: /^I-9$/ },
+    issuedLabel: "Attested on",
+    attested: true,
   },
   orientation: {
     providers: ["Compass Learning"],
     reference: { label: "Completion ID", placeholder: "CL-208114", pattern: /^CL-?\d{5,8}$/i },
     issuedLabel: "Completed on",
-    fromIssuer: true,
   },
   foodHandler: {
     providers: ["ServSafe", "StateFoodSafety", "Premier Food Safety"],
@@ -59,7 +58,7 @@ export const expiryFor = (requirement: RequirementId, issuedOn: string) => {
 
 export type CheckResult = { result: "verified" } | { result: "needs_review"; reason: string }
 
-/** What the provider says about the document the agency attested. */
+/** What the provider says about the document, or that the agency attested it. */
 export function checkDocument(requirement: RequirementId, doc: { provider: string; reference: string; issuedOn: string; expiresOn?: string }, today: string): CheckResult {
   const check = CHECKS[requirement]
   const reference = doc.reference.trim()
@@ -71,7 +70,7 @@ export function checkDocument(requirement: RequirementId, doc: { provider: strin
   return { result: "verified" }
 }
 
-/** What Iris reads off an attached document. Stable for one Pro and document, so a retry reads the same thing. */
+/** What the issuer has on file for a Pro. Stable for one Pro and document, so a retry finds the same thing. */
 export function readDocument(requirement: RequirementId, proId: string, today: string) {
   const check = CHECKS[requirement]
   const n = hashString(`${proId}:${requirement}`)
@@ -81,7 +80,7 @@ export function readDocument(requirement: RequirementId, proId: string, today: s
     requirement === "background"
       ? `${provider.slice(0, 3).toUpperCase()}-${digits.slice(0, 7)}`
       : requirement === "i9"
-        ? `${today.slice(0, 4)}${digits}${digits.slice(0, 1)}AB`
+        ? "I-9"
         : requirement === "orientation"
           ? `CL-${digits.slice(0, 6)}`
           : requirement === "alcohol"
