@@ -14,6 +14,7 @@ import type {
   ComplianceItem,
   DemoData,
   Expense,
+  ExpenseKind,
   Location,
   PersonaKind,
   Pro,
@@ -584,6 +585,10 @@ export interface ImportPlan {
   warningCount: number
   summary: string
   apply?: (data: DemoData, uploadId: string) => Patch
+  /** The tips a clean tips file sets, so Iris can type them onto the timesheets. */
+  tips?: { timesheetId: string; tips: number }[]
+  /** The expenses a clean expenses file adds, so Iris can enter them on each timesheet. */
+  expenses?: { timesheetId: string; kind: ExpenseKind; amount: number; note?: string }[]
 }
 
 type Ctx = { data: DemoData; ws: Workspace; today: string; nums: number[] }
@@ -945,6 +950,7 @@ function planTips(rows: Row[], ctx: Ctx): Planned {
     ...tally(results),
     summary: tips.size ? `${money(total)} in tips added to ${plural(tips.size, "timesheet")}` : "No tips added",
     apply: tips.size ? (data) => withTips(data, tips) : undefined,
+    tips: [...tips].map(([timesheetId, amount]) => ({ timesheetId, tips: amount })),
   }
 }
 
@@ -989,6 +995,7 @@ function planExpenses(rows: Row[], ctx: Ctx): Planned {
     rows: results,
     ...tally(results),
     summary: all.length ? `${money(total)} in expenses added to ${plural(adds.size, "timesheet")}` : "No expenses added",
+    expenses: [...adds].flatMap(([timesheetId, list]) => list.map((e) => ({ timesheetId, ...e }))),
     apply: all.length
       ? (data) => {
           const now = new Date().toISOString()

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { ArrowUp, CalendarPlus, Check, CheckCheck, CircleCheck, Coins, Download, FileSpreadsheet, Paperclip, Receipt, TriangleAlert, Upload, UsersRound } from "lucide-react"
+import { ArrowUp, CalendarPlus, Check, CheckCheck, CircleCheck, Coins, Download, FileSpreadsheet, Paperclip, Receipt, TriangleAlert, Upload, UsersRound, X } from "lucide-react"
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 
 import type { AgentAction, AgentMessage, ReportAnswer, ShiftDraft } from "@/components/agent/agent-store"
@@ -397,7 +397,7 @@ export function AgentMessages({
   )
 }
 
-/** The ask bar: a sentence or a spreadsheet. Enter sends, Shift+Enter adds a line. */
+/** The ask bar: a sentence, a spreadsheet, or both. An attached file waits in the bar until Enter sends it. */
 export function AgentComposer({
   id,
   size = "default",
@@ -413,15 +413,22 @@ export function AgentComposer({
   label: string
   placeholder: ReactNode
   onSubmit: (text: string) => void
-  onAttach: (file?: File) => void
+  onAttach: (file: File, note: string) => void
   className?: string
   /** Sits before the send button, e.g. a shortcut hint. */
   children?: ReactNode
 }) {
   const [draft, setDraft] = useState("")
+  const [file, setFile] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const submitRef = useRef(onSubmit)
   const send = () => {
+    if (file) {
+      onAttach(file, draft.trim())
+      setFile(null)
+      setDraft("")
+      return
+    }
     if (!draft.trim()) return
     onSubmit(draft)
     setDraft("")
@@ -470,11 +477,21 @@ export function AgentComposer({
           <LogoMark className="size-6" />
         </InputGroupAddon>
       )}
-      <div className="relative min-w-0 flex-1 self-stretch">
+      <div className="relative flex min-w-0 flex-1 flex-col self-stretch">
+        {file && (
+          <span data-agent-attached className={cn("mt-2.5 flex w-fit max-w-full items-center gap-2 rounded-lg border border-border bg-page-faded py-1.5 pr-1.5 pl-2.5 text-body-3", lg ? "ml-2.5" : "ml-3")}>
+            <FileSpreadsheet className="size-4 shrink-0 text-positive-fg" />
+            <span className="truncate font-medium">{file.name}</span>
+            <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFile(null)} className="flex size-5 items-center justify-center rounded-md text-faded hover:bg-hover hover:text-foreground">
+              <X className="size-3.5" />
+            </button>
+          </span>
+        )}
         <InputGroupTextarea
           id={id}
           aria-label={label}
           value={draft}
+          placeholder={file ? "Press Enter to send it to Iris" : undefined}
           rows={1}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -485,7 +502,7 @@ export function AgentComposer({
           }}
           className={cn("max-h-40 pr-1 text-sm", lg ? "min-h-14 py-[17px] pl-2.5 text-[15px] md:text-[15px]" : "min-h-12 py-3.5 pl-4 md:text-sm")}
         />
-        {!draft && (
+        {!draft && !file && (
           <span
             aria-hidden
             className={cn(
@@ -504,7 +521,7 @@ export function AgentComposer({
               <Paperclip />
             </InputGroupButton>
           </TooltipTrigger>
-          <TooltipContent>Attach a CSV or Excel file. Nothing saves until you approve it.</TooltipContent>
+          <TooltipContent>Attach a CSV or Excel file. Iris checks every row before she enters it.</TooltipContent>
         </Tooltip>
         {children}
         <InputGroupButton
@@ -512,7 +529,7 @@ export function AgentComposer({
           size="icon-sm"
           className={cn("rounded-full transition-transform active:scale-95", lg && "size-9")}
           onClick={send}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() && !file}
           aria-label="Send"
         >
           <ArrowUp />
@@ -527,9 +544,11 @@ export function AgentComposer({
         tabIndex={-1}
         aria-hidden
         onChange={(event) => {
-          const file = event.target.files?.[0]
+          const picked = event.target.files?.[0]
           event.target.value = ""
-          onAttach(file)
+          if (!picked) return
+          setFile(picked)
+          window.setTimeout(() => document.getElementById(id ?? "")?.focus(), 0)
         }}
       />
     </InputGroup>

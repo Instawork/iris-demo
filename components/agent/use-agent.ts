@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useCallback, useRef } from "react"
 
 import { NO_MESSAGES, useAgentThreads, type AgentAction, type AgentMessage } from "@/components/agent/agent-store"
+import { enterExpenses } from "@/components/agent/enter-expenses"
 import { enterTips } from "@/components/agent/enter-tips"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
@@ -193,9 +194,8 @@ export function useAgent() {
   )
 
   const attach = useCallback(
-    async (file?: File) => {
-      if (!file) return
-      add({ from: "user", text: "Attached a file for review.", fileName: file.name })
+    async (file: File, note = "") => {
+      add({ from: "user", text: note || "Attached a file.", fileName: file.name })
       if (!isSpreadsheetFile(file)) {
         add({ from: "agent", text: "I can read CSV and Excel (.xlsx) spreadsheets. Choose one of those and I’ll validate every row before anything is saved." })
         return
@@ -218,6 +218,26 @@ export function useAgent() {
       }
       const type = detected.type
       const plan = planImport(type, csv, useStore.getState().data, ws)
+      const clean = plan.okCount > 0 && !plan.errorCount && !plan.missingColumns.length
+      if (clean && type === "tips" && plan.tips?.length) {
+        const data = useStore.getState().data
+        const groups = plan.tips.map((e) => data.timesheets.find((t) => t.id === e.timesheetId)?.groupId)
+        const groupId = groups.find((g, _, all) => g && all.filter((x) => x === g).length * 2 > all.length) ?? groups[0]
+        const total = round2(plan.tips.reduce((sum, e) => sum + e.tips, 0))
+        if (groupId && (await enterTips({ label: "", kind: "set-tips", entries: plan.tips, total, groupId }, router.push))) {
+          add({ from: "agent", text: `Added ${money(total)} in tips for ${plan.tips.length} worker${plan.tips.length === 1 ? "" : "s"}.` })
+          return
+        }
+      }
+      if (clean && type === "expenses" && plan.expenses?.length) {
+        const entries = plan.expenses
+        const n = await enterExpenses(entries, router.push)
+        if (n) {
+          const total = round2(entries.reduce((sum, e) => sum + e.amount, 0))
+          add({ from: "agent", text: `Added ${n} expense${n === 1 ? "" : "s"}, ${money(total)} at cost. They bill with the hours.`, actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }] })
+          return
+        }
+      }
       add({
         from: "agent",
         text: `I identified this as ${/^[aeiou]/i.test(UPLOAD_SPECS[type].label) ? "an" : "a"} ${UPLOAD_SPECS[type].label.toLowerCase()} upload. ${plan.okCount} row${plan.okCount === 1 ? "" : "s"} ready, ${plan.errorCount} requiring review${plan.missingColumns.length ? `, and ${plan.missingColumns.length} required column${plan.missingColumns.length === 1 ? "" : "s"} missing` : ""}. Nothing has been saved.`,
@@ -227,7 +247,7 @@ export function useAgent() {
         ],
       })
     },
-    [add, ws],
+    [add, router, ws],
   )
 
   const runAction = useCallback(

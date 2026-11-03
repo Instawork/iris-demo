@@ -4,11 +4,11 @@ import { toast } from "sonner"
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
+import { enteringExpenses } from "@/components/agent/enter-expenses"
 import { enteringTips } from "@/components/agent/enter-tips"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import { STOPPED, cursorStopped, haltCursor, point, press, restCursor, sleep, type, until } from "@/components/tour/cursor"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
-import { crewShift } from "@/lib/agent-agency"
 import { tipShift } from "@/lib/agent-tips"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
@@ -16,7 +16,7 @@ import { eligiblePros } from "@/lib/domain/core"
 import { fullName, money, plural } from "@/lib/format"
 import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
-import { templateCsv } from "@/lib/csv"
+import { templateCsv, toCsv } from "@/lib/csv"
 import { buyer, location, position, workspace } from "@/lib/reference"
 import { irisCounters } from "@/lib/sourcing"
 import { timesheetChecks } from "@/lib/timesheets"
@@ -421,53 +421,32 @@ const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date)
 
 const SHEET = '[data-tour="timesheet-sheet"]'
 const MOVE = '[data-tour="move-dialog"]'
-const EXPENSE_FORM = '[data-tour="expense-form"]'
-const PARKING = "20.00"
-
-/** Last night's Harbor draft at the arena, where the agency paid for its workers' event parking. */
-const parkingSheet = (data: DemoData) =>
-  data.timesheets
-    .filter((t) => t.supplierId === "harbor" && t.status === "draft" && t.clockIn && t.clockOut && !t.expenses?.length && location(t.locationId).kind !== "Stadium")
-    .sort((a, b) => Number(b.locationId === "loc-wla") - Number(a.locationId === "loc-wla") || newestFirst(a, b))[0]
-
-const expenseSince = (ctx: TourContext) =>
-  ctx.data.timesheets.find((t) => t.supplierId === "harbor" && t.expenses?.some((e) => e.at >= ctx.base.at))
-
-const parkingHref = (ctx: TourContext) => {
-  const t = parkingSheet(ctx.data)
-  return t ? `/timesheets?ts=${t.id}` : "/timesheets"
-}
-
-async function fillParking() {
-  await type(inside(EXPENSE_FORM, '[data-tour="expense-amount"]'), PARKING)
-  return inside(EXPENSE_FORM, '[data-tour="expense-save"]')
-}
-
 const EXPENSE_FILE = "harbor_expenses.csv"
-const chatReview = () => last('[data-tour="agent-review"]')
-const uploadSave = () => one('[data-tour="upload-save"]')
-const expenseUpload = (ctx: TourContext) => ctx.data.uploads.find((u) => u.type === "expenses" && u.uploadedAt >= ctx.base.at && u.status.startsWith("completed"))
+const TIPS_FILE = "levy_bar_tips.csv"
+const TIP_EACH = 150
 
-/** Drops Harbor's week of expenses into Agent Chat, built from its own unsubmitted shifts. */
-async function attachExpenses(ctx: TourContext) {
+/** A file waits in Agent Chat's composer for the player's Enter. */
+const attached = () => one("[data-agent-attached]")
+
+/** Drops a spreadsheet into Agent Chat's composer, leaving Enter for the player. */
+async function attachFile(name: string, csv: string) {
   const input = last("input[data-agent-file]")
   if (!(input instanceof HTMLInputElement)) throw STOPPED
+  const box = document.getElementById(CHAT_COMPOSER_ID)
+  if (box) await point(box)
   const files = new DataTransfer()
-  files.items.add(new File([templateCsv("expenses", ctx.data, workspace(HARBOR))], EXPENSE_FILE, { type: "text/csv" }))
+  files.items.add(new File([csv], name, { type: "text/csv" }))
   input.files = files.files
   input.dispatchEvent(new Event("change", { bubbles: true }))
-  return until(chatReview, 8000)
+  await until(attached, 4000)
+  restCursor()
+  return sendButton(CHAT_COMPOSER_ID)
 }
 
-/** Harbor's latest shift with timesheets it can still bill: the crew that paid for parking. */
-const crewHref = (ctx: TourContext) => {
-  const shift = crewShift(ctx.data, "harbor", todayISO())
-  return shift ? `/shifts/${shift.group.id}` : "/shifts"
-}
-const crewAsk = () => "Add a $20 parking expense to everyone who worked this shift"
-const crewButton = () => last('[data-tour="agent-add-expenses"]')
-/** Iris's confirmation once the crew's expense is on their timesheets. */
-const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.replace(/\.$/, "")
+/** Harbor's week of expenses, built from its own unsubmitted shifts. */
+const attachExpenses = (ctx: TourContext) => attachFile(EXPENSE_FILE, templateCsv("expenses", ctx.data, workspace(HARBOR)))
+/** Iris's confirmation once the sheet's expenses are on their timesheets. */
+const expensesAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \d+ expenses?\b/.test(m.text))?.text.split(". ")[0]
 
 /** Last night's Levy bar shifts the agencies sent, with every hour matching the clock: the crew the tips are for. */
 const tipShifts = (data: DemoData) =>
@@ -485,13 +464,16 @@ const tipsHref = (ctx: TourContext) => {
   return g ? `/timesheets?shift=${g.id}` : "/timesheets"
 }
 
-const tipsAsk = (ctx: TourContext) => {
+/** The night's tips sheet: the same share for every worker on the shift. */
+const tipSheets = (ctx: TourContext) => {
   const g = tipGroup(ctx)
-  if (!g) return "Split $600 in tips by hours for last night's bartenders"
-  const night = g.date === addDaysISO(todayISO(), -1) ? "last night's" : `${formatDay(g.date, "EEEE")}'s`
-  return `Split $600 in tips by hours for ${night} ${position(g.positionId).name.toLowerCase()}s at ${location(g.locationId).name}`
+  return g ? ctx.data.timesheets.filter((t) => t.groupId === g.id && t.status !== "removed" && t.clockIn && t.clockOut) : []
 }
-const tipsButton = () => last('[data-tour="agent-set-tips"]')
+const attachTips = (ctx: TourContext) => {
+  const g = tipGroup(ctx)
+  const rows = tipSheets(ctx).map((t) => ({ shift_group_id: g?.code ?? "", pro_id: ctx.data.pros.find((p) => p.id === t.proId)?.code ?? "", tip_amount: TIP_EACH.toFixed(2) }))
+  return attachFile(TIPS_FILE, toCsv(rows, ["shift_group_id", "pro_id", "tip_amount"]))
+}
 const tipsAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$[\d,.]+ in tips/.test(m.text))?.text.replace(/\.$/, "")
 const approveHours = () => last('[data-tour="agent-approve-timesheets"]')
 /** Iris has laid out the week's hours, or the player is already past them. */
@@ -585,6 +567,17 @@ const reportLink = (ctx: TourContext) => {
 }
 
 const COMPOSER = (id = COMPOSER_ID) => document.getElementById(id)?.closest('[data-slot="input-group"]')
+const REPORT_LINK = '[data-tour="agent-link"]'
+
+/** Iris asks, reads her own answer for a beat, then opens the full report. */
+async function askAndOpen(ctx: TourContext, api: TourApi) {
+  await typeAsk(reportAsk())
+  await press(sendButton())
+  await until(() => reportLink(api.now()) && last(REPORT_LINK), 15000)
+  await sleep(1400)
+  await press(last(REPORT_LINK))
+  return null
+}
 
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
@@ -916,13 +909,13 @@ export const SCRIPT: TourItem[] = [
     wsId: METRO,
     path: /^\/professionals$/,
     href: verifyHref,
-    title: (ctx) => (openPro(ctx) ? "Certifications, verified with Chkr" : "Then a lapsed certification"),
+    title: (ctx) => (openPro(ctx) ? "Certifications, verified at the source" : "Then a lapsed certification"),
     body: (ctx) => {
       const pro = openPro(ctx) ?? certPro(ctx.data)
       const doc = certOf(pro)
-      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Nothing to upload: Chkr has the current one.` : undefined
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Nothing to upload: Iris checks the current one with the issuer.` : undefined
     },
-    action: (ctx) => (openPro(ctx) ? "Click Verify with Chkr" : `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`),
+    action: (ctx) => (openPro(ctx) ? "Click Verify" : `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`),
     targets: (ctx) => [docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
     placement: "left",
     anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
@@ -966,10 +959,9 @@ export const SCRIPT: TourItem[] = [
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
     // The closed dialog hands focus back to its button, where the next Enter would open it again.
     // Its toast would sit over the button the next step points at.
-    onDone: (ctx, api) => {
+    onDone: () => {
       ;(document.activeElement as HTMLElement | null)?.blur()
       toast.dismiss()
-      api.push(parkingHref(ctx))
     },
     skip: async () => {
       if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
@@ -981,109 +973,34 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "expense",
+    id: "expenses",
     chapter: "timesheets",
-    label: "Add an expense",
-    wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: parkingHref,
-    title: () => (one(EXPENSE_FORM) ? "Parking, at cost" : "What Harbor paid for the shift"),
-    body: () => (one(EXPENSE_FORM) ? "No markup. The buyer approves it with the hours." : "Event parking, or a background check the event required."),
-    action: (ctx) => (one(EXPENSE_FORM) ? `Enter $${PARKING}, then Add` : one(SHEET) ? "Click Add expense" : `Open ${sheetOwner(ctx, parkingSheet(ctx.data))}`),
-    targets: (ctx) => {
-      if (one(EXPENSE_FORM)) return [one(EXPENSE_FORM)]
-      if (one(SHEET)) return [one('[data-tour="expense-add"]')]
-      const t = parkingSheet(ctx.data)
-      return [t && one(`tr[data-row-id="${t.id}"]`)]
-    },
-    clicks: (ctx) => {
-      if (one(EXPENSE_FORM)) return inside(EXPENSE_FORM, '[data-tour="expense-save"]')
-      if (one(SHEET)) return one('[data-tour="expense-add"]')
-      const t = parkingSheet(ctx.data)
-      return t && one(`tr[data-row-id="${t.id}"]`)
-    },
-    // The button sits in the sheet's bottom bar, so a card beside it lands on top of the click.
-    placement: "top",
-    done: (ctx) => !!expenseSince(ctx),
-    success: (ctx) => `${money(expenseSince(ctx)?.expenses?.at(-1)?.amount ?? Number(PARKING))} parking added`,
-    fill: {
-      when: () => !!one(EXPENSE_FORM) && !!(inside(EXPENSE_FORM, '[data-tour="expense-save"]') as HTMLButtonElement | null)?.disabled,
-      run: fillParking,
-    },
-    skip: async (ctx, api) => {
-      if (!one(SHEET)) api.push(parkingHref(ctx))
-      if (!one(EXPENSE_FORM)) await press(await until(() => one('[data-tour="expense-add"]'), 8000))
-      await until(() => one(EXPENSE_FORM))
-      await press(await fillParking())
-      await until(() => expenseSince(api.now()), 8000)
-    },
-  },
-  {
-    kind: "step",
-    id: "crew-expense",
-    chapter: "timesheets",
-    label: "For the whole crew",
-    wsId: HARBOR,
-    path: /^\/shifts\/(?!new$)[^/]+$/,
-    href: crewHref,
-    startsChat: true,
-    opensChat: true,
-    title: () => (crewButton() ? "Only what Harbor can still bill" : "Or the whole crew, in a sentence"),
-    action: () => {
-      const add = crewButton()
-      if (add) return `Click ${add.textContent?.trim()}`
-      return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
-    },
-    example: () => (crewButton() ? undefined : crewAsk()),
-    targets: () => [crewButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => crewButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => !crewButton() && !crewAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(crewAsk(), CHAT_COMPOSER_ID) },
-    placement: "left",
-    done: (ctx) => !!crewAdded(ctx),
-    success: (ctx) => crewAdded(ctx) ?? "Added",
-    skip: async (ctx, api) => {
-      if (!crewButton()) {
-        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await askFor(crewAsk, () => !!crewButton(), CHAT_COMPOSER_ID)(ctx, api)
-      }
-      await press(await until(crewButton, 8000))
-      await until(() => crewAdded(api.now()), 8000)
-    },
-  },
-  {
-    kind: "step",
-    id: "expense-sheet",
-    chapter: "timesheets",
-    label: "Upload expenses",
+    label: "Add expenses",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    needs: "paper",
     startsChat: true,
     opensChat: true,
-    title: () => (uploadSave() ? "Matched to every shift" : "A week of expenses, from a sheet"),
-    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
+    title: () => (enteringExpenses() ? "Iris adds each one to its timesheet" : attached() ? "Harbor's parking for the week" : "What Harbor paid for its shifts"),
+    body: () =>
+      enteringExpenses() ? "The same form you'd use, at cost. The buyer approves it with the hours." : attached() ? "One row per worker. Iris checks each one first." : "Drop the expense sheet in Agent Chat.",
     action: () => {
-      const next = uploadSave() ?? chatReview()
-      if (next) return `Click ${next.textContent?.trim()}`
+      if (enteringExpenses()) return "Watch Iris add each one"
+      if (attached()) return "Send it with Enter"
       return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
     },
-    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
-    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
+    targets: () => (enteringExpenses() ? [one('[data-tour="expense-form"]') ?? one('[data-tour="timesheet-sheet"]')] : [COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)]),
+    clicks: () => (enteringExpenses() ? null : COMPOSER(CHAT_COMPOSER_ID) ? (attached() ? sendButton(CHAT_COMPOSER_ID) : null) : one(CHAT_OPEN)),
+    fill: { when: (ctx) => !enteringExpenses() && !attached() && !expensesAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: attachExpenses },
     placement: "left",
-    anchor: () => uploadSave()?.closest('[role="dialog"]'),
-    done: (ctx) => !!expenseUpload(ctx),
-    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
+    done: (ctx) => !!expensesAdded(ctx) && !enteringExpenses(),
+    success: (ctx) => expensesAdded(ctx) ?? "Expenses added",
     skip: async (_, api) => {
-      if (!uploadSave() && !chatReview()) {
-        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await until(() => COMPOSER(CHAT_COMPOSER_ID))
-        await attachExpenses(api.now())
-      }
-      if (!uploadSave()) await press(await until(chatReview, 8000))
-      await press(await until(uploadSave, 8000))
-      await until(() => expenseUpload(api.now()), 8000)
+      if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+      await until(() => COMPOSER(CHAT_COMPOSER_ID), 8000)
+      if (!attached()) await attachExpenses(api.now())
+      await press(sendButton(CHAT_COMPOSER_ID))
+      await until(() => expensesAdded(api.now()), 40000)
     },
   },
   {
@@ -1096,34 +1013,31 @@ export const SCRIPT: TourItem[] = [
     href: tipsHref,
     startsChat: true,
     opensChat: true,
-    title: () => (enteringTips() ? "Iris types each share in" : tipsButton() ? "Every worker's share, by hours" : "Now Levy, the venue, adds tips"),
-    body: () =>
-      enteringTips() ? "Right on the timesheet, the way you would. Each one saves as she goes." : tipsButton() ? "No markup. Nothing is saved until you click." : "Type one in, or ask Iris to split the pool.",
+    title: () => (enteringTips() ? "Iris enters each worker's tip" : attached() ? "Last night's tips, one row per worker" : "Now Levy, the venue, adds tips"),
+    body: (ctx) =>
+      enteringTips()
+        ? "Right on the timesheet, the way you would. No markup."
+        : attached()
+          ? `${money(TIP_EACH)} for each of the ${plural(tipSheets(ctx).length, "worker")}.`
+          : "Drop the tips sheet in Agent Chat.",
     action: () => {
-      if (enteringTips()) return "Watch Iris enter each share"
-      const add = tipsButton()
-      if (add) return `Click ${add.textContent?.trim()}`
-      return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
+      if (enteringTips()) return "Watch Iris enter each tip"
+      if (attached()) return "Send it with Enter"
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach the tips sheet" : "Click Agent Chat"
     },
-    example: (ctx) => (enteringTips() || tipsButton() ? undefined : tipsAsk(ctx)),
-    targets: () =>
-      enteringTips() ? [...document.querySelectorAll('[data-tour="tip-input"]')] : [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => (enteringTips() ? null : (tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN))),
-    fill: {
-      when: (ctx) => !enteringTips() && !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID),
-      run: (ctx) => typeAsk(tipsAsk(ctx), CHAT_COMPOSER_ID),
-    },
+    targets: () => (enteringTips() ? [...document.querySelectorAll('[data-tour="tip-input"]')] : [COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)]),
+    clicks: () => (enteringTips() ? null : COMPOSER(CHAT_COMPOSER_ID) ? (attached() ? sendButton(CHAT_COMPOSER_ID) : null) : one(CHAT_OPEN)),
+    fill: { when: (ctx) => !enteringTips() && !attached() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: attachTips },
     placement: "left",
-    done: (ctx) => !!tipsAdded(ctx),
+    done: (ctx) => !!tipsAdded(ctx) && !enteringTips(),
     success: (ctx) => tipsAdded(ctx) ?? "Tips added",
     // The next step's worker is on another shift, past this page's filter.
     onDone: (ctx, api) => api.push(splitHref(ctx)),
-    skip: async (ctx, api) => {
-      if (!tipsButton()) {
-        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await askFor(() => tipsAsk(ctx), () => !!tipsButton(), CHAT_COMPOSER_ID)(ctx, api)
-      }
-      await press(await until(tipsButton, 8000))
+    skip: async (_, api) => {
+      if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+      await until(() => COMPOSER(CHAT_COMPOSER_ID), 8000)
+      if (!attached()) await attachTips(api.now())
+      await press(sendButton(CHAT_COMPOSER_ID))
       await until(() => tipsAdded(api.now()), 30000)
     },
   },
@@ -1307,36 +1221,21 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: /^\/$/,
     href: () => "/",
-    title: "Ask for any number",
-    example: reportAsk,
-    action: "Send it with Enter",
-    targets: () => [COMPOSER()],
-    clicks: () => sendButton(),
-    fill: { when: (ctx) => !reportLink(ctx) && canAsk(ctx), run: () => typeAsk(reportAsk()) },
+    title: (ctx) => (reportLink(ctx) ? "Iris opens it as a report" : "Ask for any number"),
+    body: (ctx) => (reportLink(ctx) ? "Same numbers, with every agency side by side. Your team gets it every Monday." : undefined),
+    example: (ctx) => (reportLink(ctx) ? undefined : reportAsk()),
+    action: (ctx) => (reportLink(ctx) ? "Watch Iris open the report" : "Send it with Enter"),
+    targets: (ctx) => [(reportLink(ctx) && last(REPORT_LINK)) || COMPOSER()],
+    clicks: (ctx) => (reportLink(ctx) ? last(REPORT_LINK) : sendButton()),
+    fill: { when: (ctx) => !reportLink(ctx) && canAsk(ctx), run: askAndOpen },
     placement: "top",
-    done: (ctx) => !!reportLink(ctx),
-    success: () => "Answered",
-    startsChat: true,
-    skip: askFor(reportAsk, (ctx) => !!reportLink(ctx)),
-  },
-  {
-    kind: "step",
-    id: "open-report",
-    chapter: "reporting",
-    label: "Open the report",
-    wsId: COMPASS,
-    path: /^\/$/,
-    href: () => "/",
-    title: "Open it as a report",
-    body: "Same numbers, with every agency side by side. Your team gets it every Monday.",
-    action: "Click Open the report",
-    targets: () => [last('[data-tour="agent-link"]')],
-    placement: "bottom",
     done: (ctx) => ctx.path.startsWith("/reports/"),
     success: () => "Your report",
-    back: "ask-report",
-    needs: "ask-report",
-    skip: (ctx, api) => api.push(reportLink(ctx) ?? "/reports"),
+    startsChat: true,
+    skip: async (ctx, api) => {
+      await askFor(reportAsk, (now) => !!reportLink(now))(ctx, api)
+      api.push(reportLink(api.now()) ?? "/reports")
+    },
   },
   {
     kind: "step",
