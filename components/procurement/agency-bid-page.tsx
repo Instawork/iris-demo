@@ -15,6 +15,7 @@ import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { termsLine } from "@/components/procurement/event-page"
 import { agencyStatus, vsMarketLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatTimestamp } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
@@ -81,15 +82,17 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
               {bid ? ` · round ${bid.round}, sent ${formatTimestamp(bid.at)}` : ""}
             </span>
           </span>
+          {bid && (
+            <span className="ml-auto">
+              <CounterBid ev={ev} supplierId={supplierId} />
+            </span>
+          )}
         </header>
       </div>
 
       <Surface elevated className="grid grid-cols-3 gap-6 px-5 py-5" data-tour="agency-terms">
         <Stat label="Markup" note="On every role, in every market">
-          <span className="flex flex-wrap items-center gap-3">
-            {pct(Math.round(value.markupPct))}
-            {bid && <CounterMarkup ev={ev} supplierId={supplierId} />}
-          </span>
+          {pct(Math.round(value.markupPct))}
         </Stat>
         <Stat label="Worker pay vs market" note="Averaged over every role, by the hours you buy">
           {vsMarketLabel(value.payVsMarket)}
@@ -152,68 +155,101 @@ function Stat({ label, note, children }: { label: string; note: string; children
   )
 }
 
-/** Compass asks the agency for a lower markup, on every role at once. */
-function CounterMarkup({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
+/** Compass counters the agency's bid: a lower markup on every role, more VA, or both, in one ask. */
+function CounterBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
   const counter = useStore((s) => s.counterBid)
   const bid = latestBid(ev, supplierId)!
+  const va = offeredTerms(ev, supplierId).vaPct
   const asked = openCounters(ev, supplierId).at(-1)
   const locked = !!ev.approved[supplierId] || ev.status === "awarded"
-  const [ask, setAsk] = useState<string | null>(null)
-  const askN = Number(ask)
-  const valid = ask !== "" && askN >= 0 && askN < bid.markupPct
-  const suggest = () => {
+  const [open, setOpen] = useState(false)
+  const [markup, setMarkup] = useState("")
+  const [vaAsk, setVaAsk] = useState("")
+  const markupN = markup === "" ? undefined : Number(markup)
+  const vaN = vaAsk === "" ? undefined : Number(vaAsk)
+  const markupOk = markupN === undefined || (markupN >= 0 && markupN < bid.markupPct)
+  const vaOk = vaN === undefined || (vaN > va && vaN <= 50)
+  const changed = (markupN !== undefined && markupN !== bid.markupPct) || (vaN !== undefined && vaN !== va)
+  const valid = markupOk && vaOk && changed
+  const start = () => {
     const best = responded(ev).length > 1 ? bestMarkup(ev) : 0
-    return Math.max(best, Math.ceil(bid.markupPct) - 3) < bid.markupPct ? Math.max(best, Math.ceil(bid.markupPct) - 3) : Math.max(0, Math.ceil(bid.markupPct) - 1)
+    const target = Math.max(best, Math.ceil(bid.markupPct) - 3)
+    setMarkup(String(target < bid.markupPct ? target : Math.max(0, Math.ceil(bid.markupPct) - 1)))
+    setVaAsk(String(va + 2))
   }
   const send = () =>
-    void counter(ev.id, supplierId, askN).then((ok) => {
+    void counter(ev.id, supplierId, { markupPct: markupN !== bid.markupPct ? markupN : undefined, vaPct: vaN !== va ? vaN : undefined }).then((ok) => {
       if (!ok) return
-      setAsk(null)
-      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `A ${pct(askN)} markup on every role` })
+      setOpen(false)
+      toast.success(`Counter sent to ${supplier(supplierId).shortName}`)
     })
   if (locked)
     return (
-      <span className="flex items-center gap-1 text-caption-1 font-medium text-positive-fg">
-        <CircleCheck className="size-3.5" /> Approved
+      <span className="flex items-center gap-1 text-body-3 font-medium text-positive-fg">
+        <CircleCheck className="size-4" /> Approved
       </span>
     )
   if (asked)
     return (
       <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
-        <span className="text-caption-1 font-medium tracking-normal text-warning-fg">Asked {pct(asked.ask!)}</span>
+        <span className="text-body-3 font-medium text-warning-fg">
+          Asked {[asked.ask !== undefined && `${pct(asked.ask)} markup`, asked.askVa !== undefined && `${pct(asked.askVa)} VA`].filter(Boolean).join(" · ")}
+        </span>
       </Tip>
     )
-  if (ask === null)
-    return (
-      <Button variant="outline" size="sm" data-tour="counter" onClick={() => setAsk(String(suggest()))}>
-        Counter markup
-      </Button>
-    )
   return (
-    <form
-      className="flex items-center gap-2 text-body-3 font-normal tracking-normal"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (valid) send()
-      }}
-    >
-      <span className="relative w-20">
+    <Popover open={open} onOpenChange={(o) => (o && start(), setOpen(o))}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="h-9 rounded-lg text-body-3" data-tour="counter">
+          Counter
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 gap-3 p-4">
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (valid) send()
+          }}
+        >
+          <span className="text-body-3 font-semibold">Counter {supplier(supplierId).shortName}</span>
+          <AskField label="Markup" now={bid.markupPct} value={markup} onChange={setMarkup} invalid={!markupOk} autoFocus />
+          <AskField label="VA" now={va} value={vaAsk} onChange={setVaAsk} invalid={!vaOk} />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
+              Send counter
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function AskField({ label, now, value, onChange, invalid, autoFocus }: { label: string; now: number; value: string; onChange: (v: string) => void; invalid: boolean; autoFocus?: boolean }) {
+  return (
+    <label className="flex items-center justify-between gap-3 text-body-3">
+      <span className="flex flex-col">
+        <span className="font-medium">{label}</span>
+        <span className="text-caption-1 text-faded">Now {pct(now)}</span>
+      </span>
+      <span className="relative w-24">
         <input
           inputMode="decimal"
-          aria-label="Counter at"
-          value={ask}
-          autoFocus
-          onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
-          className="h-8 w-full rounded-lg border border-input bg-card pr-6 pl-2.5 text-right text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+          aria-label={`${label} ask`}
+          value={value}
+          autoFocus={autoFocus}
+          onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ""))}
+          className={cn(
+            "h-9 w-full rounded-lg border border-input bg-card pr-7 pl-2.5 text-right text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15",
+            invalid && "border-critical-border text-critical-fg",
+          )}
         />
         <span className="absolute top-1/2 right-2.5 -translate-y-1/2 text-faded">%</span>
       </span>
-      <Button type="button" variant="ghost" size="sm" onClick={() => setAsk(null)}>
-        Cancel
-      </Button>
-      <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
-        Send
-      </Button>
-    </form>
+    </label>
   )
 }

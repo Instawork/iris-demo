@@ -33,6 +33,8 @@ const MARKET_SCALE: Record<string, number> = { chi: 1, atl: 0.7, dal: 0.55 }
 /** The lowest markup each agency goes to when Compass pushes. */
 const FLOOR_MARKUP: Record<string, number> = { instawork: 28, crewline: 30, harbor: 38, metro: 30 }
 const floorOf = (supplierId: string) => FLOOR_MARKUP[supplierId] ?? 30
+/** The most VA each agency gives when Compass pushes. */
+const CEILING_VA: Record<string, number> = { instawork: 14, crewline: 13, harbor: 8, metro: 12 }
 
 export const estimatedHours = (positionId: string, cityId: string) =>
   Math.round(((CHICAGO_HOURS[positionId] ?? 8000) * (MARKET_SCALE[cityId] ?? 0.6)) / 100) * 100
@@ -262,26 +264,34 @@ export const pct = (n: number) => `${round2(n)}%`
 
 const messageId = (ev: SourcingEvent) => `${ev.id}-m${ev.messages.length + 1}`
 
+/** "a 30% markup and 12% VA", naming only what the counter asked about. */
+const offerText = (markupPct: number | undefined, vaPct: number | undefined) =>
+  [markupPct !== undefined && `a ${pct(markupPct)} markup`, vaPct !== undefined && `${pct(vaPct)} VA`].filter(Boolean).join(" and ")
+
 /**
- * How an agency answers a counter on its markup: it meets the ask if that still clears its floor, comes down to its
- * floor if not, and holds if its bid is already there.
+ * How an agency answers a counter on its markup, its VA or both: it meets each ask that clears its floor on markup and
+ * its ceiling on VA, goes as far as it can on the rest, and holds if its bid is already there.
  */
 export function agencyAnswer(ev: SourcingEvent, counter: SourcingMessage, now: string): { event: SourcingEvent; text: string } | undefined {
   const bid = latestBid(ev, counter.supplierId)
-  if (!bid || counter.ask === undefined) return undefined
+  if (!bid || (counter.ask === undefined && counter.askVa === undefined)) return undefined
   const s = supplier(counter.supplierId)
-  const target = Math.max(counter.ask, floorOf(s.id))
+  const terms = offeredTerms(ev, s.id)
+  const markup = counter.ask === undefined ? bid.markupPct : Math.min(bid.markupPct, Math.max(counter.ask, floorOf(s.id)))
+  const va = counter.askVa === undefined ? terms.vaPct : Math.max(terms.vaPct, Math.min(counter.askVa, CEILING_VA[s.id] ?? terms.vaPct + 2))
   const messages = ev.messages.map((m) => (m.id === counter.id ? { ...m, open: false } : m))
-  if (target >= bid.markupPct) {
-    const text = `We're at our floor. ${pct(bid.markupPct)} is as low as we can go and still cover pay and burden.`
-    return { event: { ...ev, messages: [...messages, reply(ev, s.id, s.contactName, text, now)] }, text: `${s.shortName} is holding at a ${pct(bid.markupPct)} markup` }
+  const asked = (n: number | undefined, value: number) => (n === undefined ? undefined : value)
+  const offer = offerText(asked(counter.ask, markup), asked(counter.askVa, va))
+  if (markup === bid.markupPct && va === terms.vaPct) {
+    const text = `We're at our limit. ${offer[0].toUpperCase()}${offer.slice(1)} is as far as we can go and still cover pay and burden.`
+    return { event: { ...ev, messages: [...messages, reply(ev, s.id, s.contactName, text, now)] }, text: `${s.shortName} is holding at ${offer}` }
   }
-  const met = target === counter.ask
-  const next: Bid = { supplierId: s.id, round: bid.round + 1, at: now, by: s.contactName, markupPct: target, lines: atMarkup(bid.lines, target), ...(bid.terms ? { terms: bid.terms } : {}) }
-  const text = met ? `We can do ${pct(target)} on every role.` : `We can come down to ${pct(target)}. Below that we can't cover pay and burden.`
+  const met = (counter.ask === undefined || markup === counter.ask) && (counter.askVa === undefined || va === counter.askVa)
+  const next: Bid = { supplierId: s.id, round: bid.round + 1, at: now, by: s.contactName, markupPct: markup, lines: atMarkup(bid.lines, markup), terms: { ...terms, vaPct: va } }
+  const text = met ? `We can do ${offer}${counter.ask !== undefined ? " on every role" : ""}.` : `We can do ${offer}. That's as far as we can go and still cover pay and burden.`
   return {
     event: { ...ev, bids: [...ev.bids, next], messages: [...messages, reply(ev, s.id, s.contactName, text, now)] },
-    text: met ? `${s.shortName} met your ask: a ${pct(target)} markup` : `${s.shortName} came down to a ${pct(target)} markup`,
+    text: met ? `${s.shortName} met your ask: ${offer}` : `${s.shortName} came back with ${offer}`,
   }
 }
 

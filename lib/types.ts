@@ -316,6 +316,8 @@ export interface SourcingMessage {
   lineId?: string
   /** A counter: the markup Compass asked for, on every role. */
   ask?: number
+  /** A counter: the VA Compass asked for. */
+  askVa?: number
   /** A counter stays open until the agency answers it. */
   open?: boolean
 }

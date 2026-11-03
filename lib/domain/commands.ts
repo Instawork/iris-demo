@@ -31,7 +31,7 @@ import {
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
-import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, nextNumber, openCounters, pct, responded } from "@/lib/sourcing"
+import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, nextNumber, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
@@ -1246,13 +1246,14 @@ function createSourcingEvent(data: DemoData, ctx: CommandContext, input: { cityI
 }
 
 /** An agency sends its prices, a new round each time: a pay rate per role and one markup on all of them. Sending answers any counter Compass has open with it. */
-function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string; pay: Record<string, number>; markupPct: number; note?: string }): Outcome<number> {
+function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string; pay: Record<string, number>; markupPct: number; vaPct?: number; note?: string }): Outcome<number> {
   const ev = sourcingEvent(data, input?.eventId)
   const supplierId = ctx.ws.supplierId
   if (ctx.ws.kind !== "supplier" || !supplierId || !ev.invited.includes(supplierId)) forbid("Only an invited agency can bid on this event.")
   if (ev.status === "awarded" || ev.approved[supplierId!]) fail("Your rates on this event are already approved.")
   const sent = input.pay && typeof input.pay === "object" ? input.pay : fail("Price at least one role.")
   const markupPct = round2(num(input.markupPct, "Markup", 0, 200))
+  const terms = input.vaPct === undefined ? latestBid(ev, supplierId!)?.terms : { ...offeredTerms(ev, supplierId!), vaPct: round2(num(input.vaPct, "VA", 0, 50)) }
   const lines: Record<string, BidLine> = {}
   for (const line of ev.lines) {
     const v = sent[line.id]
@@ -1268,30 +1269,35 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
   const answered = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
   const text = note ?? (round > 1 ? `Round ${round} is in.` : undefined)
   const message: SourcingMessage[] = text ? [{ id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId: supplierId!, from: "agency", text }] : []
-  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, markupPct, lines, note, ...(prior?.terms ? { terms: prior.terms } : {}) }], messages: [...answered, ...message] }
+  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, markupPct, lines, note, ...(terms ? { terms } : {}) }], messages: [...answered, ...message] }
   return {
     ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
     notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],
   }
 }
 
-/** Compass asks an agency for a lower markup, on every role. Agencies nobody is playing answer on their own. */
-function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string; ask: number; note?: string }): Outcome<null> {
+/** Compass asks an agency for a lower markup on every role, more VA, or both. Agencies nobody is playing answer on their own. */
+function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string; ask?: number; askVa?: number; note?: string }): Outcome<null> {
   if (!isCompass(ctx.ws)) forbid("Only Compass counters a bid.")
   const ev = sourcingEvent(data, input?.eventId)
   if (ev.status === "awarded") fail("This event is closed.")
   const supplierId = str(input.supplierId, "Agency")
   const current = need(latestBid(ev, supplierId), "That agency hasn't bid yet.")
   if (ev.approved[supplierId]) fail("This agency's rates are already approved.")
-  const ask = round2(num(input.ask, "Ask", 0, 200))
-  if (ask >= current.markupPct) fail(`Ask for less than the ${pct(current.markupPct)} markup they bid.`)
+  const va = offeredTerms(ev, supplierId).vaPct
+  const ask = input.ask === undefined || input.ask === null ? undefined : round2(num(input.ask, "Markup", 0, 200))
+  const askVa = input.askVa === undefined || input.askVa === null ? undefined : round2(num(input.askVa, "VA", 0, 50))
+  if (ask === undefined && askVa === undefined) fail("Ask for a lower markup or more VA.")
+  if (ask !== undefined && ask >= current.markupPct) fail(`Ask for less than the ${pct(current.markupPct)} markup they bid.`)
+  if (askVa !== undefined && askVa <= va) fail(`Ask for more than the ${pct(va)} VA they offer.`)
   const by = actorName(ctx)
-  const text = optStr(input.note, 1000) ?? `Can you bring your markup from ${pct(current.markupPct)} to ${pct(ask)}?`
+  const asks = [ask !== undefined && `your markup from ${pct(current.markupPct)} to ${pct(ask)}`, askVa !== undefined && `your VA from ${pct(va)} to ${pct(askVa)}`].filter(Boolean)
+  const text = optStr(input.note, 1000) ?? `Can you bring ${asks.join(" and ")}?`
   const messages = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
-  const message: SourcingMessage = { id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId, from: "compass", text, ask, open: true }
+  const message: SourcingMessage = { id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId, from: "compass", text, ...(ask !== undefined ? { ask } : {}), ...(askVa !== undefined ? { askVa } : {}), open: true }
   return {
     ...done(data, null, withSourcing(data, { ...ev, messages: [...messages, message] })),
-    notices: [{ text: `Compass countered your markup on ${ev.title}: ${pct(ask)}`, tone: "warning", supplierId }],
+    notices: [{ text: `Compass countered your bid on ${ev.title}`, tone: "warning", supplierId }],
   }
 }
 

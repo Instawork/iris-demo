@@ -435,11 +435,13 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
     ),
   )
   const [markup, setMarkup] = useState(() => String(Math.round(bid?.markupPct ?? agencyValue(ev, data.rateCards, supplierId).markupPct)))
+  const [va, setVa] = useState(() => String(offeredTerms(ev, supplierId).vaPct))
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const markets = marketsOf(ev, supplierId)
   const mine = ev.lines.filter((l) => markets.includes(l.cityId))
   const markupN = markup === "" ? NaN : Number(markup)
+  const vaN = va === "" ? NaN : Number(va)
 
   const priced = markupN >= 0 ? mine.flatMap((l) => (Number(pay[l.id]) > 0 ? [{ line: l, pay: Number(pay[l.id]), bill: billFrom(Number(pay[l.id]), markupN) }] : [])) : []
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
@@ -449,7 +451,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
 
   const send = async () => {
     setBusy(true)
-    const n = await submit(ev.id, Object.fromEntries(priced.map((p) => [p.line.id, p.pay])), markupN, note.trim() || undefined)
+    const n = await submit(ev.id, Object.fromEntries(priced.map((p) => [p.line.id, p.pay])), markupN, vaN, note.trim() || undefined)
     setBusy(false)
     if (!n) return
     setNote("")
@@ -468,8 +470,15 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
           </Banner>
         ) : counter && !locked ? (
           <Banner tone="warning" icon={MessageSquareText}>
-            Compass asks for a {pct(counter.ask!)} markup on every role.
-            <button type="button" className="ml-2 font-semibold underline-offset-4 hover:underline" onClick={() => setMarkup(String(counter.ask))}>
+            Compass asks for {[counter.ask !== undefined && `a ${pct(counter.ask)} markup on every role`, counter.askVa !== undefined && `${pct(counter.askVa)} VA`].filter(Boolean).join(" and ")}.
+            <button
+              type="button"
+              className="ml-2 font-semibold underline-offset-4 hover:underline"
+              onClick={() => {
+                if (counter.ask !== undefined) setMarkup(String(counter.ask))
+                if (counter.askVa !== undefined) setVa(String(counter.askVa))
+              }}
+            >
               Accept
             </button>
             <span className="text-faded"> Then send round {round}.</span>
@@ -479,12 +488,18 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
           <SurfaceHeader
             title={bid ? `Your bid, round ${bid.round}` : "Your bid"}
             description={bid ? `Sent ${formatTimestamp(bid.at)}` : `Due ${formatDateShort(ev.closesOn)}`}
-            info="One markup goes on every role. Hours are Compass's estimate for the year. Leave a pay rate blank to skip a role."
+            info="One markup goes on every role, and VA comes back at year end. Hours are Compass's estimate for the year. Leave a pay rate blank to skip a role."
             actions={
-              <label className="flex items-center gap-2 text-body-3 font-medium">
-                Markup on every role
-                <NumberField suffix="%" value={markup} disabled={locked} invalid={!locked && !(markupN >= 0)} label="Markup on every role" onChange={setMarkup} />
-              </label>
+              <span className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-body-3 font-medium">
+                  Markup on every role
+                  <NumberField suffix="%" value={markup} disabled={locked} invalid={!locked && !(markupN >= 0)} label="Markup on every role" onChange={setMarkup} />
+                </label>
+                <label className="flex items-center gap-2 text-body-3 font-medium">
+                  VA
+                  <NumberField suffix="%" value={va} disabled={locked} invalid={!locked && !(vaN >= 0 && vaN <= 50)} label="VA" onChange={setVa} />
+                </label>
+              </span>
             }
           />
           <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
@@ -536,7 +551,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
           {!locked && (
             <div className="flex flex-wrap items-center gap-3 border-t border-border bg-page-faded/60 px-5 py-3">
               <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to Compass (optional)" className="h-9 min-w-56 flex-1 rounded-lg bg-card" />
-              <Button className="h-9" disabled={busy || !priced.length} onClick={send} data-tour="submit-bid">
+              <Button className="h-9" disabled={busy || !priced.length || !(vaN >= 0 && vaN <= 50)} onClick={send} data-tour="submit-bid">
                 {bid ? `Send round ${round}` : "Submit bid"}
               </Button>
             </div>
