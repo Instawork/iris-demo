@@ -252,13 +252,7 @@ export function TimesheetsPage() {
             {p && <ProAvatar pro={p} size="sm" />}
             <span className="flex min-w-0 flex-col">
               <span className="truncate font-semibold">{p ? fullName(p) : "Unknown worker"}</span>
-              {kind !== "supplier" ? (
-                <span className="inline-flex items-center gap-1 text-caption-1 text-faded">
-                  <SupplierLogo supplierId={t.supplierId} size="xs" /> {supplier(t.supplierId).shortName}
-                </span>
-              ) : (
-                <span className="text-caption-1 text-faded">{p?.code}</span>
-              )}
+              {kind === "supplier" && <span className="text-caption-1 text-faded">{p?.code}</span>}
             </span>
           </span>
         )

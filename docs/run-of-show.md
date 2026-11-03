@@ -96,7 +96,7 @@ App: https://cruber-demo.replit.app (no passcode)
 2. The agency side, as Devon (Crewline): open an upcoming Levy bartender shift that still has open spots, such as one at West Loop Arena, and click **Assign Pros**. Iris lists who can work and, for everyone else, why not: Aaliyah Alvarez, Crewline's top-rated Chicago bartender, shows "Alcohol server cert expired"; another Pro shows "Booked elsewhere that day". The same check runs whoever assigns: the agency, the buyer, an upload, or Iris filling it.
 3. Attest and verify, as Luis (Metro): the Dashboard to-do for missing or expired documents opens Not compliant. Open a worker with an expired work authorization; their **Documents** tab opens.
    - Click **Attest**. The row turns green in place and reads "Attested by Luis Ortega".
-   - On a worker with an expired food handler or alcohol card, click **Verify with Chkr**. Nothing to upload: the row turns green and reads "Verified with Chkr".
+   - On a worker with an expired food handler or alcohol card, click **Verify**. Nothing to upload: the row turns green and reads "Verified".
 4. Continuity, if there's time: as Alex (Northwind), add the background checks for the two Pros Iris held at onboarding.
 5. Live check-in (needs a phone): user menu, **Demo controls**, **Start a live shift**. Open the link on a phone and clock out. Iris turns the punch into a timesheet on Levy's Timesheets, with Iris check-in as the clock. That's the bridge to block 4.
 
@@ -165,6 +165,6 @@ App: https://cruber-demo.replit.app (no passcode)
 ## If asked what's real
 
 - The workflows, rules and checks are Iris's: placement checks, release order, budgets and approvals, clock comparisons, the rate cap and the rate log, report numbers.
-- The connections are simulated in this demo: certification checks with Chkr, reading attached documents, agencies filling shifts when nobody is signed in as them, and report emails.
+- The connections are simulated in this demo: certification checks with the issuer, reading attached documents, agencies filling shifts when nobody is signed in as them, and report emails.
 - Units and agencies are added by form. Bulk spreadsheet import for them isn't built yet.
 - Invoicing is built but not on this agenda.

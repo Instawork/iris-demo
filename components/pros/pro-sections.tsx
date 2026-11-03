@@ -187,7 +187,7 @@ function proofLine(row: RequirementRow) {
   const v = row.item?.verification
   if (!v || v.result !== "verified") return undefined
   if (CHECKS[row.id].attested) return `Attested by ${v.attestedBy} · ${formatDateFull(dateOf(v.at))}`
-  return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : `Verified with ${v.checkedWith}`} · ${formatDateFull(dateOf(v.at))}`
+  return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : "Verified"} · ${formatDateFull(dateOf(v.at))}`
 }
 
 export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: boolean }) {
@@ -284,10 +284,10 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                   >
                     {checking === row.id ? (
                       <>
-                        <Loader2 className="size-3 animate-spin" /> {issuer ? `Checking with ${issuer}` : "Attesting"}
+                        <Loader2 className="size-3 animate-spin" /> {issuer ? "Verifying" : "Attesting"}
                       </>
                     ) : issuer ? (
-                      `Verify with ${issuer}`
+                      "Verify"
                     ) : (
                       "Attest"
                     )}
