@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText, WandSparkles } from "lucide-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
@@ -23,7 +24,7 @@ import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, toda
 import { billFrom, money, plural, round2 } from "@/lib/format"
 import { city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
-import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineLabel, lineOf, marketName, netOf, offeredTerms, openCounters, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
+import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineName, lineOf, marketName, marketsOf, markupOf, netOf, offeredTerms, openCounters, responded, rolesOf, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
 import type { ContractTerms, SourcingEvent, SourcingLine } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -56,7 +57,7 @@ export function EventPage({ id }: { id: string }) {
           <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
           <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-featured-1 font-semibold">
             {ev.title}
-            <InfoTip className="size-[18px] [&>svg]:size-4">{`${marketName(ev)}, ${ev.lines.length} roles, ${ev.invited.length} agencies. Term ${termLabel(ev)}.`}</InfoTip>
+            <InfoTip className="size-[18px] [&>svg]:size-4">{`${marketName(ev)}. ${new Set(ev.lines.map((l) => l.positionId)).size} roles, ${ev.invited.length} agencies. Term ${termLabel(ev)}.`}</InfoTip>
             <StageBadge ev={ev} />
           </h1>
         </div>
@@ -85,6 +86,8 @@ const VA_INFO = "VA is the rebate an agency pays Compass at year end, as a share
 
 const years = (n: number) => `${n} yr${n === 1 ? "" : "s"}`
 
+const pct = (n: number) => `${Math.round(n * 10) / 10}%`
+
 /** A term the agency offers, with what it has now beneath when the offer changes it. */
 function TermCell({ value, was, better }: { value: string; was?: string; better?: boolean }) {
   return (
@@ -106,7 +109,7 @@ function agencyVsMarket(ev: SourcingEvent, supplierId: string) {
     if (rate === undefined) continue
     const hours = line.hours * (line.share[supplierId] ?? 1 / Math.max(1, Object.keys(line.share).length))
     bid += hours * rate
-    market += hours * benchmark(ev.cityId, line.positionId).median
+    market += hours * benchmark(line.cityId, line.positionId).median
   }
   return market ? bid / market - 1 : undefined
 }
@@ -114,8 +117,9 @@ function agencyVsMarket(ev: SourcingEvent, supplierId: string) {
 type Selection = { kind: "role"; lineId: string } | { kind: "agency"; supplierId: string } | null
 
 function CompassView({ ev }: { ev: SourcingEvent }) {
-  const [view, setView] = useState<"role" | "agency">("role")
-  const [open, setOpen] = useState<Selection>(null)
+  const asked = useSearchParams().get("agency")
+  const [view, setView] = useState<"role" | "agency">("agency")
+  const [open, setOpen] = useState<Selection>(asked && ev.invited.includes(asked) ? { kind: "agency", supplierId: asked } : null)
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
@@ -123,15 +127,15 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
         <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
           <SurfaceHeader
             title="Bids"
-            info={`Each role's latest bids against the ${city(ev.cityId).name} market. Open a role to see every bid and counter it.`}
+            info={view === "agency" ? "Every agency up for renewal, across all its markets. Open one to see its whole rate card." : "Each role's latest bids against that market. Open a role to see every bid and counter it."}
             actions={
               <PillTabs
                 size="sm"
                 value={view}
                 onChange={setView}
                 items={[
-                  { value: "role", label: "By role" },
                   { value: "agency", label: "By agency", count: ev.invited.length },
+                  { value: "role", label: "By market" },
                 ]}
               />
             }
@@ -164,13 +168,12 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
 
 const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
   waiting: { label: "Waiting", tone: "neutral" },
-  met: { label: "Met the ask", tone: "positive" },
+  met: { label: "Met it", tone: "positive" },
   down: { label: "Came down", tone: "primary" },
   held: { label: "Held", tone: "neutral" },
 }
 
 const SHOWN = 5
-const TAGGED: CounterOutcome[] = ["waiting", "held"]
 
 /**
  * Iris negotiates the whole event at once: it counters every bid above the market, then shows each agency's answer as
@@ -188,13 +191,12 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
   const waiting = sent.filter((c) => c.outcome === "waiting").length
   const count = (o: CounterOutcome) => sent.filter((c) => c.outcome === o).length
   const rows = sent.length
-    ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.outcome === "waiting" ? c.ask : c.now, outcome: c.outcome as CounterOutcome | undefined }))
-    : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, to: c.ask, outcome: undefined }))
+    ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, ask: c.ask, now: c.now, outcome: c.outcome as CounterOutcome | undefined }))
+    : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, ask: c.ask, now: c.from, outcome: undefined }))
   const shown = all ? rows : rows.slice(0, SHOWN)
-  const tagged = rows.some((r) => r.outcome && TAGGED.includes(r.outcome))
   const title = !sent.length ? `${plural(plan.length, "bid")} above the market` : waiting ? "Iris is negotiating" : `Iris negotiated ${plural(sent.length, "rate")}`
   const detail = !sent.length
-    ? `From ${listOf(agencies)}. Iris counters each one toward the ${city(ev.cityId).name} median.`
+    ? `From ${listOf(agencies)}. Iris counters each one toward its market's median.`
     : waiting
       ? `${sent.length - waiting} of ${sent.length} answered. Agencies usually answer within two days.`
       : listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))
@@ -212,23 +214,27 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
           </span>
         </span>
       </div>
-      <ol className="flex flex-col border-t border-border/70">
+      <div className="flex items-center gap-3 border-t border-border/70 px-5 pt-2 pb-1 text-caption-1 text-faded">
+        <span className="flex-1">Agency and role</span>
+        <span className="w-16 text-right">Their bid</span>
+        <span className="w-16 text-right">Iris asks</span>
+        {sent.length > 0 && <span className="w-28 text-right">Answer</span>}
+      </div>
+      <ol className="flex flex-col">
         {shown.map((r) => (
           <li key={r.key} className="flex items-center gap-3 border-b border-border/60 px-5 py-2 text-body-3 last:border-0" data-tour="iris-counter" data-outcome={r.outcome}>
             <SupplierLogo supplierId={r.supplierId} size="sm" />
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium">{supplier(r.supplierId).shortName}</span>
-              <span className="text-faded"> · {lineLabel(ev, r.lineId)}</span>
+              <span className="text-faded"> · {lineName(ev, r.lineId)}</span>
             </span>
-            <span className="text-faded tabular line-through decoration-foreground/25">{money(r.from)}</span>
-            <span className="w-16 text-right font-semibold tabular">{money(r.to)}</span>
-            {tagged && (
-              <span className="flex w-24 justify-end">
-                {r.outcome && TAGGED.includes(r.outcome) && (
-                  <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
-                    {OUTCOME[r.outcome].label}
-                  </StatusBadge>
-                )}
+            <span className="w-16 text-right text-faded tabular">{money(r.from)}</span>
+            <span className="w-16 text-right font-semibold tabular">{money(r.ask)}</span>
+            {r.outcome && (
+              <span className="flex w-28 justify-end">
+                <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
+                  {r.outcome === "down" ? `Down to ${money(r.now)}` : OUTCOME[r.outcome].label}
+                </StatusBadge>
               </span>
             )}
           </li>
@@ -263,10 +269,17 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
 
 const th = "px-3 pb-2.5 font-medium whitespace-nowrap"
 
-/** One row per role, so it reads the same with four agencies or four hundred. */
+/** One market at a time, one row per role, so it reads the same with four agencies or four hundred. */
 function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string) => void }) {
+  const [cityId, setCityId] = useState(ev.cityIds[0])
+  const lines = ev.lines.filter((l) => l.cityId === cityId)
   return (
     <>
+      {ev.cityIds.length > 1 && (
+        <div className="px-5 pt-3">
+          <PillTabs size="sm" value={cityId} onChange={setCityId} items={ev.cityIds.map((c) => ({ value: c, label: city(c).name, count: ev.lines.filter((l) => l.cityId === c).length }))} />
+        </div>
+      )}
       <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
         <table className="w-full min-w-[720px] text-body-3">
           <thead>
@@ -276,7 +289,7 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
               <th className={cn(th, "text-right")}>
                 <span className="inline-flex items-center gap-1">
                   Market
-                  <InfoTip>{`The median bill rate for the role across ${benchmark(ev.cityId, ev.lines[0].positionId).agencies} ${city(ev.cityId).name} agencies.`}</InfoTip>
+                  <InfoTip>{`The median bill rate for the role across ${benchmark(cityId, lines[0]?.positionId ?? "").agencies} ${city(cityId).name} agencies.`}</InfoTip>
                 </span>
               </th>
               <th className={cn(th, "text-right")}>
@@ -291,8 +304,8 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
             </tr>
           </thead>
           <tbody>
-            {ev.lines.map((line) => {
-              const b = benchmark(ev.cityId, line.positionId)
+            {lines.map((line) => {
+              const b = benchmark(line.cityId, line.positionId)
               const bids = bidsOn(ev, line)
               const best = bids[0]
               const today = todayOn(line)
@@ -354,8 +367,9 @@ function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string)
   )
 }
 
-/** One row per agency, most savings first. */
+/** One row per agency up for renewal: where it bids, what it bids on, and its markup as well as its rates. */
 function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: string) => void }) {
+  const data = useData()
   const [query, setQuery] = useState("")
   const rows = ev.invited
     .filter((s) => supplier(s).name.toLowerCase().includes(query.trim().toLowerCase()))
@@ -373,14 +387,20 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
           <thead>
             <tr className="text-caption-1 text-faded">
               <th className={cn(th, "text-left")}>Agency</th>
+              <th className={cn(th, "text-right")}>Markets</th>
+              <th className={cn(th, "text-right")}>Roles</th>
+              <th className={cn(th, "text-right")}>
+                <span className="inline-flex items-center gap-1">
+                  Markup
+                  <InfoTip>What the agency adds on top of pay, across its roles, weighted by hours.</InfoTip>
+                </span>
+              </th>
               <th className={cn(th, "text-right")}>
                 <span className="inline-flex items-center gap-1">
                   VA
                   <InfoTip>{VA_INFO}</InfoTip>
                 </span>
               </th>
-              <th className={cn(th, "text-right")}>Payment</th>
-              <th className={cn(th, "text-right")}>Contract</th>
               <th className={cn(th, "text-right")}>
                 <span className="inline-flex items-center gap-1">
                   A year
@@ -396,6 +416,8 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
             {rows.map(({ s, spend, bid, status }) => {
               const now = termsOf(s)
               const offer = offeredTerms(ev, s)
+              const markets = marketsOf(ev, s)
+              const markup = markupOf(ev, data.rateCards, s)
               return (
               <tr key={s} data-supplier={s} onClick={() => onOpen(s)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
                 <td className="px-3 py-2.5">
@@ -405,19 +427,21 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
                       <span className="truncate font-medium">{supplier(s).name}</span>
                       <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
                         {status.label === "Invited" ? "No bid yet" : status.label}
-                        {bid && Object.keys(bid.lines).length < ev.lines.length ? ` · ${Object.keys(bid.lines).length} of ${ev.lines.length} roles` : ""}
                       </span>
                     </span>
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-right">
+                  <Tip content={markets.map((c) => city(c).name).join(", ")}>
+                    <span className="cursor-default font-medium tabular">{markets.length}</span>
+                  </Tip>
+                </td>
+                <td className="px-3 py-2.5 text-right font-medium tabular">{rolesOf(ev, s).length}</td>
+                <td className="px-3 py-2.5 text-right">
+                  {markup.bidding ? <TermCell value={pct(markup.bid)} was={pct(markup.today)} better={markup.bid < markup.today} /> : <span className="text-faded">{pct(markup.today)}</span>}
+                </td>
+                <td className="px-3 py-2.5 text-right">
                   <TermCell value={`${offer.vaPct}%`} was={`${now.vaPct}%`} better={offer.vaPct > now.vaPct} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <TermCell value={`Net ${offer.netDays}`} was={`Net ${now.netDays}`} better={offer.netDays > now.netDays} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <TermCell value={years(offer.years)} was={years(now.years)} />
                 </td>
                 <td className="px-3 py-2.5 text-right font-semibold tabular">{bid ? moneyYear(spend.proposed) : "—"}</td>
                 <td className="px-3 py-2.5 text-right">{bid ? <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> : <span className="text-faded">—</span>}</td>
@@ -439,7 +463,7 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
 
 /** A role's market benchmark up top, then every bid on it, lowest first, each one counterable. */
 function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
-  const b = benchmark(ev.cityId, line.positionId)
+  const b = benchmark(line.cityId, line.positionId)
   const bids = bidsOn(ev, line)
   const today = todayOn(line)
   const waiting = ev.invited.filter((s) => line.baseline[s] !== undefined && !latestBid(ev, s)?.lines[line.id])
@@ -448,10 +472,10 @@ function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
       <SheetHeader className="gap-1 border-b border-border px-6 pt-6 pb-5">
         <SheetTitle className="text-featured-3 font-semibold">{position(line.positionId).name}</SheetTitle>
         <SheetDescription className="text-body-3 text-faded">
-          {city(ev.cityId).name} · {line.hours.toLocaleString("en-US")} hours a year
+          {city(line.cityId).name} · {line.hours.toLocaleString("en-US")} hours a year
         </SheetDescription>
       </SheetHeader>
-      <MarketBlock b={b} today={today} marks={[...bids.slice(1).map((x) => ({ value: x.bid.billRate, kind: "bid" as const })), ...(today ? [{ value: today, kind: "today" as const }] : []), ...(bids[0] ? [{ value: bids[0].bid.billRate, kind: "best" as const }] : [])]} cityId={ev.cityId} />
+      <MarketBlock b={b} today={today} marks={[...bids.slice(1).map((x) => ({ value: x.bid.billRate, kind: "bid" as const })), ...(today ? [{ value: today, kind: "today" as const }] : []), ...(bids[0] ? [{ value: bids[0].bid.billRate, kind: "best" as const }] : [])]} cityId={line.cityId} />
       <section className="flex flex-col gap-1 px-6 py-5">
         <h3 className="flex items-center gap-1 pb-2 text-body-3 font-semibold">
           Bids, lowest after VA first
@@ -476,12 +500,15 @@ function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
   )
 }
 
-/** One agency's bid, role by role, against the market. */
+/** One agency's whole rate card for the renewal, market by market, each role against that market. */
 function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
+  const data = useData()
   const bid = latestBid(ev, supplierId)
   const spend = spendOf(ev, supplierId)
   const status = agencyStatus(ev, supplierId)
   const lines = ev.lines.filter((l) => bid?.lines[l.id])
+  const markets = marketsOf(ev, supplierId)
+  const markup = markupOf(ev, data.rateCards, supplierId)
   return (
     <>
       <SheetHeader className="flex-row items-center gap-3 border-b border-border px-6 pt-6 pb-5">
@@ -496,9 +523,12 @@ function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string
         </span>
       </SheetHeader>
       {bid && (
-        <dl className="grid grid-cols-3 divide-x divide-border border-b border-border text-body-3">
+        <dl className="grid grid-cols-3 border-b border-border text-body-3 [&>div:nth-child(-n+3)]:border-b [&>div:not(:nth-child(3n+1))]:border-l [&>div]:border-border">
           {[
-            { label: "A year", value: moneyYear(spend.proposed) },
+            { label: "Markets", value: markets.length },
+            { label: "Roles", value: rolesOf(ev, supplierId).length },
+            { label: "Markup", value: <span>{pct(markup.bid)} <span className="text-caption-1 font-normal text-faded">was {pct(markup.today)}</span></span> },
+            { label: "A year, after VA", value: moneyYear(spend.proposed) },
             { label: "vs today", value: <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> },
             { label: "vs market", value: <VsMarket value={agencyVsMarket(ev, supplierId)} /> },
           ].map((c) => (
@@ -509,13 +539,23 @@ function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string
           ))}
         </dl>
       )}
-      <section className="flex flex-col px-6 py-5">
+      <section className="flex flex-col gap-5 px-6 py-5">
         {lines.length ? (
-          <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
-            {lines.map((l) => (
-              <BidRow key={l.id} ev={ev} line={l} supplierId={supplierId} market={benchmark(ev.cityId, l.positionId)} title={position(l.positionId).name} best={bestOn(ev, l.id)?.supplierId === supplierId && responded(ev).length > 1} />
-            ))}
-          </ol>
+          markets.map((c) => (
+            <div key={c} className="flex flex-col gap-2">
+              <h3 className="flex items-baseline justify-between gap-2 text-body-3 font-semibold">
+                {city(c).name}, {city(c).state}
+                <span className="text-caption-1 font-normal text-faded">{plural(lines.filter((l) => l.cityId === c).length, "role")}</span>
+              </h3>
+              <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
+                {lines
+                  .filter((l) => l.cityId === c)
+                  .map((l) => (
+                    <BidRow key={l.id} ev={ev} line={l} supplierId={supplierId} market={benchmark(l.cityId, l.positionId)} title={position(l.positionId).name} best={bestOn(ev, l.id)?.supplierId === supplierId && responded(ev).length > 1} />
+                  ))}
+              </ol>
+            </div>
+          ))
         ) : (
           <p className="text-body-3 text-faded">Nothing to compare until {supplier(supplierId).shortName} bids.</p>
         )}
@@ -676,7 +716,7 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
     void approve(ev.id, chosen).then((n) => {
       if (!n) return
       setOpen(false)
-      toast.success(n === 1 ? `${supplier(chosen[0]).shortName}'s bid is approved` : `${n} bids approved`, { description: `The new rates are live on the ${city(ev.cityId).name} rate cards.` })
+      toast.success(n === 1 ? `${supplier(chosen[0]).shortName}'s bid is approved` : `${n} bids approved`, { description: "The new rates are live on their rate cards." })
     })
   return (
     <>
@@ -695,7 +735,11 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
             <DialogTitle>Approve bids</DialogTitle>
             <DialogDescription className="sr-only">Pick the bids to approve.</DialogDescription>
           </DialogHeader>
-          <ul className="flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border scrollbar-thin">
+          <div className="flex items-center gap-3 px-4 text-caption-1 text-faded">
+            <span className="flex-1">Agency</span>
+            <span className="text-right">A year at these rates, after VA</span>
+          </div>
+          <ul className="-mt-2 flex max-h-80 flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border scrollbar-thin">
             {pending.map((s) => {
               const spend = spendOf(ev, s)
               const waiting = !ready.includes(s)
@@ -714,7 +758,7 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
                     </span>
                     <span className="flex flex-col items-end">
                       <span className="text-body-3 font-semibold tabular">{moneyYear(spend.proposed)}</span>
-                      <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} />
+                      <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} suffix=" vs today" />
                     </span>
                   </label>
                 </li>
@@ -837,7 +881,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const [form, setForm] = useState<Record<string, { pay: string; markup: string }>>(() =>
     Object.fromEntries(
       ev.lines.map((l) => {
-        const v = bid?.lines[l.id] ?? activeCard(data.rateCards, supplierId, ev.cityId, l.positionId)
+        const v = bid?.lines[l.id] ?? activeCard(data.rateCards, supplierId, l.cityId, l.positionId)
         return [l.id, { pay: v ? v.proRate.toFixed(2) : "", markup: v ? String(v.markupPct) : "" }]
       }),
     ),
@@ -845,8 +889,10 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const set = (lineId: string, patch: Partial<{ pay: string; markup: string }>) => setForm((f) => ({ ...f, [lineId]: { ...f[lineId], ...patch } }))
+  const markets = marketsOf(ev, supplierId)
+  const mine = ev.lines.filter((l) => markets.includes(l.cityId))
 
-  const priced = ev.lines.flatMap((l) => {
+  const priced = mine.flatMap((l) => {
     const f = form[l.id]
     const pay = Number(f?.pay)
     const markup = Number(f?.markup)
@@ -904,15 +950,24 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
                 </tr>
               </thead>
               <tbody>
-                {ev.lines.map((l) => {
+                {mine.map((l, i) => {
                   const f = form[l.id]
                   const pay = Number(f?.pay)
                   const markup = Number(f?.markup)
                   const bill = pay > 0 && f?.markup !== "" ? billFrom(pay, markup) : undefined
                   const ask = locked ? undefined : counters.find((m) => m.lineId === l.id)
                   const was = l.baseline[supplierId]
+                  const heading = ev.cityIds.length > 1 && mine[i - 1]?.cityId !== l.cityId
                   return (
-                    <tr key={l.id} className={cn("border-t border-border/70", ask && "bg-warning-faded/50")}>
+                    <Fragment key={l.id}>
+                    {heading && (
+                      <tr className="border-t border-border/70 bg-page-faded/60">
+                        <td colSpan={6} className="px-3 py-1.5 text-caption-1 font-semibold">
+                          {city(l.cityId).name}, {city(l.cityId).state}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className={cn("border-t border-border/70", ask && "bg-warning-faded/50")}>
                       <td className="px-3 py-2">
                         <span className="flex flex-col">
                           <span className="font-medium">{position(l.positionId).name}</span>
@@ -933,14 +988,14 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
                       <td className="px-3 py-2 text-right text-faded tabular">{l.hours.toLocaleString("en-US")}</td>
                       <td className="px-3 py-2 text-right text-faded tabular">{was ? money(was) : "—"}</td>
                       <td className="px-3 py-2 text-right">
-                        <NumberField prefix="$" value={f?.pay ?? ""} disabled={locked} label={`${position(l.positionId).name} pay rate`} onChange={(v) => set(l.id, { pay: v })} />
+                        <NumberField prefix="$" value={f?.pay ?? ""} disabled={locked} label={`${lineName(ev, l.id)} pay rate`} onChange={(v) => set(l.id, { pay: v })} />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <NumberField
                           suffix="%"
                           value={f?.markup ?? ""}
                           disabled={locked}
-                          label={`${position(l.positionId).name} markup`}
+                          label={`${lineName(ev, l.id)} markup`}
                           onChange={(v) => set(l.id, { markup: v })}
                         />
                       </td>
@@ -951,6 +1006,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
                         </span>
                       </td>
                     </tr>
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -990,7 +1046,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             <div className="flex justify-between gap-3">
               <dt className="text-faded">Roles priced</dt>
               <dd className="font-medium tabular">
-                {priced.length} of {ev.lines.length}
+                {priced.length} of {mine.length}
               </dd>
             </div>
             <div className="flex justify-between gap-3">

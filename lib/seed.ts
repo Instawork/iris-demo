@@ -29,7 +29,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 23
+export const DATA_VERSION = 24
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",

@@ -276,6 +276,7 @@ export interface RateChange {
 /** One thing being priced in a sourcing event: a role in the event's market, with the hours Compass expects to buy. */
 export interface SourcingLine {
   id: string
+  cityId: string
   positionId: string
   /** Estimated hours a year. */
   hours: number
@@ -323,7 +324,8 @@ export interface SourcingEvent {
   number: string
   title: string
   category: string
-  cityId: string
+  /** The markets it prices. Agencies bid once, on every role in each of their markets. */
+  cityIds: string[]
   status: "open" | "awarded"
   createdBy: string
   openedAt: string

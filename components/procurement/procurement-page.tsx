@@ -20,7 +20,11 @@ import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { dateOf, daysFromToday, formatDateFull, formatDateShort } from "@/lib/dates"
 import { benchmark } from "@/lib/market"
-import { latestBid, responded, spendOf } from "@/lib/sourcing"
+import { SupplierLogo } from "@/components/brand/org-avatar"
+import { toneText } from "@/components/common/status-badge"
+import { city, supplier } from "@/lib/reference"
+import { latestBid, marketsOf, markupOf, responded, rolesOf, spendOf } from "@/lib/sourcing"
+import { cn } from "@/lib/utils"
 import type { SourcingEvent } from "@/lib/types"
 
 type Tab = "events" | "rates" | "contracts"
@@ -68,7 +72,7 @@ export function ProcurementPage() {
         onChange={change}
         items={[
           { value: "events", label: isAgency ? "Invitations" : "Events", count: events.filter((e) => e.status === "open").length },
-          { value: "rates", label: isAgency ? "My rate cards" : "Market rates" },
+          { value: "rates", label: isAgency ? "My rate cards" : "Markets and roles" },
           ...(isAgency ? [] : [{ value: "contracts" as const, label: "Contracts" }]),
         ]}
       />
@@ -95,13 +99,17 @@ function Events({ events, supplierId, onCreate }: { events: SourcingEvent[]; sup
     <>
       {!supplierId && open.length > 0 && <Summary events={open} />}
       <section className="flex flex-col gap-3">
-        <SectionTitle title={supplierId ? "Open invitations" : "Open"} />
+        <SectionTitle title={supplierId ? "Open invitations" : "Up for renewal"} />
         {open.length ? (
-          <div className="grid gap-3 lg:grid-cols-2">
-            {open.map((e) => (
-              <EventCard key={e.id} ev={e} supplierId={supplierId} />
-            ))}
-          </div>
+          supplierId ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {open.map((e) => (
+                <EventCard key={e.id} ev={e} supplierId={supplierId} />
+              ))}
+            </div>
+          ) : (
+            open.map((e) => <Renewal key={e.id} ev={e} />)
+          )
         ) : (
           <EmptyState
             icon={FileSearch}
@@ -174,7 +182,7 @@ function marketSpend(ev: SourcingEvent) {
       const rate = latestBid(ev, s)?.lines[line.id]?.billRate
       if (rate === undefined) continue
       proposed += line.hours * share * rate
-      market += line.hours * share * benchmark(ev.cityId, line.positionId).median
+      market += line.hours * share * benchmark(line.cityId, line.positionId).median
     }
   }
   return { proposed, market }
@@ -222,6 +230,92 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
     </Link>
   )
 }
+
+/** An open event as Compass sees it: every agency up for renewal, with where it bids, on what, and at what markup. */
+function Renewal({ ev }: { ev: SourcingEvent }) {
+  const data = useData()
+  const days = daysFromToday(ev.closesOn)
+  const roles = new Set(ev.lines.map((l) => l.positionId)).size
+  return (
+    <Surface elevated className="overflow-hidden" data-event={ev.id}>
+      <Link href={`/procurement/${ev.id}`} className="group flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 pt-4 pb-3 transition-colors hover:bg-hover/40">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
+          <span className="flex items-center gap-2.5 text-featured-3 leading-snug font-semibold">
+            {ev.title}
+            <StageBadge ev={ev} size="sm" />
+          </span>
+        </span>
+        <span className="flex items-center gap-6 text-body-3">
+          {[
+            { label: "Markets", value: ev.cityIds.length },
+            { label: "Roles", value: roles },
+            { label: "Bids in", value: `${responded(ev).length} of ${ev.invited.length}` },
+            { label: days >= 0 ? "Bids due" : "Bids closed", value: days === 0 ? "Today" : formatDateShort(ev.closesOn) },
+          ].map((f) => (
+            <span key={f.label} className="flex flex-col">
+              <span className="text-caption-1 text-faded">{f.label}</span>
+              <span className="font-semibold tabular">{f.value}</span>
+            </span>
+          ))}
+          <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+        </span>
+      </Link>
+      <div className="overflow-x-auto px-2 scrollbar-thin">
+        <table className="w-full min-w-[720px] text-body-3">
+          <thead>
+            <tr className="border-t border-border/70 text-caption-1 text-faded">
+              <th className="px-3 pt-2.5 pb-2 text-left font-medium">Agency</th>
+              <th className="px-3 pt-2.5 pb-2 text-left font-medium">Markets</th>
+              <th className="px-3 pt-2.5 pb-2 text-right font-medium">Roles</th>
+              <th className="px-3 pt-2.5 pb-2 text-right font-medium">Markup, bid vs today</th>
+              <th className="px-3 pt-2.5 pb-2 text-right font-medium">A year, after VA</th>
+              <th className="px-3 pt-2.5 pb-2 text-right font-medium">vs today</th>
+              <th className="w-6" />
+            </tr>
+          </thead>
+          <tbody>
+            {ev.invited.map((s) => {
+              const spend = spendOf(ev, s)
+              const bid = latestBid(ev, s)
+              const markup = markupOf(ev, data.rateCards, s)
+              const status = agencyStatus(ev, s)
+              return (
+                <tr key={s} data-supplier={s} className="group border-t border-border/70 transition-colors hover:bg-hover/60">
+                  <td className="p-0">
+                    <Link href={`/procurement/${ev.id}?agency=${s}`} className="flex items-center gap-2.5 px-3 py-2.5">
+                      <SupplierLogo supplierId={s} size="sm" />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-medium">{supplier(s).name}</span>
+                        <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
+                          {status.label === "Invited" ? "No bid yet" : status.label}
+                        </span>
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2.5 text-faded">{marketsOf(ev, s).map((c) => city(c).name).join(", ")}</td>
+                  <td className="px-3 py-2.5 text-right tabular">{rolesOf(ev, s).length}</td>
+                  <td className="px-3 py-2.5 text-right tabular">
+                    <span className="font-semibold">{pct(markup.bid)}</span> <span className="text-caption-1 text-faded">was {pct(markup.today)}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular">{moneyYear(bid ? spend.proposed : spend.baseline)}</td>
+                  <td className="px-3 py-2.5 text-right">{bid ? <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> : <span className="text-faded">—</span>}</td>
+                  <td className="pr-3">
+                    <Link href={`/procurement/${ev.id}?agency=${s}`} aria-label={`Open ${supplier(s).name}`}>
+                      <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+                    </Link>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Surface>
+  )
+}
+
+const pct = (n: number) => `${Math.round(n * 10) / 10}%`
 
 function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
   const spend = spendOf(ev, supplierId, !!supplierId)

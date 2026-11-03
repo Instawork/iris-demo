@@ -218,7 +218,7 @@ async function fillUnit() {
 
 /* ------------------------------- Procurement ------------------------------- */
 
-const EVENT = "rfp-chi-27"
+const EVENT = "rfp-27"
 const event = (ctx: TourContext) => ctx.data.sourcing?.find((e) => e.id === EVENT)
 /** The counters Iris sent during the tour, and how many the agencies have answered. */
 /** Every counter Iris sent on the event, whenever it was sent, so a jump back here finds the negotiation already run. */
@@ -597,7 +597,7 @@ export const SCRIPT: TourItem[] = [
     title: "Rate cards and supplier sourcing",
     wsId: COMPASS,
     href: `/procurement/${EVENT}`,
-    shows: "Next year's rates: every agency's bid, countered at once, approved and benchmarked.",
+    shows: "Next year's renewal: every agency's rates, markup and VA, side by side against the market.",
   },
   {
     kind: "step",
@@ -648,13 +648,13 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "coverage",
     chapter: "rates",
-    label: "Compare market rates",
+    label: "Markets and roles",
     wsId: COMPASS,
     path: /^\/procurement$/,
     href: () => "/procurement?tab=rates",
-    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "Who has a rate where"),
+    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "One list of markets and roles"),
     body: () => (one('[data-tour="market-rates"]') ? "Agencies price Compass's definition of each role, so every rate compares like for like." : undefined),
-    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Market rates"),
+    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Markets and roles"),
     targets: () => [one('[data-tour="market-rates"]') ?? one('[role="tab"][data-value="rates"]')],
     placement: "top",
     skip: () => press(one('[role="tab"][data-value="rates"]')),

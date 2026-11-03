@@ -82,7 +82,7 @@ interface StoreState {
   /** Asks the agency to review the rates on this invoice that run above the market, and clears it for payment. Resolves to the number of rates. */
   requestRateReview: (id: string, note?: string) => Promise<number>
   answerRateReview: (cardId: string, decision: "lower" | "keep", note?: string) => Promise<boolean>
-  createSourcingEvent: (input: { cityId: string; positionIds: string[]; supplierIds: string[]; closesOn: string; title?: string }) => Promise<string | undefined>
+  createSourcingEvent: (input: { cityIds: string[]; positionIds: string[]; supplierIds: string[]; closesOn: string; title?: string }) => Promise<string | undefined>
   submitBid: (eventId: string, lines: Record<string, { proRate: number; markupPct: number }>, note?: string) => Promise<number | undefined>
   counterBid: (eventId: string, supplierId: string, lineId: string, ask: number, note?: string) => Promise<boolean>
   approveBids: (eventId: string, supplierIds: string[]) => Promise<number>
@@ -303,14 +303,14 @@ export const useStore = create<StoreState>()((set, get) => {
     } catch {
       return undefined
     }
-  }
+      }
 
-  return {
-    ready: false,
+      return {
+        ready: false,
     connection: "connecting",
-    workspaceId: DEFAULT_WORKSPACE_ID,
+        workspaceId: DEFAULT_WORKSPACE_ID,
     version: 0,
-    data: emptyData(),
+        data: emptyData(),
 
     connect: () => {
       if (connecting) return
