@@ -94,13 +94,11 @@ App: https://cruber-demo.replit.app (no passcode)
 
 1. Assignment, as Jordan: open the shift from block 2. The Pros list shows each person's agency, rating and status, and the agencies panel shows the release order and how each one is filling. Priya's Dashboard flags "4 shifts likely to start under 80% filled" across the program.
 2. The agency side, as Devon (Crewline): open an upcoming Levy bartender shift that still has open spots, such as one at West Loop Arena, and click **Assign Pros**. Iris lists who can work and, for everyone else, why not: Aaliyah Alvarez, Crewline's top-rated Chicago bartender, shows "Alcohol server cert expired"; another Pro shows "Booked elsewhere that day". The same check runs whoever assigns: the agency, the buyer, an upload, or Iris filling it.
-3. Attest and verify, as Luis (Metro): the Dashboard to-do "8 professionals with missing or expired documents" opens Not compliant. Open **Brianna Foster** (expired background check), go to **Documents**, and click **Renew**.
-   - Attach any PDF. Iris reads it and fills in the issuer, report ID and dates.
-   - Tick the attestation: "I attest this background check is genuine, current, and belongs to Brianna Foster."
-   - **Verify and clear**: "Checking with Sterling…", then "Verified with Sterling", then "Brianna is cleared to work again". Her row now reads "Verified with Sterling, the report ID, attested by Luis Ortega".
-4. When it doesn't check out: still on Brianna, **Renew** the **Food handler card**, skip the attachment, type 4471 as the certificate number, attest, and verify. Iris answers "ServSafe has no record of 4471", holds the document for Compass, and takes Brianna back off shifts. Switch to Priya: her Dashboard now has "1 document Iris couldn't verify". Open it and **Accept**, or **Send back** with a note, which lands with Metro.
-5. Continuity, if there's time: as Alex (Northwind), add the background checks for the two Pros Iris held at onboarding.
-6. Live check-in (needs a phone): user menu, **Demo controls**, **Start a live shift**. Open the link on a phone and clock out. Iris turns the punch into a timesheet on Levy's Timesheets, with Iris check-in as the clock. That's the bridge to block 4.
+3. Attest and verify, as Luis (Metro): the Dashboard to-do for missing or expired documents opens Not compliant. Open a worker with an expired work authorization; their **Documents** tab opens.
+   - Click **Attest**. The row turns green in place and reads "Attested by Luis Ortega".
+   - On a worker with an expired food handler or alcohol card, click **Verify with Chkr**. Nothing to upload: the row turns green and reads "Verified with Chkr".
+4. Continuity, if there's time: as Alex (Northwind), add the background checks for the two Pros Iris held at onboarding.
+5. Live check-in (needs a phone): user menu, **Demo controls**, **Start a live shift**. Open the link on a phone and clock out. Iris turns the punch into a timesheet on Levy's Timesheets, with Iris check-in as the clock. That's the bridge to block 4.
 
 **Say:** the agency attests, Iris verifies with whoever issued the document, and Compass only looks at the exceptions. A lapsed certificate takes the Pro off shifts the day it lapses, not when someone notices.
 
@@ -167,6 +165,6 @@ App: https://cruber-demo.replit.app (no passcode)
 ## If asked what's real
 
 - The workflows, rules and checks are Iris's: placement checks, release order, budgets and approvals, clock comparisons, the rate cap and the rate log, report numbers.
-- The connections are simulated in this demo: provider lookups (Sterling, ServSafe, E-Verify), reading attached documents, agencies filling shifts when nobody is signed in as them, and report emails.
+- The connections are simulated in this demo: certification checks with Chkr, reading attached documents, agencies filling shifts when nobody is signed in as them, and report emails.
 - Units and agencies are added by form. Bulk spreadsheet import for them isn't built yet.
 - Invoicing is built but not on this agenda.
