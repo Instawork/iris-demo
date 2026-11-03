@@ -82,7 +82,7 @@ export function useAgent() {
       if (ws.kind === "buyer") {
         const data = useStore.getState().data
         if (asksToTip(text)) {
-          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1]
+          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
           add({ from: "agent", ...tipsReply(data, ws.buyerId!, text, todayISO(), onScreen) })
           return
         }
@@ -101,7 +101,7 @@ export function useAgent() {
       if (ws.kind === "supplier" && ws.supplierId) {
         const data = useStore.getState().data
         if (asksToExpense(text)) {
-          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1]
+          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
           add({ from: "agent", ...expenseReply(data, ws.supplierId, text, todayISO(), onScreen) })
           return
         }

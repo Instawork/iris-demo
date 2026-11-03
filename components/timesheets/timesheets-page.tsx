@@ -27,7 +27,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, withAgency } from "@/lib/timesheets"
+import { STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, tippable, withAgency } from "@/lib/timesheets"
 import type { PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -84,6 +84,41 @@ function setParams(patch: Record<string, string | undefined>) {
 }
 
 const when = <T,>(show: boolean, column: Column<T>) => (show ? [column] : [])
+
+/** A venue types a worker's tip right in the row. Enter, or clicking away, saves it. */
+function TipCell({ t }: { t: Timesheet }) {
+  const setTips = useStore((s) => s.setTips)
+  const [draft, setDraft] = useState<string>()
+  const save = async () => {
+    if (draft === undefined) return
+    const value = round2(Math.max(0, Number(draft) || 0))
+    const saved = value !== t.tips && (await setTips([{ timesheetId: t.id, tips: value }]))
+    setDraft(undefined)
+    if (saved) toast.success(value ? `${money(value)} in tips added` : "Tips removed")
+  }
+  return (
+    <input
+      value={draft ?? (t.tips ? money(t.tips) : "")}
+      placeholder="Add"
+      inputMode="decimal"
+      aria-label="Tips"
+      data-tour="tip-input"
+      data-owns-enter
+      onClick={(e) => e.stopPropagation()}
+      onFocus={(e) => {
+        const input = e.currentTarget
+        requestAnimationFrame(() => input.select())
+      }}
+      onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ""))}
+      onBlur={() => void save()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") void save()
+        if (e.key === "Escape") setDraft(undefined)
+      }}
+      className="h-8 w-24 rounded-md border border-transparent bg-transparent px-2 text-right tabular outline-none placeholder:text-subtle hover:border-input focus:border-primary/60 focus:bg-background"
+    />
+  )
+}
 
 const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date) || b.scheduledStart.localeCompare(a.scheduledStart)
 
@@ -169,6 +204,10 @@ export function TimesheetsPage() {
     amount: round2(list.reduce((s, t) => s + timesheetAmount(t), 0)),
   })
   const sum = totals(rows)
+  const tipped = useMemo(() => new Set(data.groups.filter((g) => g.badges.includes("TIPS")).map((g) => g.id)), [data.groups])
+  /** Only shifts that take tips get a box to type one in. */
+  const tipsOpen = (t: Timesheet) => tipped.has(t.groupId) && tippable(data, t)
+  const tipsShown = kind !== "supplier" && rows.some((t) => t.tips > 0 || (kind === "buyer" && tipsOpen(t)))
 
   const hasFilters = !!query || locations.length + agencies.length > 0 || week !== "all"
   const resetFilters = () => {
@@ -276,6 +315,14 @@ export function TimesheetsPage() {
       },
     },
     { id: "hours", header: "Hours", align: "right", sortValue: (t) => t.hours, cell: (t) => <HoursCell t={t} /> },
+    ...when<Timesheet>(tipsShown, {
+      id: "tips",
+      header: "Tips",
+      align: "right",
+      info: "Tips pass straight to the worker, with no markup. Type one in, or ask Iris to split a pool.",
+      sortValue: (t) => t.tips,
+      cell: (t) => (kind === "buyer" && tipsOpen(t) ? <TipCell t={t} /> : t.tips ? <span className="tabular">{money(t.tips)}</span> : null),
+    }),
     { id: "amount", header: "Amount", align: "right", sortValue: (t) => timesheetAmount(t), cell: (t) => <span className="font-medium tabular">{money(timesheetAmount(t))}</span> },
     {
       id: "checks",

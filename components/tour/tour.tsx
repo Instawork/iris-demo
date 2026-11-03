@@ -537,7 +537,7 @@ async function jumpTo(index: number, push: (href: string) => void) {
 const ownsEnter = (target: EventTarget | null) =>
   target instanceof Element &&
   ((target instanceof HTMLTextAreaElement && !!target.value.trim()) ||
-    !!target.closest('[data-tour-layer], select, [contenteditable="true"], [role="menu"], [role="listbox"], [role="combobox"], [role="radiogroup"], [role="grid"]'))
+    !!target.closest('[data-tour-layer], [data-owns-enter], select, [contenteditable="true"], [role="menu"], [role="listbox"], [role="combobox"], [role="radiogroup"], [role="grid"]'))
 
 /** Keys that belong to what has focus, like typing in a text field or arrows in a tab list. */
 const ownsKeys = (target: EventTarget | null) =>

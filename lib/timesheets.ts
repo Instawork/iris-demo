@@ -1,6 +1,6 @@
 import { minutesOf, paidHours, spanMinutes, weekEndISO, weekStartISO } from "@/lib/dates"
 import { round2 } from "@/lib/format"
-import type { BilledTimes, ClockRecord, ExpenseKind, RoleMove, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
+import type { BilledTimes, ClockRecord, DemoData, ExpenseKind, RoleMove, Timesheet, TimesheetAction, TimesheetChange, TimesheetStatus } from "@/lib/types"
 
 /**
  * Timesheet rules shared by the server and the browser: paid hours, the four-hour minimum, overtime, and the checks
@@ -83,6 +83,10 @@ export const readyToSubmit = (t: Timesheet, others: Timesheet[] = []) =>
 export const withAgency = (t: Timesheet) => t.status === "draft" || t.status === "rejected"
 
 export const canEditBilled = (t: Timesheet) => t.status === "draft" || t.status === "rejected"
+
+/** Hours a venue can tip on: worked, sent by the agency, and not on an invoice already closed. */
+export const tippable = (data: Pick<DemoData, "invoices">, t: Timesheet) =>
+  t.status !== "removed" && !!t.clockIn && !!t.clockOut && !withAgency(t) && (!t.invoiceId || data.invoices.some((i) => i.id === t.invoiceId && i.status === "open"))
 
 /** A work week closes the day after it ends; its approved hours then go on the agency's invoice for that week. */
 export const weekClosed = (date: string, today: string) => weekEndISO(date) < today

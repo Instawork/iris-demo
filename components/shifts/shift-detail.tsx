@@ -6,7 +6,6 @@ import {
   ArrowRightLeft,
   Ban,
   CalendarX2,
-  Coins,
   Copy,
   Download,
   Heart,
@@ -62,7 +61,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { filledCount, fillRatio, fillTone, formatTimeToFill, groupEstimate, groupHours, groupInScope, groupPhase } from "@/lib/metrics"
 import { buyer, city, departmentOf, location, position, supplier } from "@/lib/reference"
 import { joinNames, notifiedSuppliers, useStore } from "@/lib/store"
-import { expensesOf, shareTips } from "@/lib/timesheets"
+import { expensesOf } from "@/lib/timesheets"
 import type { Pro, ShiftGroup, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -93,12 +92,11 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const data = useData()
   const { ws } = useWorkspace()
   const router = useRouter()
-  const { cancelGroup, setHeadcount, releasePro, markNoShow, setRoster, setTips } = useStore.getState()
+  const { cancelGroup, setHeadcount, releasePro, markNoShow, setRoster } = useStore.getState()
   const [proId, setProId] = useState<string>()
   const [assignOpen, setAssignOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [headcountOpen, setHeadcountOpen] = useState(false)
-  const [tipsOpen, setTipsOpen] = useState(false)
   const [moving, setMoving] = useState<string>()
 
   const pos = position(group.positionId)
@@ -250,11 +248,6 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                   </DropdownMenuItem>
                 </>
               )}
-              {isBuyer && hasTips && phase === "past" && (
-                <DropdownMenuItem onSelect={() => setTipsOpen(true)}>
-                  <Coins /> Add tips
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem onSelect={exportRoster}>
                 <Download /> Download timesheet (CSV)
               </DropdownMenuItem>
@@ -286,11 +279,6 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                 {phase === "past" && ws.kind !== "compass" && (
                   <Button asChild size="sm" className="h-8 rounded-lg text-caption-1 font-semibold" data-tour="hours-action">
                     <Link href={`/timesheets?shift=${group.id}`}>{isBuyer ? "Review hours" : "Submit hours"}</Link>
-                  </Button>
-                )}
-                {isBuyer && hasTips && phase === "past" && (
-                  <Button variant="outline" size="sm" className="h-8 gap-1.5 rounded-lg text-caption-1" onClick={() => setTipsOpen(true)} data-tour="tips-open">
-                    <Coins className="size-3.5" /> Add tips
                   </Button>
                 )}
                 {isBuyer && upcoming && (
@@ -603,7 +591,6 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
       </AlertDialog>
 
       <HeadcountDialog open={headcountOpen} onOpenChange={setHeadcountOpen} group={group} onSave={(n) => setHeadcount(group.id, n)} />
-      <TipsDialog open={tipsOpen} onOpenChange={setTipsOpen} rows={rows.filter((r) => r.pro && r.ts).map((r) => ({ pro: r.pro!, ts: r.ts! }))} onSave={setTips} />
     </>
   )
 }
@@ -684,89 +671,6 @@ function HeadcountDialog({ open, onOpenChange, group, onSave }: { open: boolean;
             disabled={value === group.slots.length}
           >
             Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function TipsDialog({
-  open,
-  onOpenChange,
-  rows,
-  onSave,
-}: {
-  open: boolean
-  onOpenChange: (o: boolean) => void
-  rows: { pro: Pro; ts: Timesheet }[]
-  onSave: (entries: { timesheetId: string; tips: number }[]) => void
-}) {
-  const [values, setValues] = useState<Record<string, string>>({})
-  const [pool, setPool] = useState("")
-  const editable = rows.filter((r) => !r.ts.invoiceId)
-  const split = () => {
-    const amount = Number(pool)
-    if (!amount) return
-    const shares = shareTips(editable.map((r) => r.ts), amount, false)
-    if (shares.length) setValues((v) => ({ ...v, ...Object.fromEntries(shares.map((e) => [e.timesheetId, e.tips.toFixed(2)])) }))
-  }
-  const sum = Object.values(values).reduce((s, v) => s + (Number(v) || 0), 0)
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (o) setValues(Object.fromEntries(rows.map((r) => [r.ts.id, r.ts.tips ? r.ts.tips.toFixed(2) : ""])))
-        onOpenChange(o)
-      }}
-    >
-      <DialogContent className="sm:max-w-lg" data-tour="tips-dialog">
-        <DialogHeader>
-          <DialogTitle>Add tips</DialogTitle>
-          <DialogDescription>Tips pass straight through to workers with no markup. Split a pool by hours, or enter each worker&apos;s tip.</DialogDescription>
-        </DialogHeader>
-        <div className="flex items-center gap-2 rounded-lg bg-page-faded p-3">
-          <Coins className="size-4 text-faded" />
-          <input
-            value={pool}
-            onChange={(e) => setPool(e.target.value.replace(/[^\d.]/g, ""))}
-            placeholder="Tip pool, like 840"
-            data-tour="tips-pool"
-            className="h-9 flex-1 rounded-md border border-input bg-card px-3 text-body-3 outline-none focus:border-primary/60"
-          />
-          <Button variant="outline" className="h-9 rounded-lg" onClick={split} disabled={!Number(pool)} data-tour="tips-split">
-            Split by hours
-          </Button>
-        </div>
-        <div className="max-h-[42svh] overflow-y-auto rounded-lg border border-border scrollbar-thin">
-          {rows.map(({ pro, ts }) => (
-            <div key={ts.id} className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-0">
-              <ProAvatar pro={pro} size="xs" />
-              <span className="flex-1 text-body-3 font-medium">
-                {fullName(pro)} <span className="text-caption-1 text-faded">· {ts.hours} hrs</span>
-              </span>
-              <span className="text-body-3 text-faded">$</span>
-              <input
-                disabled={!!ts.invoiceId}
-                value={values[ts.id] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [ts.id]: e.target.value.replace(/[^\d.]/g, "") }))}
-                className="h-8 w-24 rounded-md border border-input px-2 text-right text-body-3 tabular outline-none focus:border-primary/60 disabled:bg-tint-faded"
-                placeholder="0.00"
-              />
-            </div>
-          ))}
-        </div>
-        <DialogFooter className="items-center sm:justify-between">
-          <span className="text-body-3 font-semibold">Total {money(sum)}</span>
-          <Button
-            data-tour="tips-save"
-            onClick={() => {
-              onSave(Object.entries(values).map(([timesheetId, v]) => ({ timesheetId, tips: Number(v) || 0 })))
-              toast.success(`${money(sum)} in tips saved`, { description: "They'll appear on the next invoice." })
-              onOpenChange(false)
-            }}
-          >
-            Save tips
           </Button>
         </DialogFooter>
       </DialogContent>
