@@ -12,6 +12,7 @@ import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { DollarBar, hundred } from "@/components/procurement/dollar-split"
+import { LiveRates } from "@/components/procurement/live-rates"
 import { NewEventDialog } from "@/components/procurement/new-event-dialog"
 import { Change, StageBadge, agencyStatus, moneyYear } from "@/components/procurement/sourcing-bits"
 import { RatesPage } from "@/components/rates/rates-page"
@@ -35,7 +36,7 @@ export function ProcurementPage() {
   const router = useRouter()
   const isAgency = ws.kind === "supplier"
   const asked = params.get("tab")
-  const [tab, setTab] = useState<Tab>(asked === "rates" && isAgency ? "rates" : "events")
+  const [tab, setTab] = useState<Tab>(asked === "rates" ? "rates" : "events")
   const [creating, setCreating] = useState(false)
   const events = useMemo(
     () => (data.sourcing ?? []).filter((e) => !isAgency || e.invited.includes(ws.supplierId!)).sort((a, b) => b.openedAt.localeCompare(a.openedAt)),
@@ -52,7 +53,7 @@ export function ProcurementPage() {
       <PageHeader
         className="pt-4"
         title="Procurement"
-        description={isAgency ? "Compass's invitations to bid, and your rate cards." : "Next year's rates, and who gets the most of your dollar to the worker."}
+        description={isAgency ? "Compass's invitations to bid, and your rate cards." : "Next year's rates, and the rate cards live today."}
         actions={
           !isAgency &&
           tab === "events" && (
@@ -62,18 +63,20 @@ export function ProcurementPage() {
           )
         }
       />
-      {isAgency && (
-        <PillTabs
-          value={tab}
-          onChange={change}
-          items={[
-            { value: "events", label: "Invitations", count: events.filter((e) => e.status === "open").length },
-            { value: "rates", label: "My rate cards" },
-          ]}
-        />
-      )}
+      <PillTabs
+        value={tab}
+        onChange={change}
+        items={[
+          { value: "events", label: isAgency ? "Invitations" : "Renewals", count: events.filter((e) => e.status === "open").length },
+          { value: "rates", label: isAgency ? "My rate cards" : "Rate cards" },
+        ]}
+      />
       {tab === "rates" ? (
-        <RatesPage embedded />
+        isAgency ? (
+          <RatesPage embedded />
+        ) : (
+          <LiveRates />
+        )
       ) : (
         <Events events={events} supplierId={isAgency ? ws.supplierId : undefined} onCreate={() => setCreating(true)} />
       )}

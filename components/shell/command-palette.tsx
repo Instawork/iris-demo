@@ -62,6 +62,7 @@ const ACTIONS: Record<PersonaKind, Action[]> = {
   compass: [
     { id: "flagged", label: "Review anomalous invoices", icon: FileText, href: "/invoices?filter=flagged" },
     { id: "sourcing", label: "Compare agencies and negotiate rates", icon: BadgeDollarSign, href: "/procurement" },
+    { id: "rates", label: "See live rate cards", icon: BadgeDollarSign, href: "/procurement?tab=rates" },
     { id: "compliance", label: "Check worker compliance", icon: ShieldCheck, href: "/professionals" },
     { id: "upload", label: "Upload business activity", icon: Upload, upload: true },
   ],

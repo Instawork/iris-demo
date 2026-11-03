@@ -69,10 +69,6 @@ export function EventPage({ id }: { id: string }) {
 
 export const termsLine = (t: ContractTerms) => `${t.vaPct}% VA · Net ${t.netDays} · ${t.years} yr${t.years === 1 ? "" : "s"}`
 
-const pct = (n: number) => `${Math.round(n * 10) / 10}%`
-
-/** The difference between two shares as they read on screen, in whole dollars of $100. */
-const gap = (a: number, b: number) => `$${Math.round(a * 100) - Math.round(b * 100)}`
 
 function CompassView({ ev }: { ev: SourcingEvent }) {
   return (
@@ -95,7 +91,6 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
     .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || b.split.worker - a.split.worker || b.split.back - a.split.back)
   const bidding = rows.filter((r) => r.bid)
   const best = bidding.length > 1 ? bidding[0] : undefined
-  const worst = bidding.at(-1)
   const shown = rows.filter((r) => supplier(r.s).name.toLowerCase().includes(query.trim().toLowerCase()))
   return (
     <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
@@ -140,21 +135,14 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
                 <span className="text-caption-1 text-faded">to the worker</span>
               </span>
               <span className="flex flex-col items-end text-caption-1 tabular">
-                <span className="font-medium">{pct(split.markup)} avg markup</span>
-                <span className="text-faded">{hundred(split).back} back to you</span>
+                <span className="font-medium">{Math.round(split.markup)}% avg markup</span>
+                <span className="text-faded">{split.vaPct}% VA</span>
               </span>
               <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
             </Link>
           </li>
         ))}
       </ol>
-      {best && worst && best.s !== worst.s && (
-        <p className="border-t border-border/70 bg-page-faded/60 px-5 py-3 text-body-3">
-          <span className="font-semibold">{supplier(best.s).shortName}</span> gets {gap(best.split.worker, worst.split.worker)} more of every $100 to the worker than{" "}
-          {supplier(worst.s).shortName}
-          {best.split.back > worst.split.back ? `, and gives you ${gap(best.split.back, worst.split.back)} more back` : ""}.
-        </p>
-      )}
     </Surface>
   )
 }

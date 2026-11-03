@@ -100,7 +100,7 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
               </dt>
               <dd className={cn("text-[28px] leading-9 font-semibold tracking-[-0.03em] tabular", p.key === "worker" && "text-positive-fg")}>{hundred(split)[p.key]}</dd>
               <dd className="text-caption-1 text-faded">
-                {p.key === "worker" ? "Their pay" : p.key === "agency" ? `${Math.round(split.markup * 10) / 10}% average markup, less VA` : `${split.vaPct}% VA at year end`}
+                {p.key === "worker" ? "Their pay" : p.key === "agency" ? `${Math.round(split.markup)}% average markup, less VA` : `${split.vaPct}% VA at year end`}
               </dd>
             </div>
           ))}
@@ -178,7 +178,7 @@ function BidRow({ ev, line, supplierId, market }: { ev: SourcingEvent; line: Sou
           ) : null}
         </span>
         <span className="text-right tabular">{money(bid.proRate)}</span>
-        <span className="text-right text-faded tabular">{bid.markupPct}%</span>
+        <span className="text-right text-faded tabular">{Math.round(bid.markupPct)}%</span>
         <span className="text-right text-body-2 font-semibold tabular">{money(bid.billRate)}</span>
         <span className="flex justify-end">
           {locked ? (
