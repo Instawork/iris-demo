@@ -13,7 +13,7 @@ import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { BenchmarkBar, BenchmarkLegend, Change, StageBadge, Timeline, VsMarket, agencyStatus, moneyYear, termLabel, type Mark } from "@/components/procurement/sourcing-bits"
+import { BenchmarkBar, Change, StageBadge, VsMarket, agencyStatus, moneyYear, termLabel, type Mark } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -22,7 +22,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, plural, round2 } from "@/lib/format"
-import { city, position, supplier, termsOf } from "@/lib/reference"
+import { POSITIONS, city, position, supplier, termsOf } from "@/lib/reference"
 import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
 import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineName, lineOf, marketName, marketsOf, markupOf, netOf, offeredTerms, openCounters, responded, rolesOf, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
@@ -118,44 +118,15 @@ type Selection = { kind: "role"; lineId: string } | { kind: "agency"; supplierId
 
 function CompassView({ ev }: { ev: SourcingEvent }) {
   const asked = useSearchParams().get("agency")
-  const [view, setView] = useState<"role" | "agency">("agency")
   const [open, setOpen] = useState<Selection>(asked && ev.invited.includes(asked) ? { kind: "agency", supplierId: asked } : null)
   return (
-    <div className="grid gap-4 xl:grid-cols-3">
-      <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
-        <IrisNegotiates ev={ev} />
-        <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
-          <SurfaceHeader
-            title="Bids"
-            info={view === "agency" ? "Every agency up for renewal, across all its markets. Open one to see its whole rate card." : "Each role's latest bids against that market. Open a role to see every bid and counter it."}
-            actions={
-              <PillTabs
-                size="sm"
-                value={view}
-                onChange={setView}
-                items={[
-                  { value: "agency", label: "By agency", count: ev.invited.length },
-                  { value: "role", label: "By market" },
-                ]}
-              />
-            }
-          />
-          {view === "role" ? (
-            <RoleTable ev={ev} onOpen={(lineId) => setOpen({ kind: "role", lineId })} />
-          ) : (
-            <AgencyTable ev={ev} onOpen={(supplierId) => setOpen({ kind: "agency", supplierId })} />
-          )}
-        </Surface>
-      </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        <Surface elevated className="pb-4">
-          <SurfaceHeader title="Timeline" />
-          <div className="px-5 pt-4">
-            <Timeline ev={ev} />
-          </div>
-        </Surface>
-        <Activity ev={ev} />
-      </div>
+    <div className="flex flex-col gap-4">
+      <IrisNegotiates ev={ev} />
+      <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
+        <SurfaceHeader title="Agencies up for renewal" info="Ranked on price against the market, after VA, so agencies in different markets compare fairly. Open one for its whole rate card." />
+        <AgencyTable ev={ev} onOpen={(supplierId) => setOpen({ kind: "agency", supplierId })} />
+      </Surface>
+      <RateCards ev={ev} onOpen={(lineId) => setOpen({ kind: "role", lineId })} />
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
           {open?.kind === "role" && <RoleSheet ev={ev} line={lineOf(ev, open.lineId)} />}
@@ -269,101 +240,116 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
 
 const th = "px-3 pb-2.5 font-medium whitespace-nowrap"
 
-/** One market at a time, one row per role, so it reads the same with four agencies or four hundred. */
-function RoleTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string) => void }) {
-  const [cityId, setCityId] = useState(ev.cityIds[0])
-  const lines = ev.lines.filter((l) => l.cityId === cityId)
+/**
+ * Every role in every market on the renewal, as one grid. Coverage shows how many agencies carry each one and the best
+ * bid, so gaps and single-agency roles stand out. Each agency's tab is its rate card: its bid where it carries the role,
+ * and "Not covered" where it doesn't.
+ */
+function RateCards({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string) => void }) {
+  const [tab, setTab] = useState("all")
+  const agency = tab === "all" ? undefined : tab
+  const roles = POSITIONS.filter((p) => ev.lines.some((l) => l.positionId === p.id)).map((p) => p.id)
+  const lineAt = (cityId: string, positionId: string) => ev.lines.find((l) => l.cityId === cityId && l.positionId === positionId)
+  const carries = (cityId: string, positionId: string, s: string) => lineAt(cityId, positionId)?.baseline[s] !== undefined
+  const carriers = (cityId: string, positionId: string) => ev.invited.filter((s) => carries(cityId, positionId, s))
+  const cells = ev.cityIds.flatMap((c) => roles.map((p) => carriers(c, p).length))
+  const gaps = cells.filter((n) => n === 0).length
+  const single = cells.filter((n) => n === 1).length
+  const coveredIn = (cityId: string) => roles.filter((p) => (agency ? carries(cityId, p, agency) : carriers(cityId, p).length > 0)).length
   return (
-    <>
-      {ev.cityIds.length > 1 && (
-        <div className="px-5 pt-3">
-          <PillTabs size="sm" value={cityId} onChange={setCityId} items={ev.cityIds.map((c) => ({ value: c, label: city(c).name, count: ev.lines.filter((l) => l.cityId === c).length }))} />
-        </div>
-      )}
+    <Surface elevated className="overflow-hidden" data-tour="rate-cards">
+      <SurfaceHeader
+        title="Rate cards"
+        info="Each role in each market. Coverage shows who carries it and the best bid. Pick an agency to see its own rate card."
+        actions={<PillTabs size="sm" value={tab} onChange={setTab} items={[{ value: "all", label: "Coverage" }, ...ev.invited.map((s) => ({ value: s, label: supplier(s).shortName }))]} />}
+      />
       <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
-        <table className="w-full min-w-[720px] text-body-3">
+        <table className="w-full min-w-[720px] table-fixed text-body-3">
           <thead>
             <tr className="text-caption-1 text-faded">
-              <th className={cn(th, "text-left")}>Role</th>
-              <th className={cn(th, "text-right")}>Today</th>
-              <th className={cn(th, "text-right")}>
-                <span className="inline-flex items-center gap-1">
-                  Market
-                  <InfoTip>{`The median bill rate for the role across ${benchmark(cityId, lines[0]?.positionId ?? "").agencies} ${city(cityId).name} agencies.`}</InfoTip>
-                </span>
-              </th>
-              <th className={cn(th, "text-right")}>
-                <span className="inline-flex items-center gap-1">
-                  Best bid
-                  <InfoTip>{VA_INFO}</InfoTip>
-                </span>
-              </th>
-              <th className={cn(th, "w-[22%] text-left")}>Against the market</th>
-              <th className={cn(th, "text-right")}>vs market</th>
-              <th className="w-6" />
+              <th className={cn(th, "w-[28%] text-left")}>Role</th>
+              {ev.cityIds.map((c) => (
+                <th key={c} className={cn(th, "text-left")}>
+                  <span className="flex flex-col">
+                    <span className="text-body-3 font-semibold text-foreground">{city(c).name}</span>
+                    <span>{coveredIn(c) ? `${coveredIn(c)} of ${plural(roles.length, "role")}` : "Not in this market"}</span>
+                  </span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
-              const b = benchmark(line.cityId, line.positionId)
-              const bids = bidsOn(ev, line)
-              const best = bids[0]
-              const today = todayOn(line)
-              const asked = ev.messages.some((m) => m.open && m.lineId === line.id)
-              return (
-                <tr
-                  key={line.id}
-                  data-tour="role-row"
-                  data-position={line.positionId}
-                  onClick={() => onOpen(line.id)}
-                  className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60"
-                >
-                  <td className="px-3 py-2.5">
-                    <span className="flex items-center gap-2">
-                      <span className="font-medium whitespace-nowrap">{position(line.positionId).name}</span>
-                      {asked && (
-                        <StatusBadge tone="warning" size="sm">
-                          Countered
-                        </StatusBadge>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-faded tabular">{today ? money(today) : "—"}</td>
-                  <td className="px-3 py-2.5 text-right text-faded tabular">{money(b.median)}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    {best ? (
-                      <span className="flex flex-col items-end">
-                        <span className="font-semibold tabular">{money(best.bid.billRate)}</span>
-                        <span className="text-caption-1 whitespace-nowrap text-faded">
-                          {supplier(best.supplierId).shortName} · {offeredTerms(ev, best.supplierId).vaPct}% VA
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-faded">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <BenchmarkBar
-                      b={b}
-                      marks={[...(today ? [{ value: today, kind: "today" as const }] : []), ...(best ? [{ value: best.bid.billRate, kind: "best" as const }] : [])]}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-caption-1 font-medium whitespace-nowrap">
-                    <VsMarket value={best ? vsMarket(best.bid.billRate, b) : undefined} />
-                  </td>
-                  <td className="pr-3">
-                    <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
-                  </td>
-                </tr>
-              )
-            })}
+            {roles.map((p) => (
+              <tr key={p} className="border-t border-border/70">
+                <td className="px-3 py-2 font-medium">{position(p).name}</td>
+                {ev.cityIds.map((c) => {
+                  const line = lineAt(c, p)
+                  return (
+                    <td key={c} className="px-1 py-1">
+                      {agency ? <AgencyCell ev={ev} line={line} supplierId={agency} onOpen={onOpen} /> : <CoverageCell ev={ev} line={line} who={carriers(c, p)} onOpen={onOpen} />}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      <div className="border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
-        <BenchmarkLegend />
-      </div>
-    </>
+      <p className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 px-5 py-3 text-caption-1 text-faded">
+        {agency ? (
+          <span>
+            {supplier(agency).shortName} covers {plural(rolesOf(ev, agency).length, "role")} in {listOf(marketsOf(ev, agency).map((c) => city(c).name))}
+            {ev.cityIds.some((c) => !marketsOf(ev, agency).includes(c)) ? `, not ${listOf(ev.cityIds.filter((c) => !marketsOf(ev, agency).includes(c)).map((c) => city(c).name))}` : ""}. Rates are its latest bid.
+          </span>
+        ) : (
+          <>
+            <span className={cn(gaps && "font-medium text-warning-fg")}>{gaps ? `${plural(gaps, "gap")}: no agency carries the role there` : "Every role is covered in every market"}</span>
+            {single > 0 && <span>{plural(single, "role")} with only one agency</span>}
+          </>
+        )}
+      </p>
+    </Surface>
+  )
+}
+
+const cellClass = "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover/70"
+
+function CoverageCell({ ev, line, who, onOpen }: { ev: SourcingEvent; line?: SourcingLine; who: string[]; onOpen: (lineId: string) => void }) {
+  if (!line || !who.length)
+    return (
+      <span className="flex px-2.5 py-1.5">
+        <StatusBadge tone="warning" size="sm">
+          No agency
+        </StatusBadge>
+      </span>
+    )
+  const best = bidsOn(ev, line)[0]
+  return (
+    <button type="button" className={cellClass} onClick={() => onOpen(line.id)} aria-label={`${lineName(ev, line.id)}: ${plural(who.length, "agency", "agencies")}`}>
+      {who.length === 1 ? (
+        <StatusBadge tone="warning" size="sm">
+          Only {supplier(who[0]).shortName}
+        </StatusBadge>
+      ) : (
+        <span className="text-caption-1 text-faded">{plural(who.length, "agency", "agencies")}</span>
+      )}
+      <span className="flex flex-col items-end">
+        <span className="font-semibold tabular">{best ? money(best.bid.billRate) : "—"}</span>
+        <span className="text-caption-2 text-faded">{best ? `best, ${supplier(best.supplierId).shortName}` : "no bids yet"}</span>
+      </span>
+    </button>
+  )
+}
+
+function AgencyCell({ ev, line, supplierId, onOpen }: { ev: SourcingEvent; line?: SourcingLine; supplierId: string; onOpen: (lineId: string) => void }) {
+  if (!line || line.baseline[supplierId] === undefined) return <span className="flex px-2.5 py-1.5 text-caption-1 text-subtle">Not covered</span>
+  const bid = latestBid(ev, supplierId)?.lines[line.id]
+  const b = benchmark(line.cityId, line.positionId)
+  return (
+    <button type="button" className={cellClass} onClick={() => onOpen(line.id)} aria-label={`${supplier(supplierId).shortName}, ${lineName(ev, line.id)}`}>
+      <span className="font-semibold tabular">{money(bid?.billRate ?? line.baseline[supplierId])}</span>
+      <span className="text-caption-1 font-medium">{bid ? <VsMarket value={vsMarket(bid.billRate, b)} /> : <span className="text-faded">today, no bid</span>}</span>
+    </button>
   )
 }
 
@@ -373,8 +359,9 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
   const [query, setQuery] = useState("")
   const rows = ev.invited
     .filter((s) => supplier(s).name.toLowerCase().includes(query.trim().toLowerCase()))
-    .map((s) => ({ s, spend: spendOf(ev, s), bid: latestBid(ev, s), status: agencyStatus(ev, s) }))
-    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || b.spend.savings - a.spend.savings)
+    .map((s) => ({ s, spend: spendOf(ev, s), bid: latestBid(ev, s), status: agencyStatus(ev, s), vs: agencyVsMarket(ev, s) }))
+    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || (a.vs ?? 0) - (b.vs ?? 0))
+  const leader = rows.filter((r) => r.bid).length > 1 ? rows[0]?.s : undefined
   return (
     <>
       {ev.invited.length > 8 && (
@@ -424,7 +411,14 @@ function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: s
                   <span className="flex items-center gap-2.5">
                     <SupplierLogo supplierId={s} size="sm" />
                     <span className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{supplier(s).name}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-medium">{supplier(s).name}</span>
+                        {s === leader && (
+                          <StatusBadge tone="positive" size="sm">
+                            Best value
+                          </StatusBadge>
+                        )}
+                      </span>
                       <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
                         {status.label === "Invited" ? "No bid yet" : status.label}
                       </span>
@@ -1054,12 +1048,6 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
               <dd className="font-medium">{formatDateFull(ev.closesOn)}</dd>
             </div>
           </dl>
-        </Surface>
-        <Surface elevated className="pb-4">
-          <SurfaceHeader title="Timeline" />
-          <div className="px-5 pt-4">
-            <Timeline ev={ev} />
-          </div>
         </Surface>
         <Activity ev={ev} supplierId={supplierId} />
       </div>
