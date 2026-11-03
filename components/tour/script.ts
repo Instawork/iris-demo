@@ -1,4 +1,4 @@
-import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, FileText, Layers, ShieldCheck, type LucideIcon } from "lucide-react"
+import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, FileText, ShieldCheck, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
@@ -26,7 +26,7 @@ import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
  * player clicks: "Do it for me" makes their next move on screen, typing a form in or clicking what the card points at.
  */
 
-export type ChapterId = "rates" | "shifts" | "workers" | "timesheets" | "invoicing" | "reporting" | "nuanced"
+export type ChapterId = "rates" | "shifts" | "workers" | "timesheets" | "invoicing" | "reporting"
 export type Placement = "top" | "bottom" | "left" | "right"
 
 /** Everything a step needs to decide where it is and whether the player has done it. */
@@ -107,7 +107,7 @@ export interface TourChapter {
 export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep | { kind: "finale"; id: "finale" }
 
 /** The parts follow the agenda of Compass's working sessions. */
-export const CHAPTER_ORDER: ChapterId[] = ["rates", "shifts", "workers", "timesheets", "invoicing", "reporting", "nuanced"]
+export const CHAPTER_ORDER: ChapterId[] = ["rates", "shifts", "workers", "timesheets", "invoicing", "reporting"]
 
 export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon }> = {
   rates: { number: 1, label: "Rate cards and supplier sourcing", short: "Rate cards", icon: BadgeDollarSign },
@@ -116,7 +116,6 @@ export const CHAPTERS: Record<ChapterId, { number: number; label: string; short:
   timesheets: { number: 4, label: "Timesheets, tips and expenses", short: "Timesheets", icon: Clock },
   invoicing: { number: 5, label: "Invoicing and accruals", short: "Invoicing", icon: FileText },
   reporting: { number: 6, label: "Reporting", short: "Reporting", icon: ChartColumn },
-  nuanced: { number: 7, label: "Nuanced features", short: "Nuanced", icon: Layers },
 }
 
 const LEVY = "ws-levy"
@@ -567,8 +566,7 @@ const crewButton = () => last('[data-tour="agent-add-expenses"]')
 /** Iris's confirmation once the crew's expense is on their timesheets. */
 const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.split(". ")[0]
 
-/** Last night's Levy bar shifts the agencies sent, with no hours flagged and no tips yet: the first takes tips by hand, the next in a sentence. */
-/** Tips don't count against a shift here, so the two tips steps land on the same one before and after the first adds them. */
+/** Last night's Levy bar shifts the agencies sent, with every hour matching the clock: the crew the tips are for. */
 const tipShifts = (data: DemoData) =>
   data.groups
     .filter((g) => g.buyerId === "levy-chi" && g.badges.includes("TIPS") && groupPhase(g) === "past")
@@ -577,21 +575,19 @@ const tipShifts = (data: DemoData) =>
     .sort((a, b) => b.g.date.localeCompare(a.g.date) || b.g.end.localeCompare(a.g.end))
     .map(({ g }) => g)
 
+const tipGroup = (ctx: TourContext) => tipShifts(ctx.data)[0] ?? tipShift(ctx.data, "levy-chi", todayISO())?.group
+
 const tipsHref = (ctx: TourContext) => {
-  const g = tipShifts(ctx.data)[0] ?? tipShift(ctx.data, "levy-chi", todayISO())?.group
-  return g ? `/shifts/${g.id}` : "/shifts"
+  const g = tipGroup(ctx)
+  return g ? `/timesheets?shift=${g.id}` : "/timesheets"
 }
 
-const TIPS_DIALOG = '[data-tour="tips-dialog"]'
-const TIPS_POOL = "480"
-/** The pool is split once each worker's box has an amount. */
-const tipsSplit = () => [...(one(TIPS_DIALOG)?.querySelectorAll<HTMLInputElement>('input:not([data-tour="tips-pool"])') ?? [])].some((i) => !!i.value)
-/** Tips on the shift open on screen. */
-const tipsOnScreen = (ctx: TourContext) => {
-  const id = /^\/shifts\/([^/]+)$/.exec(ctx.path)?.[1]
-  return id ? ctx.data.timesheets.filter((t) => t.groupId === id).reduce((s, t) => s + t.tips, 0) : 0
+const tipsAsk = (ctx: TourContext) => {
+  const g = tipGroup(ctx)
+  if (!g) return "Split $600 in tips by hours for last night's bartenders"
+  const night = g.date === addDaysISO(todayISO(), -1) ? "last night's" : `${formatDay(g.date, "EEEE")}'s`
+  return `Split $600 in tips by hours for ${night} ${position(g.positionId).name.toLowerCase()}s at ${location(g.locationId).name}`
 }
-const tipsAsk = () => "Split $600 in tips by hours for this shift"
 const tipsButton = () => last('[data-tour="agent-set-tips"]')
 const tipsAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$[\d,.]+ in tips/.test(m.text))?.text.split(" on ")[0]
 const approveHours = () => last('[data-tour="agent-approve-timesheets"]')
@@ -1047,8 +1043,38 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     title: "Timesheets, tips and expenses",
     wsId: HARBOR,
-    href: (ctx) => parkingHref(ctx),
-    shows: "Agencies add what they paid for a shift, on one timesheet or for the whole crew at once.",
+    href: "/timesheets",
+    shows: "Agencies send hours from a paper sheet, and add what they paid: one shift, the whole crew, or a week from a spreadsheet.",
+  },
+  {
+    kind: "step",
+    id: "paper",
+    chapter: "timesheets",
+    label: "Scan a paper sheet",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "A venue that signs in on paper"),
+    body: () => (one(SCAN) || justScanned() ? undefined : "Scan the sheet. Iris matches it to each worker."),
+    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : justScanned() ? undefined : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
+    targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
+    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
+    placement: "right",
+    done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
+    success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
+    // The closed dialog hands focus back to its button, where the next Enter would open it again.
+    // Its toast would sit over the button the next step points at.
+    onDone: () => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      toast.dismiss()
+    },
+    skip: async () => {
+      if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
+      if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
+      const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
+      await sleep(1200)
+      await press(apply)
+    },
   },
   {
     kind: "step",
@@ -1117,13 +1143,48 @@ export const SCRIPT: TourItem[] = [
     },
   },
   {
+    kind: "step",
+    id: "expense-sheet",
+    chapter: "timesheets",
+    label: "Upload an expense sheet",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    needs: "paper",
+    startsChat: true,
+    title: () => (uploadSave() ? "Matched to every shift" : "A week of expenses, from a sheet"),
+    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
+    action: () => {
+      const next = uploadSave() ?? chatReview()
+      if (next) return `Click ${next.textContent?.trim()}`
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
+    },
+    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
+    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
+    placement: "left",
+    anchor: () => uploadSave()?.closest('[role="dialog"]'),
+    done: (ctx) => !!expenseUpload(ctx),
+    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
+    skip: async (_, api) => {
+      if (!uploadSave() && !chatReview()) {
+        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+        await until(() => COMPOSER(CHAT_COMPOSER_ID))
+        await attachExpenses(api.now())
+      }
+      if (!uploadSave()) await press(await until(chatReview, 8000))
+      await press(await until(uploadSave, 8000))
+      await until(() => expenseUpload(api.now()), 8000)
+    },
+  },
+  {
     kind: "chapter",
     id: "chapter-timesheets",
     chapter: "timesheets",
     title: "Timesheets, tips and expenses",
     wsId: LEVY,
     href: (ctx) => tipsHref(ctx),
-    shows: "Venues add tips and approve the week, by hand or in a sentence.",
+    shows: "Venues add tips, split a shift by role, and approve the week in a sentence.",
   },
   {
     kind: "step",
@@ -1131,65 +1192,78 @@ export const SCRIPT: TourItem[] = [
     chapter: "timesheets",
     label: "Add tips",
     wsId: LEVY,
-    path: /^\/shifts\/(?!new$)[^/]+$/,
-    href: tipsHref,
-    title: () => (tipsSplit() ? "Each worker's share" : one(TIPS_DIALOG) ? "Split the pool by hours" : "Tips, right on the shift"),
-    body: () => (tipsSplit() ? "No markup. Approved with the hours." : one(TIPS_DIALOG) ? "Or type each worker's tip." : "Each worker's tip goes on their timesheet."),
-    action: () => (tipsSplit() ? "Click Save tips" : one(TIPS_DIALOG) ? `Enter $${TIPS_POOL}, then Split by hours` : "Click Add tips"),
-    targets: () => [one(TIPS_DIALOG) ?? one('[data-tour="tips-open"]')],
-    clicks: () => (one(TIPS_DIALOG) ? one(tipsSplit() ? '[data-tour="tips-save"]' : '[data-tour="tips-split"]') : one('[data-tour="tips-open"]')),
-    placement: "left",
-    done: (ctx) => !one(TIPS_DIALOG) && tipsOnScreen(ctx) > 0,
-    success: (ctx) => `${money(tipsOnScreen(ctx))} in tips added`,
-    // The saved toast would sit over the agent's button the next step points at.
-    onDone: () => toast.dismiss(),
-    fill: {
-      when: () => !!one(TIPS_DIALOG) && !tipsSplit() && !(inside(TIPS_DIALOG, '[data-tour="tips-pool"]') as HTMLInputElement | null)?.value,
-      run: async () => {
-        await type(inside(TIPS_DIALOG, '[data-tour="tips-pool"]'), TIPS_POOL)
-        return inside(TIPS_DIALOG, '[data-tour="tips-split"]')
-      },
-    },
-    skip: async (ctx, api) => {
-      if (!one(TIPS_DIALOG)) await press(await until(() => one('[data-tour="tips-open"]'), 8000))
-      await until(() => one(TIPS_DIALOG))
-      if (!tipsSplit()) {
-        await type(inside(TIPS_DIALOG, '[data-tour="tips-pool"]'), TIPS_POOL)
-        await press(inside(TIPS_DIALOG, '[data-tour="tips-split"]'))
-      }
-      await press(await until(() => tipsSplit() && one('[data-tour="tips-save"]')))
-      await until(() => tipsOnScreen(api.now()) > 0, 8000)
-    },
-  },
-  {
-    kind: "step",
-    id: "tips-ask",
-    chapter: "timesheets",
-    label: "Or tips in a sentence",
-    wsId: LEVY,
-    path: /^\/shifts\/(?!new$)[^/]+$/,
+    path: /^\/timesheets/,
     href: tipsHref,
     startsChat: true,
-    title: () => (tipsButton() ? "Every worker's share, by hours" : "Or the whole pool, in a sentence"),
+    title: () => (tipsButton() ? "Every worker's share, by hours" : "Tips, right on the timesheet"),
+    body: () => (tipsButton() ? "No markup. Nothing is saved until you click." : "Type one in, or ask Iris to split the pool."),
     action: () => {
       const add = tipsButton()
       if (add) return `Click ${add.textContent?.trim()}`
       return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
     },
-    example: () => (tipsButton() ? undefined : tipsAsk()),
+    example: (ctx) => (tipsButton() ? undefined : tipsAsk(ctx)),
     targets: () => [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
     clicks: () => tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(tipsAsk(), CHAT_COMPOSER_ID) },
+    fill: { when: (ctx) => !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: (ctx) => typeAsk(tipsAsk(ctx), CHAT_COMPOSER_ID) },
     placement: "left",
     done: (ctx) => !!tipsAdded(ctx),
     success: (ctx) => tipsAdded(ctx) ?? "Tips added",
+    // The next step's worker is on another shift, past this page's filter.
+    onDone: (ctx, api) => api.push(splitHref(ctx)),
     skip: async (ctx, api) => {
       if (!tipsButton()) {
         if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await askFor(tipsAsk, () => !!tipsButton(), CHAT_COMPOSER_ID)(ctx, api)
+        await askFor(() => tipsAsk(ctx), () => !!tipsButton(), CHAT_COMPOSER_ID)(ctx, api)
       }
       await press(await until(tipsButton, 8000))
       await until(() => tipsAdded(api.now()), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "split",
+    chapter: "timesheets",
+    label: "Split a shift by role",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: splitHref,
+    title: () => (one(MOVE) ? "Pick the role and when they switched" : "Someone switched roles mid-shift"),
+    body: (ctx) => {
+      if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
+      const m = movable(ctx.data)
+      return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
+    },
+    action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
+    targets: (ctx) => [splitTarget(ctx)],
+    clicks: (ctx) => (one(MOVE) ? one('[data-tour="move-submit"]') : splitTarget(ctx)),
+    placement: "left",
+    anchor: () => (one(MOVE) ? undefined : one(SHEET)),
+    done: (ctx) => !!movedSince(ctx),
+    success: (ctx) => {
+      const t = movedSince(ctx)
+      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
+    },
+    fill: {
+      when: () => !!one(MOVE),
+      run: async (ctx) => {
+        await pickRole(ctx)
+        return one('[data-tour="move-submit"]')
+      },
+    },
+    skip: async (ctx, api) => {
+      if (!one(SHEET)) {
+        const m = movable(ctx.data)
+        if (!m) return
+        const row = one(`tr[data-row-id="${m.t.id}"]`)
+        if (row) await press(row)
+        else api.push(`/timesheets?ts=${m.t.id}`)
+      }
+      if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
+      await until(() => one(MOVE))
+      await sleep(400)
+      await pickRole(api.now())
+      await press(one('[data-tour="move-submit"]'))
     },
   },
   {
@@ -1240,7 +1314,7 @@ export const SCRIPT: TourItem[] = [
     title: "Invoicing and accruals",
     wsId: COMPASS,
     href: "/invoices",
-    shows: "One invoice a week for all of Compass, and what to accrue before it lands.",
+    shows: "One invoice a week for all of Compass, tips by venue, and what to accrue before it lands.",
   },
   {
     kind: "step",
@@ -1269,6 +1343,27 @@ export const SCRIPT: TourItem[] = [
       const g = tourWeek(ctx.data)
       if (g) api.push(`/invoices/groups/${g.id}`)
     },
+  },
+  {
+    kind: "step",
+    id: "invoice-tips",
+    chapter: "invoicing",
+    label: "Tips on the invoice",
+    wsId: COMPASS,
+    path: /^\/invoices\/groups\/[^/]+$/,
+    href: (ctx) => {
+      const g = tourWeek(ctx.data)
+      return g ? `/invoices/groups/${g.id}` : "/invoices"
+    },
+    title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
+    body: () => (one('[data-tour="venue-tips"]') ? "Passed through with no markup. Hover for each worker's share." : undefined),
+    action: () => (one('[data-tour="venue-tips"]') ? undefined : "Click Tips"),
+    targets: () => {
+      const rows = [...document.querySelectorAll('[data-tour="venue-tips"]')].slice(0, 3)
+      return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
+    },
+    placement: "bottom",
+    skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
   },
   {
     kind: "step",
@@ -1356,157 +1451,6 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------------ 7. Nuanced features ------------------------------ */
-  {
-    kind: "chapter",
-    id: "chapter-more-agency",
-    chapter: "nuanced",
-    title: "Nuanced features",
-    wsId: HARBOR,
-    href: "/timesheets",
-    shows: "Hours from a paper sign-in sheet, and a week of expenses from a spreadsheet.",
-  },
-  {
-    kind: "step",
-    id: "paper",
-    chapter: "nuanced",
-    label: "Scan a paper sheet",
-    wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "A venue that signs in on paper"),
-    body: () => (one(SCAN) || justScanned() ? undefined : "Scan the sheet. Iris matches it to each worker."),
-    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : justScanned() ? undefined : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
-    targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
-    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
-    placement: "right",
-    done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
-    success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
-    // The closed dialog hands focus back to its button, where the next Enter would open it again.
-    // Its toast would sit over the button the next step points at.
-    onDone: () => {
-      ;(document.activeElement as HTMLElement | null)?.blur()
-      toast.dismiss()
-    },
-    skip: async () => {
-      if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
-      if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
-      const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
-      await sleep(1200)
-      await press(apply)
-    },
-  },
-  {
-    kind: "step",
-    id: "expense-sheet",
-    chapter: "nuanced",
-    label: "Upload an expense sheet",
-    wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    needs: "paper",
-    startsChat: true,
-    title: () => (uploadSave() ? "Matched to every shift" : "A week of expenses, from a sheet"),
-    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
-    action: () => {
-      const next = uploadSave() ?? chatReview()
-      if (next) return `Click ${next.textContent?.trim()}`
-      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
-    },
-    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
-    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
-    placement: "left",
-    anchor: () => uploadSave()?.closest('[role="dialog"]'),
-    done: (ctx) => !!expenseUpload(ctx),
-    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
-    skip: async (_, api) => {
-      if (!uploadSave() && !chatReview()) {
-        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await until(() => COMPOSER(CHAT_COMPOSER_ID))
-        await attachExpenses(api.now())
-      }
-      if (!uploadSave()) await press(await until(chatReview, 8000))
-      await press(await until(uploadSave, 8000))
-      await until(() => expenseUpload(api.now()), 8000)
-    },
-  },
-  {
-    kind: "chapter",
-    id: "chapter-more-venue",
-    chapter: "nuanced",
-    title: "Nuanced features",
-    wsId: LEVY,
-    href: (ctx) => splitHref(ctx),
-    shows: "A worker who switched roles mid-shift, and where tips land on the invoice.",
-  },
-  {
-    kind: "step",
-    id: "split",
-    chapter: "nuanced",
-    label: "Split a shift by role",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: splitHref,
-    title: () => (one(MOVE) ? "Pick the role and when they switched" : "Someone switched roles mid-shift"),
-    body: (ctx) => {
-      if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
-      const m = movable(ctx.data)
-      return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
-    },
-    action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
-    targets: (ctx) => [splitTarget(ctx)],
-    clicks: (ctx) => (one(MOVE) ? one('[data-tour="move-submit"]') : splitTarget(ctx)),
-    placement: "left",
-    anchor: () => (one(MOVE) ? undefined : one(SHEET)),
-    done: (ctx) => !!movedSince(ctx),
-    success: (ctx) => {
-      const t = movedSince(ctx)
-      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
-    },
-    fill: {
-      when: () => !!one(MOVE),
-      run: async (ctx) => {
-        await pickRole(ctx)
-        return one('[data-tour="move-submit"]')
-      },
-    },
-    skip: async (ctx, api) => {
-      if (!one(SHEET)) {
-        const m = movable(ctx.data)
-        if (!m) return
-        const row = one(`tr[data-row-id="${m.t.id}"]`)
-        if (row) await press(row)
-        else api.push(`/timesheets?ts=${m.t.id}`)
-      }
-      if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
-      await until(() => one(MOVE))
-      await sleep(400)
-      await pickRole(api.now())
-      await press(one('[data-tour="move-submit"]'))
-    },
-  },
-  {
-    kind: "step",
-    id: "invoice-tips",
-    chapter: "nuanced",
-    label: "Tips on the invoice",
-    wsId: LEVY,
-    path: /^\/invoices\/groups\/[^/]+$/,
-    href: (ctx) => {
-      const g = tourWeek(ctx.data, "levy-chi")
-      return g ? `/invoices/groups/${g.id}` : "/invoices"
-    },
-    title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
-    body: () => (one('[data-tour="venue-tips"]') ? "Passed through with no markup. Hover for each worker's share." : undefined),
-    action: () => (one('[data-tour="venue-tips"]') ? undefined : "Click Tips"),
-    targets: () => {
-      const rows = [...document.querySelectorAll('[data-tour="venue-tips"]')].slice(0, 3)
-      return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
-    },
-    placement: "bottom",
-    skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
-  },
 
   { kind: "finale", id: "finale" },
 ]
