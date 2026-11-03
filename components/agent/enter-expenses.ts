@@ -4,9 +4,10 @@ import { useStore } from "@/lib/store"
 import type { ExpenseKind } from "@/lib/types"
 
 /**
- * Iris enters an agency's expenses the way the agency would: on the shift's timesheets she clicks each worker, clicks
- * Add expense, types the amount, saves it and closes the timesheet, so the room sees the form do the work. Anything she
- * can't reach on the page, like a row on another page of the table, is saved directly, so every expense still lands.
+ * Iris enters an agency's expenses the way the agency would: on the shift's timesheets she selects the crew, clicks Add
+ * expense, types the amount once and saves it to all of them, so the room sees the form do the work. Anything she can't
+ * do in that one pass, like a different amount or a row on another page of the table, is saved directly, so every
+ * expense still lands.
  */
 
 export interface ExpenseEntry {
@@ -16,22 +17,25 @@ export interface ExpenseEntry {
   note?: string
 }
 
-const ON_SCREEN = 8
-const SHEET = '[data-tour="timesheet-sheet"]'
+const DIALOG = '[data-tour="bulk-expense-dialog"]'
 
 let entering = false
 /** Iris is entering expenses on the timesheets page right now. */
 export const enteringExpenses = () => entering
 
+let draft: { kind: ExpenseKind; note?: string } | undefined
+/** The kind and note Iris is about to enter, read by the expense dialog as it opens. */
+export const expenseDraft = () => draft
+
 const one = (selector: string) => document.querySelector<HTMLElement>(selector)
 const row = (timesheetId: string) => one(`tr[data-row-id="${timesheetId}"]`)
-const countOf = (timesheetId: string) => useStore.getState().data.timesheets.find((t) => t.id === timesheetId)?.expenses?.length ?? 0
-const openOn = () => new URLSearchParams(window.location.search).get("ts")
-const addButton = (timesheetId: string) => (openOn() === timesheetId ? one(`${SHEET} [data-tour="expense-add"]`) : null)
+const box = (timesheetId: string) => row(timesheetId)?.querySelector<HTMLButtonElement>('[aria-label="Select row"]:not([disabled])') ?? null
+const sheetOf = (timesheetId: string) => useStore.getState().data.timesheets.find((t) => t.id === timesheetId)
+const countOf = (timesheetId: string) => sheetOf(timesheetId)?.expenses?.length ?? 0
 
 /** The shift most of the entries are on, so Iris works from that shift's table. */
 const shiftOf = (entries: ExpenseEntry[]) => {
-  const groups = entries.map((e) => useStore.getState().data.timesheets.find((t) => t.id === e.timesheetId)?.groupId)
+  const groups = entries.map((e) => sheetOf(e.timesheetId)?.groupId)
   return groups.find((g, _, all) => g && all.filter((x) => x === g).length * 2 > all.length) ?? groups[0]
 }
 
@@ -39,31 +43,39 @@ export async function enterExpenses(entries: ExpenseEntry[], push: (href: string
   const done = new Set<ExpenseEntry>()
   const groupId = shiftOf(entries)
   const href = groupId ? `/timesheets?shift=${groupId}&filter=all` : "/timesheets?filter=all"
-  const shown = entries.slice(0, ON_SCREEN)
-  entering = shown.length > 0
+  const lead = entries[0]
+  const batch = lead ? entries.filter((e) => e.kind === lead.kind && e.amount === lead.amount && e.note === lead.note && sheetOf(e.timesheetId)?.groupId === groupId) : []
+  entering = batch.length > 0
   useUi.getState().setAgentOpen(false)
-  if (`${window.location.pathname}${window.location.search}` !== href) push(href)
+  if (entering && `${window.location.pathname}${window.location.search}` !== href) push(href)
   try {
-    await until(() => shown.some((e) => row(e.timesheetId)), 8000)
-    await sleep(500)
-    for (const entry of shown) {
-      const target = row(entry.timesheetId)
-      if (!target) continue
-      const before = countOf(entry.timesheetId)
-      await press(target.querySelector<HTMLElement>("td span.font-semibold") ?? target)
-      await press(await until(() => addButton(entry.timesheetId), 6000))
-      await type(await until(() => one(`${SHEET} [data-tour="expense-form"] [data-tour="expense-amount"]`), 4000), entry.amount.toFixed(2))
-      await press(one(`${SHEET} [data-tour="expense-form"] [data-tour="expense-save"]`))
-      await until(() => countOf(entry.timesheetId) > before, 4000)
-      done.add(entry)
+    if (entering) {
+      await until(() => batch.some((e) => box(e.timesheetId)), 8000)
       await sleep(500)
-      await press(one(`${SHEET} [data-slot="sheet-close"]`))
-      await until(() => !openOn() && !one(SHEET), 4000)
-      await sleep(250)
+      const clear = one('[aria-label="Clear selection"]')
+      if (clear) await press(clear)
+      const picks = batch.filter((e) => box(e.timesheetId))
+      const enabled = document.querySelectorAll('tr[data-row-id] [aria-label="Select row"]:not([disabled])').length
+      const all = one('[aria-label="Select all on this page"]')
+      if (all && picks.length > 1 && picks.length === enabled) await press(all)
+      else
+        for (const e of picks) {
+          await press(box(e.timesheetId))
+          await sleep(150)
+        }
+      const before = new Map(picks.map((e) => [e.timesheetId, countOf(e.timesheetId)]))
+      draft = { kind: lead.kind, ...(lead.note ? { note: lead.note } : {}) }
+      await press(await until(() => one('[data-tour="bulk-expense"]'), 4000))
+      await type(await until(() => one(`${DIALOG} [data-tour="bulk-expense-amount"]`), 4000), lead.amount.toFixed(2))
+      await press(one(`${DIALOG} [data-tour="bulk-expense-save"]`))
+      await until(() => picks.every((e) => countOf(e.timesheetId) > before.get(e.timesheetId)!), 6000)
+      for (const e of picks) done.add(e)
+      await sleep(400)
     }
   } catch (error) {
     if (!cursorStopped(error) && error !== STOPPED) throw error
   } finally {
+    draft = undefined
     restCursor()
     entering = false
   }

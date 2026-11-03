@@ -1,11 +1,12 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { ArrowRightLeft, Check, Clock, Download, ScanLine, Send, ShieldCheck, X } from "lucide-react"
+import { ArrowRightLeft, Check, Clock, Download, Receipt, ScanLine, Send, ShieldCheck, X } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { expenseDraft } from "@/components/agent/enter-expenses"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
@@ -28,8 +29,8 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, tippable, withAgency } from "@/lib/timesheets"
-import type { PersonaKind, Timesheet } from "@/lib/types"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, tippable, withAgency } from "@/lib/timesheets"
+import type { ExpenseKind, PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type Quick = "needs_approval" | "flagged" | "to_submit" | "with_agency" | "pending" | "done" | "all"
@@ -144,6 +145,7 @@ export function TimesheetsPage() {
   const [agencies, setAgencies] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [rejecting, setRejecting] = useState<string[]>([])
+  const [expensing, setExpensing] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [scanning, setScanning] = useState(false)
 
@@ -531,9 +533,14 @@ export function TimesheetsPage() {
               </>
             )}
             {kind === "supplier" && (
-              <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => submitMany(chosen.map((t) => t.id))}>
-                <Send className="size-4" /> Submit {chosen.length}
-              </Button>
+              <>
+                <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => setExpensing(chosen.map((t) => t.id))} data-tour="bulk-expense">
+                  <Receipt className="size-4" /> Add expense
+                </Button>
+                <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => submitMany(chosen.map((t) => t.id))}>
+                  <Send className="size-4" /> Submit {chosen.length}
+                </Button>
+              </>
             )}
             <button type="button" onClick={() => setSelected(new Set())} className="rounded-md p-1 text-background/70 hover:bg-background/10 hover:text-background" aria-label="Clear selection">
               <X className="size-4" />
@@ -550,6 +557,17 @@ export function TimesheetsPage() {
           setRejecting([])
           setSelected(new Set())
           if (n) toast(`Sent ${plural(n, "timesheet")} back`, { description: `${reason}. The agencies will fix and resubmit them.` })
+        }}
+      />
+      <ExpenseDialog
+        key={expensing.join()}
+        ids={expensing}
+        onOpenChange={(o) => !o && setExpensing([])}
+        onAdd={async (kind, amount, note) => {
+          const n = await useStore.getState().addExpenses(expensing, kind, amount, note)
+          setExpensing([])
+          setSelected(new Set())
+          if (n) toast.success(`Added ${money(amount)} ${EXPENSE_LABEL[kind].toLowerCase()} to ${plural(n, "timesheet")}`, { description: `${money(round2(amount * n))} at cost. It bills with the hours.` })
         }}
       />
       <TimesheetSheet id={openId} onOpenChange={(o) => !o && setParams({ ts: undefined })} />
@@ -603,6 +621,69 @@ function RejectDialog({ ids, onOpenChange, onReject }: { ids: string[]; onOpenCh
             }}
           >
             Reject
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** One expense for every selected timesheet: the same kind and amount on each, billed at cost with the hours. */
+function ExpenseDialog({ ids, onOpenChange, onAdd }: { ids: string[]; onOpenChange: (open: boolean) => void; onAdd: (kind: ExpenseKind, amount: number, note?: string) => Promise<void> }) {
+  const [draft] = useState(() => (ids.length ? expenseDraft() : undefined))
+  const [kind, setKind] = useState<ExpenseKind>(draft?.kind ?? "parking")
+  const [amount, setAmount] = useState("")
+  const [note, setNote] = useState(draft?.note ?? "")
+  const [busy, setBusy] = useState(false)
+  const value = round2(Number(amount) || 0)
+  return (
+    <Dialog open={ids.length > 0} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" data-tour="bulk-expense-dialog">
+        <DialogHeader>
+          <DialogTitle>Add an expense to {plural(ids.length, "timesheet")}</DialogTitle>
+          <DialogDescription>The same amount on each, billed at cost with the hours.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-[1fr_8rem] gap-2">
+          <Select value={kind} onValueChange={(v) => setKind(v as ExpenseKind)}>
+            <SelectTrigger className="h-10 w-full rounded-lg">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXPENSE_KINDS.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {EXPENSE_LABEL[k]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="relative">
+            <span className="absolute top-1/2 left-3 -translate-y-1/2 text-body-3 text-faded">$</span>
+            <input
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+              className="h-10 w-full rounded-lg border border-input bg-background pr-3 pl-7 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+              placeholder="0.00"
+              aria-label="Amount"
+              data-tour="bulk-expense-amount"
+            />
+          </span>
+        </div>
+        {kind === "other" && <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for" className="min-h-14 rounded-lg text-body-3" />}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            data-tour="bulk-expense-save"
+            disabled={busy || value <= 0 || value > EXPENSE_MAX || (kind === "other" && !note.trim())}
+            onClick={async () => {
+              setBusy(true)
+              await onAdd(kind, value, note.trim() || undefined)
+              setBusy(false)
+            }}
+          >
+            {value > 0 ? `Add ${money(value)} to each` : "Add"}
           </Button>
         </DialogFooter>
       </DialogContent>
