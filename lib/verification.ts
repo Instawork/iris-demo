@@ -4,7 +4,7 @@ import type { RequirementId } from "@/lib/types"
 
 /**
  * How Iris checks each kind of document before it clears a Pro: who issues it, what reference identifies it, and how
- * long it lasts. Training and certifications are verified with whoever issued them. Work authorization is the
+ * long it lasts. Background checks, training and certifications are verified through Chkr. Work authorization is the
  * agency's to attest, as the employer that completes the I-9. The provider lookups are simulated in the demo; what
  * passes and what gets held for Compass are the rules Iris applies.
  */
@@ -21,7 +21,7 @@ export interface DocumentCheck {
 
 export const CHECKS: Record<RequirementId, DocumentCheck> = {
   background: {
-    providers: ["Sterling", "Checkr", "HireRight"],
+    providers: ["Chkr"],
     reference: { label: "Report ID", placeholder: "STR-4831207", pattern: /^[A-Z]{2,4}-?\d{6,9}$/i },
     issuedLabel: "Completed on",
     validYears: 1,
@@ -38,13 +38,13 @@ export const CHECKS: Record<RequirementId, DocumentCheck> = {
     issuedLabel: "Completed on",
   },
   foodHandler: {
-    providers: ["ServSafe", "StateFoodSafety", "Premier Food Safety"],
+    providers: ["Chkr"],
     reference: { label: "Certificate number", placeholder: "21894570", pattern: /^\d{7,10}$/ },
     issuedLabel: "Issued on",
     validYears: 3,
   },
   alcohol: {
-    providers: ["BASSET (Illinois)", "TIPS", "ServSafe Alcohol"],
+    providers: ["Chkr"],
     reference: { label: "Certificate number", placeholder: "B-7781204", pattern: /^[A-Z]?-?\d{6,9}$/i },
     issuedLabel: "Issued on",
     validYears: 3,

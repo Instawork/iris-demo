@@ -455,8 +455,6 @@ const openPro = (ctx: TourContext) => {
   return id ? ctx.data.pros.find((p) => p.id === id && p.supplierId === "metro") : undefined
 }
 
-const VERIFY = '[data-tour="verify-dialog"]'
-
 /** A document Metro cleared during the tour, once Iris has recorded it. */
 const verifiedSince = (ctx: TourContext, ids: RequirementId[]) => {
   for (const pro of ctx.data.pros) {
@@ -477,8 +475,8 @@ const docTarget = (ctx: TourContext, doc: RequirementId, pick: (data: DemoData) 
   return (pro && one(`tr[data-row-id="${pro.id}"]`)) || one("tbody tr[data-row-id]")
 }
 
-/** Opens the worker and the document's dialog, from wherever the player is. */
-async function openDoc(ctx: TourContext, api: TourApi, doc: RequirementId, pick: (data: DemoData) => Pro | undefined) {
+/** Opens the worker's documents and clears the one named, from wherever the player is. */
+async function clearDoc(ctx: TourContext, api: TourApi, doc: RequirementId, pick: (data: DemoData) => Pro | undefined) {
   if (!openPro(ctx)) {
     const pro = pick(ctx.data)
     if (!pro) throw STOPPED
@@ -486,18 +484,9 @@ async function openDoc(ctx: TourContext, api: TourApi, doc: RequirementId, pick:
     if (row) await press(row)
     else api.push(`/professionals?filter=not_compliant&pro=${pro.id}`)
   }
-  if (!one(VERIFY)) await press(await until(() => one(`[data-tour="doc-action"][data-doc-id="${doc}"]`), 8000))
-  await until(() => one(VERIFY))
-  await sleep(400)
-}
-
-const askedIssuer = () => one(VERIFY)?.getAttribute("data-provider") ?? undefined
-
-/** Ticks the agency's attestation, leaving Attest for the player. */
-async function tickAttest() {
-  const box = inside(VERIFY, 'button[role="checkbox"]')
-  if (box && box.getAttribute("aria-checked") !== "true") await press(box)
-  return one('[data-tour="verify-submit"]')
+  const action = () => one(`[data-tour="doc-action"][data-doc-id="${doc}"]`)
+  if (!action()) await press(await until(() => one('[role="dialog"] [role="tab"][data-value="documents"]'), 8000))
+  await press(await until(action, 8000))
 }
 
 /* -------------------------------- Timesheets ------------------------------- */
@@ -1000,19 +989,16 @@ export const SCRIPT: TourItem[] = [
     wsId: METRO,
     path: /^\/professionals$/,
     href: () => "/professionals?filter=not_compliant",
-    title: (ctx) => (one(VERIFY) ? "Metro attests it" : openPro(ctx) ? "Work authorization is attested" : "Off the schedule until it's fixed"),
+    title: (ctx) => (openPro(ctx) ? "Metro attests it, in one click" : "Off the schedule until it's fixed"),
     body: (ctx) => {
-      if (one(VERIFY)) return "Iris records who attested it, and when."
-      if (openPro(ctx)) return "The agency redoes the I-9 as the employer."
+      if (openPro(ctx)) return "Iris records who attested it, and when."
       const pro = authPro(ctx.data)
       return pro ? `${pro.firstName}'s work authorization expired, so Iris won't place them.` : undefined
     },
-    action: (ctx) => (one(VERIFY) ? "Tick the attestation, then Attest" : openPro(ctx) ? "Click Attest" : `Open ${authPro(ctx.data)?.firstName ?? "the worker"}`),
-    fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: tickAttest },
-    targets: (ctx) => [one(VERIFY) ?? docTarget(ctx, "i9", authPro)],
-    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : docTarget(ctx, "i9", authPro)),
+    action: (ctx) => (openPro(ctx) ? "Click Attest" : `Open ${authPro(ctx.data)?.firstName ?? "the worker"}`),
+    targets: (ctx) => [docTarget(ctx, "i9", authPro)],
     placement: "left",
-    anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
+    anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
     done: (ctx) => !!verifiedSince(ctx, ["i9"]),
     success: (ctx) => {
       const found = verifiedSince(ctx, ["i9"])
@@ -1020,9 +1006,8 @@ export const SCRIPT: TourItem[] = [
     },
     onDone: (ctx, api) => api.push(verifyHref(ctx)),
     skip: async (ctx, api) => {
-      await openDoc(ctx, api, "i9", authPro)
-      await press(await tickAttest())
-      await until(() => !one(VERIFY), 8000)
+      await clearDoc(ctx, api, "i9", authPro)
+      await until(() => verifiedSince(api.now(), ["i9"]), 8000)
     },
   },
   {
@@ -1033,32 +1018,25 @@ export const SCRIPT: TourItem[] = [
     wsId: METRO,
     path: /^\/professionals$/,
     href: verifyHref,
-    title: (ctx) => (one(VERIFY) ? `Iris asks ${askedIssuer() ?? "the issuer"}` : openPro(ctx) ? "Certifications are verified" : "Then a lapsed certification"),
+    title: (ctx) => (openPro(ctx) ? "Certifications, verified with Chkr" : "Then a lapsed certification"),
     body: (ctx) => {
-      if (one(VERIFY)) return `Nothing to upload. ${askedIssuer() ?? "The issuer"} already has the current one.`
       const pro = openPro(ctx) ?? certPro(ctx.data)
       const doc = certOf(pro)
-      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Iris checks with whoever issued it.` : undefined
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Nothing to upload: Chkr has the current one.` : undefined
     },
-    action: (ctx) => {
-      if (one(VERIFY)) return `Click Ask ${askedIssuer() ?? "the issuer"}`
-      if (!openPro(ctx)) return `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`
-      return `Click ${docTarget(ctx, certOf(openPro(ctx)) ?? "foodHandler", certPro)?.textContent?.trim() || "Ask"}`
-    },
-    targets: (ctx) => [one(VERIFY) ?? docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
-    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)),
+    action: (ctx) => (openPro(ctx) ? "Click Verify with Chkr" : `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`),
+    targets: (ctx) => [docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
     placement: "left",
-    anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
+    anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
     done: (ctx) => !!verifiedSince(ctx, CERTS),
     success: (ctx) => {
       const found = verifiedSince(ctx, CERTS)
-      return found && standingOf(found.pro) === "compliant" ? `Verified with ${found.v.checkedWith}. ${found.pro.firstName} can work again` : `Verified with ${found?.v.checkedWith ?? "the issuer"}`
+      return found && standingOf(found.pro) === "compliant" ? `Verified. ${found.pro.firstName} can work again` : "Verified"
     },
     skip: async (ctx, api) => {
       const pro = openPro(ctx) ?? certPro(ctx.data)
-      await openDoc(ctx, api, certOf(pro) ?? "foodHandler", certPro)
-      await press(one('[data-tour="verify-submit"]'))
-      await until(() => !one(VERIFY), 8000)
+      await clearDoc(ctx, api, certOf(pro) ?? "foodHandler", certPro)
+      await until(() => verifiedSince(api.now(), CERTS), 8000)
     },
   },
 

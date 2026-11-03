@@ -1,13 +1,12 @@
 "use client"
 
-import { Briefcase, CheckCircle2, CircleDashed, Clock3, Phone, ShieldCheck, Star, UsersRound, XCircle, type LucideIcon } from "lucide-react"
+import { Briefcase, CheckCircle2, CircleDashed, Clock3, Loader2, Phone, ShieldCheck, Star, UsersRound, XCircle, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Stars } from "@/components/pros/pro-status"
-import { VerifyDialog } from "@/components/pros/verify-dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkspace } from "@/hooks/use-app"
@@ -194,7 +193,8 @@ function proofLine(row: RequirementRow) {
 export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: boolean }) {
   const { ws } = useWorkspace()
   const reviewDocument = useStore((s) => s.reviewDocument)
-  const [renewing, setRenewing] = useState<{ id: RequirementId; blocked: boolean }>()
+  const verifyRequirement = useStore((s) => s.verifyRequirement)
+  const [checking, setChecking] = useState<RequirementId>()
   const [sending, setSending] = useState<RequirementId>()
   const [note, setNote] = useState("")
   const rows = requirementRows(pro).filter((r) => r.state !== "not_required")
@@ -208,7 +208,20 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
     const cleared = standingOf(next) === "compliant"
     if (pro.status === "onboarding" && cleared) toast.success(`${pro.firstName} finished onboarding`, { description: "Buyers and Compass now see them as compliant." })
     else if (wasBlocked && cleared) toast.success(`${pro.firstName} is cleared to work again`, { description: `${row.label} ${how}.` })
-    else toast.success(`${row.label} ${how}`)
+  }
+
+  /** One click: Iris asks the issuer, or records the agency's attestation, and the row turns green where it is. */
+  const clear = async (requirement: RequirementId) => {
+    const found = readDocument(requirement, pro.id, todayISO())
+    setChecking(requirement)
+    try {
+      await Promise.all([
+        verifyRequirement(pro.id, requirement, { provider: found.provider, reference: found.reference, issuedOn: found.issuedOn, expiresOn: found.expiresOn }),
+        new Promise((resolve) => setTimeout(resolve, CHECKS[requirement].attested ? 400 : 1100)),
+      ])
+    } finally {
+      setChecking(undefined)
+    }
   }
 
   const decide = async (requirement: RequirementId, decision: "accept" | "reject") => {
@@ -262,13 +275,22 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 rounded-md text-caption-1"
-                    onClick={() => setRenewing({ id: row.id, blocked: standingOf(pro) === "not_compliant" })}
+                    className="h-7 gap-1 rounded-md text-caption-1"
+                    disabled={!!checking}
+                    onClick={() => void clear(row.id)}
                     data-tour="doc-action"
                     data-doc-state={row.state}
                     data-doc-id={row.id}
                   >
-                    {issuer ? `Ask ${issuer}` : "Attest"}
+                    {checking === row.id ? (
+                      <>
+                        <Loader2 className="size-3 animate-spin" /> {issuer ? `Checking with ${issuer}` : "Attesting"}
+                      </>
+                    ) : issuer ? (
+                      `Verify with ${issuer}`
+                    ) : (
+                      "Attest"
+                    )}
                   </Button>
                 ) : (
                   <StatusBadge size="sm" tone={meta.tone}>
@@ -294,18 +316,6 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
           )
         })}
       </ul>
-      {renewing && (
-        <VerifyDialog
-          key={renewing.id}
-          pro={pro}
-          requirement={renewing.id}
-          onOpenChange={(open) => {
-            if (open) return
-            setRenewing(undefined)
-            finish(renewing.id, renewing.blocked)
-          }}
-        />
-      )}
     </div>
   )
 }
