@@ -29,7 +29,7 @@ import { fullName, money, plural, round2 } from "@/lib/format"
 import { inScope } from "@/lib/metrics"
 import { LOCATIONS, SUPPLIERS, location, position, supplier } from "@/lib/reference"
 import { joinNames, useStore } from "@/lib/store"
-import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, STATUS_LABEL, expensesOf, readyToSubmit, timesheetAmount, tippable, withAgency } from "@/lib/timesheets"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, STATUS_LABEL, canExpense, expensesOf, readyToSubmit, timesheetAmount, tippable, withAgency } from "@/lib/timesheets"
 import type { ExpenseKind, PersonaKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -197,9 +197,12 @@ export function TimesheetsPage() {
         ? [...listed].sort(newestFirst).sort((a, b) => Number(needsLook(b)) - Number(needsLook(a)))
         : listed
   const clean = rows.filter((t) => t.status === "pending_approval" && !isFlagged(t))
+  const approvable = (t: Timesheet) => t.status === "pending_approval" && !isFlagged(t)
   const selectable = (t: Timesheet) =>
-    kind === "buyer" ? t.status === "pending_approval" && !isFlagged(t) : kind === "supplier" ? withAgency(t) && !!t.clockIn && !!t.clockOut : false
+    kind === "buyer" ? approvable(t) || canExpense(data, t) : kind === "supplier" ? withAgency(t) && !!t.clockIn && !!t.clockOut : false
   const chosen = rows.filter((t) => selected.has(t.id) && selectable(t))
+  const toApprove = kind === "buyer" ? chosen.filter(approvable) : []
+  const toExpense = kind === "buyer" ? chosen.filter((t) => canExpense(data, t)) : []
 
   const totals = (list: Timesheet[]) => ({
     hours: round2(list.reduce((s, t) => s + t.hours, 0)),
@@ -524,23 +527,27 @@ export function TimesheetsPage() {
             </span>
             {kind === "buyer" && (
               <>
-                <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => approveMany(chosen.map((t) => t.id))}>
-                  <Check className="size-4" /> Approve {chosen.length}
-                </Button>
-                <Button size="sm" variant="ghost" className="h-8 rounded-lg text-background hover:bg-background/10 hover:text-background" onClick={() => setRejecting(chosen.map((t) => t.id))}>
-                  Reject
-                </Button>
+                {toExpense.length > 0 && (
+                  <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => setExpensing(toExpense.map((t) => t.id))} data-tour="bulk-expense">
+                    <Receipt className="size-4" /> Add expense
+                  </Button>
+                )}
+                {toApprove.length > 0 && (
+                  <>
+                    <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => approveMany(toApprove.map((t) => t.id))}>
+                      <Check className="size-4" /> Approve {toApprove.length}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 rounded-lg text-background hover:bg-background/10 hover:text-background" onClick={() => setRejecting(toApprove.map((t) => t.id))}>
+                      Reject
+                    </Button>
+                  </>
+                )}
               </>
             )}
             {kind === "supplier" && (
-              <>
-                <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => setExpensing(chosen.map((t) => t.id))} data-tour="bulk-expense">
-                  <Receipt className="size-4" /> Add expense
-                </Button>
-                <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => submitMany(chosen.map((t) => t.id))}>
-                  <Send className="size-4" /> Submit {chosen.length}
-                </Button>
-              </>
+              <Button size="sm" className="h-8 gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90" disabled={busy} onClick={() => submitMany(chosen.map((t) => t.id))}>
+                <Send className="size-4" /> Submit {chosen.length}
+              </Button>
             )}
             <button type="button" onClick={() => setSelected(new Set())} className="rounded-md p-1 text-background/70 hover:bg-background/10 hover:text-background" aria-label="Clear selection">
               <X className="size-4" />

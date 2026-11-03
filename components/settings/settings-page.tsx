@@ -113,7 +113,7 @@ function CompanySection({ ws }: { ws: Workspace }) {
           )}
           {ws.kind === "compass" && (
             <>
-              <Field label="Payment terms">Set in each agency&apos;s contract. See Contracts in Procurement</Field>
+              <Field label="Payment terms">Set in each agency&apos;s contract</Field>
               <Field label="Required for every worker">Background check, I-9 and Compass orientation, plus food handler and alcohol certificates by position</Field>
             </>
           )}

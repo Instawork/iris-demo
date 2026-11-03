@@ -24,7 +24,7 @@ import {
   EXPENSE_LABEL,
   EXPENSE_MAX,
   OVERTIME_RATE,
-  canEditBilled,
+  canExpense,
   clockHours,
   expensesOf,
   hoursFor,
@@ -315,7 +315,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                   {EXPENSE_LABEL[e.kind]}
                   {e.note && ` · ${e.note}`}
                 </span>
-                {isAgency && canEditBilled(t) && (
+                {isBuyer && canExpense(data, t) && (
                   <button
                     type="button"
                     className="shrink-0 self-center rounded p-0.5 text-subtle hover:bg-hover hover:text-foreground"
@@ -351,6 +351,11 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               `Goes on ${sup.shortName}'s invoice on Saturday, ${formatDateShort(closesOn)}`
             )}
           </span>
+          {isBuyer && canExpense(data, t) && mode !== "expense" && (
+            <Button variant="outline" size="sm" className="h-8 w-fit gap-1.5 rounded-lg text-caption-1" onClick={() => open("expense")} data-tour="expense-add">
+              <Receipt className="size-3.5" /> Add expense
+            </Button>
+          )}
         </section>
 
         {parts.length > 1 && (
@@ -579,9 +584,6 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
           </Button>
           <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("edit")}>
             <Pencil className="size-4" /> Edit times
-          </Button>
-          <Button variant="outline" className="h-9 gap-1.5 rounded-lg" onClick={() => open("expense")} data-tour="expense-add">
-            <Receipt className="size-4" /> Add expense
           </Button>
           <span className="ml-auto">
             <More items={[{ label: "Remove from billing", icon: Trash2, onSelect: () => open("remove", REMOVE_REASONS[0]) }]} />

@@ -5,21 +5,22 @@ import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
 import { enteringExpenses } from "@/components/agent/enter-expenses"
-import { crewShift } from "@/lib/agent-agency"
 import { enteringTips } from "@/components/agent/enter-tips"
+import { cents } from "@/components/procurement/dollar-split"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import { STOPPED, cursorStopped, haltCursor, point, press, restCursor, sleep, type, until } from "@/components/tour/cursor"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { tipShift } from "@/lib/agent-tips"
 import { canWork, requirementRows } from "@/lib/compliance"
+import { certificateFile } from "@/lib/certificate"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { eligiblePros } from "@/lib/domain/core"
 import { fullName, money, plural } from "@/lib/format"
 import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { toCsv } from "@/lib/csv"
-import { buyer, location, position } from "@/lib/reference"
-import { irisCounters } from "@/lib/sourcing"
+import { buyer, location, position, supplier } from "@/lib/reference"
+import { dollarSplit, irisCounters, responded } from "@/lib/sourcing"
 import { timesheetChecks, tippable } from "@/lib/timesheets"
 import { SAMPLE_UNIT_SHEET } from "@/lib/unit-sheet"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
@@ -234,6 +235,16 @@ const approvedSince = (ctx: TourContext) => Object.values(event(ctx)?.approved ?
 const approveDialog = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector("h2")?.textContent?.trim() === "Approve bids")
 const approveButton = () => [...(approveDialog()?.querySelectorAll("button") ?? [])].find((b) => /^Approve \d/.test(b.textContent?.trim() ?? ""))
 
+/** The agencies that get the most and the least of each dollar to the worker, among those that bid. */
+const valueEnds = (ctx: TourContext) => {
+  const ev = event(ctx)
+  if (!ev) return []
+  const rows = responded(ev)
+    .map((s) => ({ name: supplier(s).shortName, ...dollarSplit(ev, ctx.data.rateCards, s) }))
+    .sort((a, b) => b.worker - a.worker)
+  return rows.length > 1 ? [rows[0], rows.at(-1)!] : []
+}
+
 /* ------------------------------ Shift creation ----------------------------- */
 
 const ordersSince = (ctx: TourContext) => ctx.data.groups.filter((g) => g.buyerId === "levy-chi" && serial(g.id) >= ctx.base.sg).sort((a, b) => serial(b.id) - serial(a.id))
@@ -393,6 +404,24 @@ async function clearDoc(ctx: TourContext, api: TourApi, doc: RequirementId, pick
   await press(await until(action, 8000))
 }
 
+const DROPZONE = '[data-tour="cert-dropzone"]'
+const CERT_UPLOAD = '[data-tour="cert-upload"]'
+
+/** Drops a photo of the worker's new card into the open upload, as if the agency had it from them. */
+async function dropCert(ctx: TourContext) {
+  const input = one("input[data-cert-file]")
+  const pro = openPro(ctx) ?? certPro(ctx.data)
+  if (!(input instanceof HTMLInputElement) || !pro) throw STOPPED
+  const zone = one(DROPZONE)
+  if (zone) await point(zone)
+  const files = new DataTransfer()
+  files.items.add(certificateFile(pro, input.dataset.certFile as RequirementId, todayISO()))
+  input.files = files.files
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+  restCursor()
+  return null
+}
+
 /* -------------------------------- Timesheets ------------------------------- */
 
 const SCAN = '[data-tour="scan-sheet"]'
@@ -446,8 +475,8 @@ async function attachFile(name: string, csv: string) {
   return sendButton(CHAT_COMPOSER_ID)
 }
 
-/** Harbor's latest worked shift: the crew the parking is for. */
-const crewGroup = (ctx: TourContext) => crewShift(ctx.data, "harbor", todayISO(), new URLSearchParams(window.location.search).get("shift") ?? undefined, 3)?.group
+/** Last night's bar crew at Levy: the parking is for them, then the tips. */
+const crewGroup = (ctx: TourContext) => tipGroup(ctx)
 const crewHref = (ctx: TourContext) => {
   const g = crewGroup(ctx)
   return g ? `/timesheets?shift=${g.id}&filter=all` : "/timesheets"
@@ -608,7 +637,26 @@ export const SCRIPT: TourItem[] = [
     title: "Rate cards and supplier sourcing",
     wsId: COMPASS,
     href: `/procurement/${EVENT}`,
-    shows: "Next year's renewal: every agency's rates, markup and VA, side by side against the market.",
+    shows: "Next year's renewal: which agency gets the most of your dollar to the worker, and Iris negotiating the rest.",
+  },
+  {
+    kind: "step",
+    id: "value",
+    chapter: "rates",
+    label: "Who pays workers the most",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}$`),
+    href: () => `/procurement/${EVENT}`,
+    title: "Every agency, one dollar",
+    body: (ctx) => {
+      const [best, worst] = valueEnds(ctx)
+      return best && worst
+        ? `Of every $1, ${best.name} puts ${cents(best.worker)} in the worker's pocket and gives ${cents(best.back)} back. ${worst.name}: ${cents(worst.worker)} and ${cents(worst.back)}.`
+        : "Of every $1 you pay, what reaches the worker, what the agency keeps, and what comes back to you."
+    },
+    targets: () => [one('[data-tour="bid-matrix"]')],
+    placement: "bottom",
+    skip: () => undefined,
   },
   {
     kind: "step",
@@ -648,27 +696,11 @@ export const SCRIPT: TourItem[] = [
     anchor: () => approveDialog(),
     done: (ctx) => approvedSince(ctx) > 0,
     success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
-    onDone: (_, api) => api.push("/procurement?tab=rates"),
     skip: async () => {
       if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
       await sleep(500)
       await press(await until(() => approveButton()))
     },
-  },
-  {
-    kind: "step",
-    id: "coverage",
-    chapter: "rates",
-    label: "Markets and roles",
-    wsId: COMPASS,
-    path: /^\/procurement$/,
-    href: () => "/procurement?tab=rates",
-    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "One list of markets and roles"),
-    body: () => (one('[data-tour="market-rates"]') ? "Agencies price Compass's definition of each role, so every rate compares like for like." : undefined),
-    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Markets and roles"),
-    targets: () => [one('[data-tour="market-rates"]') ?? one('[role="tab"][data-value="rates"]')],
-    placement: "top",
-    skip: () => press(one('[role="tab"][data-value="rates"]')),
   },
 
   /* ----------------------------- 2. Shift creation ----------------------------- */
@@ -927,24 +959,30 @@ export const SCRIPT: TourItem[] = [
     wsId: METRO,
     path: /^\/professionals$/,
     href: verifyHref,
-    title: (ctx) => (openPro(ctx) ? "Certifications, verified at the source" : "Then a lapsed certification"),
+    title: (ctx) => (one(DROPZONE) ? "Upload the new card" : one(CERT_UPLOAD) ? "Iris reads it, then checks it" : openPro(ctx) ? "Upload it, Iris verifies it" : "Then a lapsed certification"),
     body: (ctx) => {
       const pro = openPro(ctx) ?? certPro(ctx.data)
       const doc = certOf(pro)
-      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Nothing to upload: Iris checks the current one with the issuer.` : undefined
+      if (one(CERT_UPLOAD)) return "Iris reads the card, then checks the number with the issuer."
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. The agency uploads the new one and Iris verifies it.` : undefined
     },
-    action: (ctx) => (openPro(ctx) ? "Click Verify" : `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`),
-    targets: (ctx) => [docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
+    action: (ctx) => (one(DROPZONE) ? "Drop the card" : one(CERT_UPLOAD) ? undefined : openPro(ctx) ? "Click Upload" : `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`),
+    targets: (ctx) => [one(CERT_UPLOAD) ?? docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
     placement: "left",
-    anchor: () => one('[data-tour="doc-action"]')?.closest('[role="dialog"]'),
+    anchor: () => (one(CERT_UPLOAD) ?? one('[data-tour="doc-action"]'))?.closest('[role="dialog"]'),
+    fill: { when: () => !!one(DROPZONE), run: dropCert },
     done: (ctx) => !!verifiedSince(ctx, CERTS),
     success: (ctx) => {
       const found = verifiedSince(ctx, CERTS)
       return found && standingOf(found.pro) === "compliant" ? `Verified. ${found.pro.firstName} can work again` : "Verified"
     },
     skip: async (ctx, api) => {
-      const pro = openPro(ctx) ?? certPro(ctx.data)
-      await clearDoc(ctx, api, certOf(pro) ?? "foodHandler", certPro)
+      if (!one(DROPZONE)) {
+        const pro = openPro(ctx) ?? certPro(ctx.data)
+        await clearDoc(ctx, api, certOf(pro) ?? "foodHandler", certPro)
+        await until(() => one(DROPZONE), 8000)
+      }
+      await dropCert(api.now())
       await until(() => verifiedSince(api.now(), CERTS), 8000)
     },
   },
@@ -1101,21 +1139,21 @@ export const SCRIPT: TourItem[] = [
     id: "chapter-extras",
     chapter: "extras",
     title: "Tips and expenses",
-    wsId: HARBOR,
-    href: "/timesheets",
-    shows: "The agency adds what it paid for the crew, and the venue adds last night's tips.",
+    wsId: LEVY,
+    href: crewHref,
+    shows: "The venue covers last night's crew parking, then adds their tips.",
   },
   {
     kind: "step",
     id: "expenses",
     chapter: "extras",
     label: "Add expenses",
-    wsId: HARBOR,
+    wsId: LEVY,
     path: /^\/timesheets/,
     href: crewHref,
     startsChat: true,
     opensChat: true,
-    title: () => (enteringExpenses() ? "Iris adds it to the whole crew" : "Harbor paid for the crew's parking"),
+    title: () => (enteringExpenses() ? "Iris adds it to the whole crew" : "Levy covered the crew's parking"),
     body: () =>
       enteringExpenses()
         ? "She selects the shift's timesheets and enters it once. At cost, approved with the hours."
@@ -1146,7 +1184,7 @@ export const SCRIPT: TourItem[] = [
     href: tipsHref,
     startsChat: true,
     opensChat: true,
-    title: () => (enteringTips() ? "Iris enters each worker's tip" : attached() ? "Last night's tips, one row per worker" : "Now Levy, the venue, adds tips"),
+    title: () => (enteringTips() ? "Iris enters each worker's tip" : attached() ? "Last night's tips, one row per worker" : "Then the same crew's tips"),
     body: (ctx) =>
       enteringTips()
         ? "Right on the timesheet, the way you would. No markup."

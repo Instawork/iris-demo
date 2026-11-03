@@ -50,7 +50,10 @@ function useCrumbs(): Crumb[] {
       const inv = data.invoices.find((x) => x.id === sub)
       return [root, { label: inv ? `Invoice #${inv.number}` : "Invoice" }]
     }
-    if (section === "procurement") return [root, { label: data.sourcing?.find((e) => e.id === sub)?.number ?? "Event" }]
+    if (section === "procurement") {
+      const label = data.sourcing?.find((e) => e.id === sub)?.number ?? "Event"
+      return parts[2] ? [root, { label, href: `/procurement/${sub}` }, { label: findSupplier(parts[2])?.name ?? "Agency" }] : [root, { label }]
+    }
     if (section === "agencies") return [ws.kind === "compass" ? root : { label: "Rate Cards", href: "/rates" }, { label: findSupplier(sub)?.name ?? "Agency" }]
     return [root, { label: sub }]
   }, [pathname, data, ws.kind])

@@ -88,6 +88,9 @@ export const canEditBilled = (t: Timesheet) => t.status === "draft" || t.status 
 export const tippable = (data: Pick<DemoData, "invoices">, t: Timesheet) =>
   t.status !== "removed" && !!t.clockIn && !!t.clockOut && !withAgency(t) && (!t.invoiceId || data.invoices.some((i) => i.id === t.invoiceId && i.status === "open"))
 
+/** Hours a venue can add a cost to, like the crew's parking: the same ones it can tip on. */
+export const canExpense = tippable
+
 /** A work week closes the day after it ends; its approved hours then go on the agency's invoice for that week. */
 export const weekClosed = (date: string, today: string) => weekEndISO(date) < today
 

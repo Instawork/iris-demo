@@ -17,6 +17,8 @@ export interface DocumentCheck {
   validYears?: number
   /** The agency attests it. Anything else Iris asks the issuer for directly. */
   attested?: boolean
+  /** The worker's card is uploaded first, and Iris reads it before checking the issuer. */
+  uploaded?: boolean
 }
 
 export const CHECKS: Record<RequirementId, DocumentCheck> = {
@@ -42,12 +44,14 @@ export const CHECKS: Record<RequirementId, DocumentCheck> = {
     reference: { label: "Certificate number", placeholder: "21894570", pattern: /^\d{7,10}$/ },
     issuedLabel: "Issued on",
     validYears: 3,
+    uploaded: true,
   },
   alcohol: {
     providers: ["the issuer"],
     reference: { label: "Certificate number", placeholder: "B-7781204", pattern: /^[A-Z]?-?\d{6,9}$/i },
     issuedLabel: "Issued on",
     validYears: 3,
+    uploaded: true,
   },
 }
 

@@ -3,7 +3,7 @@ import { canWork } from "@/lib/compliance"
 import { addDaysISO, formatClockShort, hhmmFromMinutes, paidHours, spanMinutes, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, joinNames, merge, notifiedSuppliers, offerKey, placeRequested, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
-import { creditSentBack, invoiceApproved, issueOpen, withTips } from "@/lib/domain/invoicing"
+import { creditSentBack, invoiceApproved, issueOpen, rebuildLines, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
 import { billFrom, fullName, money, round2 } from "@/lib/format"
 import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
@@ -33,7 +33,7 @@ import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, lineName, nextNumber, openCounters, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
-import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
@@ -843,11 +843,18 @@ const removed = (t: Timesheet, ctx: CommandContext, reason: string): Timesheet =
 })
 
 
-/** The agency bills a cost it paid for the shift. It goes for approval with the hours, so only drafts and sent-back timesheets take one. */
+/** A timesheet whose expenses changed, with its open invoice rebilled to match. */
+function withExpenses(data: DemoData, next: Timesheet) {
+  const timesheets = replaceSheets(data, [next])
+  const touched = new Set(next.invoiceId ? [next.invoiceId] : [])
+  return { timesheets, invoices: rebuildLines(data.invoices, timesheets, touched, new Map(data.pros.map((p) => [p.id, p]))) }
+}
+
+/** The venue adds a cost it covers for the shift, like the crew's parking. It bills at cost with the hours, on any timesheet it can still tip on. */
 function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; kind: ExpenseKind; amount: number; note?: string }): Outcome<string> {
   const t = timesheetOf(data, input?.timesheetId)
-  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency bills expenses.")
-  if (!canEditBilled(t)) fail("Withdraw it first. Expenses go for approval with the hours.")
+  if (!ownsBuyer(ctx.ws, t.buyerId)) forbid("Only the venue adds expenses.")
+  if (!canExpense(data, t)) fail(withAgency(t) ? "The agency hasn't sent these hours yet." : "Its invoice is closed, so expenses can't change.")
   const kind = EXPENSE_KINDS.includes(input.kind) ? input.kind : fail("Pick parking, background check or other.")
   const amount = round2(num(input.amount, "The amount", 0.01, EXPENSE_MAX))
   const note = optStr(input.note, 200)
@@ -860,10 +867,10 @@ function addExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: s
     expenses: [...prior, expense],
     history: [...t.history, change(ctx.now, actorName(ctx), "edited", { note: `Added ${EXPENSE_LABEL[kind].toLowerCase()}, ${money(amount)}` })],
   }
-  return done(data, id, { timesheets: replaceSheets(data, [next]) })
+  return done(data, id, withExpenses(data, next))
 }
 
-/** One cost for a whole crew, like the parking an agency paid for everyone on a shift. A timesheet that already has it is left alone. */
+/** One cost for a whole crew, like the parking a venue covers for everyone on a shift. A timesheet that already has it is left alone. */
 function addExpenses(data: DemoData, ctx: CommandContext, input: { timesheetIds: string[]; kind: ExpenseKind; amount: number; note?: string }): Outcome<number> {
   const ids = strList(input?.timesheetIds, "Timesheets", 200)
   const amount = round2(num(input.amount, "The amount", 0.01, EXPENSE_MAX))
@@ -880,15 +887,15 @@ function addExpenses(data: DemoData, ctx: CommandContext, input: { timesheetIds:
 
 function removeExpense(data: DemoData, ctx: CommandContext, input: { timesheetId: string; expenseId: string }): Outcome<null> {
   const t = timesheetOf(data, input?.timesheetId)
-  if (!isSupplier(ctx.ws, t.supplierId)) forbid("Only the agency bills expenses.")
-  if (!canEditBilled(t)) fail("Withdraw it first. Expenses go for approval with the hours.")
+  if (!ownsBuyer(ctx.ws, t.buyerId)) forbid("Only the venue adds expenses.")
+  if (!canExpense(data, t)) fail("Its invoice is closed, so expenses can't change.")
   const e = need(t.expenses?.find((x) => x.id === input.expenseId), "That expense isn't on this timesheet.")
   const next: Timesheet = {
     ...t,
     expenses: t.expenses!.filter((x) => x.id !== e.id),
     history: [...t.history, change(ctx.now, actorName(ctx), "edited", { note: `Removed ${EXPENSE_LABEL[e.kind].toLowerCase()}, ${money(e.amount)}` })],
   }
-  return done(data, null, { timesheets: replaceSheets(data, [next]) })
+  return done(data, null, withExpenses(data, next))
 }
 
 function setTips(data: DemoData, ctx: CommandContext, input: { entries: { timesheetId: string; tips: number }[] }): Outcome<null> {

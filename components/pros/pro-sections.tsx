@@ -1,10 +1,11 @@
 "use client"
 
-import { Briefcase, CheckCircle2, CircleDashed, Clock3, Loader2, Phone, ShieldCheck, Star, UsersRound, XCircle, type LucideIcon } from "lucide-react"
+import { Briefcase, CheckCircle2, CircleDashed, Clock3, Loader2, Phone, ShieldCheck, Star, Upload, UsersRound, XCircle, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { InfoTip, Tip } from "@/components/common/info-tip"
+import { CertUpload } from "@/components/pros/cert-upload"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Stars } from "@/components/pros/pro-status"
 import { Button } from "@/components/ui/button"
@@ -187,6 +188,7 @@ function proofLine(row: RequirementRow) {
   const v = row.item?.verification
   if (!v || v.result !== "verified") return undefined
   if (CHECKS[row.id].attested) return `Attested by ${v.attestedBy} · ${formatDateFull(dateOf(v.at))}`
+  if (v.file && !v.reviewedBy) return `Uploaded, verified with the issuer · ${formatDateFull(dateOf(v.at))}`
   return `${v.reviewedBy ? `Accepted by ${v.reviewedBy}` : "Verified"} · ${formatDateFull(dateOf(v.at))}`
 }
 
@@ -195,6 +197,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
   const reviewDocument = useStore((s) => s.reviewDocument)
   const verifyRequirement = useStore((s) => s.verifyRequirement)
   const [checking, setChecking] = useState<RequirementId>()
+  const [uploading, setUploading] = useState<RequirementId>()
   const [sending, setSending] = useState<RequirementId>()
   const [note, setNote] = useState("")
   const rows = requirementRows(pro).filter((r) => r.state !== "not_required")
@@ -271,6 +274,21 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                       Accept
                     </Button>
                   </span>
+                ) : actionable && CHECKS[row.id].uploaded ? (
+                  uploading === row.id ? null : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 rounded-md text-caption-1"
+                      disabled={!!checking || !!uploading}
+                      onClick={() => setUploading(row.id)}
+                      data-tour="doc-action"
+                      data-doc-state={row.state}
+                      data-doc-id={row.id}
+                    >
+                      <Upload className="size-3" /> Upload
+                    </Button>
+                  )
                 ) : actionable ? (
                   <Button
                     size="sm"
@@ -298,6 +316,7 @@ export function DocumentsSection({ pro, canComplete }: { pro: Pro; canComplete: 
                   </StatusBadge>
                 )}
               </div>
+              {uploading === row.id && <CertUpload pro={pro} requirement={row.id} onClose={() => setUploading(undefined)} />}
               {sending === row.id && (
                 <div className="flex gap-2 pl-7">
                   <input

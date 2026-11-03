@@ -7,8 +7,8 @@ import { groupPhase } from "@/lib/metrics"
 import { hashString } from "@/lib/random"
 import { CITIES, LOCATIONS, POSITIONS, buyer, city, location, locationsFor, position, requirementsFor, supplier } from "@/lib/reference"
 import { notifiedSuppliers, supplierReleasePlan, type Patch } from "@/lib/domain/core"
-import { tipsOpen, withTips } from "@/lib/domain/invoicing"
-import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, change, clockHours, hoursFor, nextExpenseId, overtimeKey, withOvertime } from "@/lib/timesheets"
+import { rebuildLines, tipsOpen, withTips } from "@/lib/domain/invoicing"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canExpense, change, clockHours, hoursFor, nextExpenseId, overtimeKey, withAgency, withOvertime } from "@/lib/timesheets"
 import type {
   BusinessActivity,
   ComplianceItem,
@@ -272,8 +272,8 @@ export const UPLOAD_SPECS: Record<UploadType, UploadSpec> = {
   expenses: {
     type: "expenses",
     label: "Expense",
-    description: "Parking, background checks and other costs paid for a shift. Billed at cost with the hours, before they're submitted.",
-    allowed: ["supplier"],
+    description: "Parking, background checks and other costs the venue covers for a shift. Billed at cost with the hours.",
+    allowed: ["buyer"],
     href: "/timesheets",
     columns: [
       SHIFT_GROUP_COLUMN,
@@ -422,11 +422,11 @@ function tipRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
 
 const PARKING_BY_KIND: Record<string, number> = { Stadium: 25, Arena: 20, Ballpark: 18, "Convention center": 22 }
 
-/** Parking for the agency's unsubmitted shifts at venues that charge for it, and one event-required background check. */
+/** Parking for the venue's worked shifts at venues that charge for it, and one event-required background check. */
 function expenseRows(data: DemoData, ws: Workspace, withIssues: boolean): Row[] {
   const today = todayISO()
   const open = data.timesheets
-    .filter((t) => inWorkspace(ws, t) && canEditBilled(t) && t.clockIn && t.clockOut && !t.expenses?.length && t.date <= today)
+    .filter((t) => inWorkspace(ws, t) && canExpense(data, t) && !t.expenses?.length && t.date <= today)
     .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
   const parked = open.filter((t) => PARKING_BY_KIND[location(t.locationId).kind]).slice(0, 5)
   const checked = open.find((t) => !parked.includes(t))
@@ -978,8 +978,8 @@ function planExpenses(rows: Row[], ctx: Ctx): Planned {
     }
     const ts = g && pro ? ctx.data.timesheets.find((t) => t.groupId === g.id && t.proId === pro.id) : undefined
     if (g && pro && !ts) issues.push(problem(n, "pro_id", `No hours for this worker on ${g.code}`))
-    if (ts && ts.supplierId !== ctx.ws.supplierId) issues.push(problem(n, "pro_id", "Not one of your workers"))
-    else if (ts && !canEditBilled(ts)) issues.push(problem(n, undefined, "Already submitted, so expenses can't change", REMOVE_ROW))
+    if (ts && ts.buyerId !== ctx.ws.buyerId) issues.push(problem(n, "shift_group_id", "Not one of your shifts"))
+    else if (ts && !canExpense(ctx.data, ts)) issues.push(problem(n, undefined, withAgency(ts) ? "The agency hasn't sent these hours yet" : "Already invoiced, so expenses can't change", REMOVE_ROW))
     const amount = parseNumber(row.amount ?? "")
     if (row.amount && (amount === undefined || amount <= 0 || amount > EXPENSE_MAX)) issues.push(problem(n, "amount", `Use an amount up to ${money(EXPENSE_MAX)}`))
     if (ts && kind && amount !== undefined && ts.expenses?.some((e) => e.kind === kind && e.amount === round2(amount))) issues.push(problem(n, undefined, "Already on this timesheet", REMOVE_ROW))
@@ -1000,15 +1000,16 @@ function planExpenses(rows: Row[], ctx: Ctx): Planned {
       ? (data) => {
           const now = new Date().toISOString()
           const by = ctx.ws.user.name
-          return {
-            timesheets: data.timesheets.map((t) => {
-              const add = adds.get(t.id)
-              if (!add || !canEditBilled(t)) return t
-              const expenses = add.map((e, k): Expense => ({ ...e, id: nextExpenseId(t, k), at: now, by }))
-              const note = `Added ${expenses.map((e) => `${EXPENSE_LABEL[e.kind].toLowerCase()}, ${money(e.amount)}`).join("; ")} from a CSV upload`
-              return { ...t, expenses: [...(t.expenses ?? []), ...expenses], history: [...t.history, change(now, by, "edited", { note })] }
-            }),
-          }
+          const touched = new Set<string>()
+          const timesheets = data.timesheets.map((t) => {
+            const add = adds.get(t.id)
+            if (!add || !canExpense(data, t)) return t
+            if (t.invoiceId) touched.add(t.invoiceId)
+            const expenses = add.map((e, k): Expense => ({ ...e, id: nextExpenseId(t, k), at: now, by }))
+            const note = `Added ${expenses.map((e) => `${EXPENSE_LABEL[e.kind].toLowerCase()}, ${money(e.amount)}`).join("; ")} from a CSV upload`
+            return { ...t, expenses: [...(t.expenses ?? []), ...expenses], history: [...t.history, change(now, by, "edited", { note })] }
+          })
+          return { timesheets, invoices: rebuildLines(data.invoices, timesheets, touched, new Map(data.pros.map((p) => [p.id, p]))) }
         }
       : undefined,
   }

@@ -85,28 +85,9 @@ export function useAgent() {
 
       if (ws.kind === "buyer") {
         const data = useStore.getState().data
-        if (asksToTip(text)) {
-          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
-          add({ from: "agent", ...tipsReply(data, ws.buyerId!, text, todayISO(), onScreen) })
-          return
-        }
-        const request = parseHoursApproval(text, data, ws.buyerId!, todayISO())
-        if (request?.ambiguous.length) {
-          const names = request.ambiguous
-          add({ from: "agent", text: `${joinNames(names)} ${names.length === 2 ? "both" : "all"} have timesheets with you. Which one did you mean?` })
-          return
-        }
-        if (request) {
-          add({ from: "agent", ...hoursReply(data, ws.buyerId!, request.scope, todayISO()) })
-          return
-        }
-      }
-
-      if (ws.kind === "supplier" && ws.supplierId) {
-        const data = useStore.getState().data
-        if (asksToExpense(text)) {
-          const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
-          const answer = expenseReply(data, ws.supplierId, text, todayISO(), onScreen)
+        const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
+        if (asksToExpense(text) && !asksToTip(text)) {
+          const answer = expenseReply(data, ws.buyerId!, text, todayISO(), onScreen)
           const plan = answer.actions.find((a) => a.kind === "add-expenses")
           if (!plan || plan.kind !== "add-expenses") {
             add({ from: "agent", ...answer })
@@ -125,6 +106,24 @@ export function useAgent() {
           })()
           return
         }
+        if (asksToTip(text)) {
+          add({ from: "agent", ...tipsReply(data, ws.buyerId!, text, todayISO(), onScreen) })
+          return
+        }
+        const request = parseHoursApproval(text, data, ws.buyerId!, todayISO())
+        if (request?.ambiguous.length) {
+          const names = request.ambiguous
+          add({ from: "agent", text: `${joinNames(names)} ${names.length === 2 ? "both" : "all"} have timesheets with you. Which one did you mean?` })
+          return
+        }
+        if (request) {
+          add({ from: "agent", ...hoursReply(data, ws.buyerId!, request.scope, todayISO()) })
+          return
+        }
+      }
+
+      if (ws.kind === "supplier" && ws.supplierId) {
+        const data = useStore.getState().data
         if (asksToSubmit(text)) {
           add({ from: "agent", ...submitReply(data, ws.supplierId, submitFrom(text, todayISO())) })
           return
@@ -157,7 +156,7 @@ export function useAgent() {
 
       if (lower.includes("template")) {
         const type: UploadType =
-          lower.includes("rate") ? "rates" : lower.includes("professional") ? "professionals" : lower.includes("hour") ? "timesheets" : lower.includes("tip") ? "tips" : lower.includes("expense") && ws.kind === "supplier" ? "expenses" : ws.kind === "compass" ? "activity" : "shifts"
+          lower.includes("rate") ? "rates" : lower.includes("professional") ? "professionals" : lower.includes("hour") ? "timesheets" : lower.includes("tip") ? "tips" : lower.includes("expense") && ws.kind === "buyer" ? "expenses" : ws.kind === "compass" ? "activity" : "shifts"
         add({
           from: "agent",
           text: `Here is the ${UPLOAD_SPECS[type].label.toLowerCase()} template. It contains the exact columns the validator expects.`,

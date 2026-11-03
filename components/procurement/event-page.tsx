@@ -1,7 +1,6 @@
 "use client"
 
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
 import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText, WandSparkles } from "lucide-react"
 import { Fragment, useState } from "react"
 import { toast } from "sonner"
@@ -9,24 +8,22 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
-import { InfoTip, Tip } from "@/components/common/info-tip"
-import { PillTabs } from "@/components/common/pill-tabs"
+import { InfoTip } from "@/components/common/info-tip"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { BenchmarkBar, Change, StageBadge, VsMarket, agencyStatus, moneyYear, termLabel, type Mark } from "@/components/procurement/sourcing-bits"
+import { DollarBar, DollarLegend, cents } from "@/components/procurement/dollar-split"
+import { Change, StageBadge, agencyStatus, moneyYear, termLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, plural, round2 } from "@/lib/format"
-import { POSITIONS, city, position, supplier, termsOf } from "@/lib/reference"
-import { benchmark, vsMarket, type Benchmark } from "@/lib/market"
-import { activeCard, bestOn, bidsOf, counterPlan, irisCounters, latestBid, lineName, lineOf, marketName, marketsOf, markupOf, netOf, offeredTerms, openCounters, responded, rolesOf, spendOf, type CounterOutcome } from "@/lib/sourcing"
+import { city, position, supplier } from "@/lib/reference"
+import { activeCard, counterPlan, dollarSplit, irisCounters, latestBid, lineName, marketName, marketsOf, offeredTerms, openCounters, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
-import type { ContractTerms, SourcingEvent, SourcingLine } from "@/lib/types"
+import type { ContractTerms, SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function EventPage({ id }: { id: string }) {
@@ -70,70 +67,91 @@ export function EventPage({ id }: { id: string }) {
 
 /* --------------------------------- Compass -------------------------------- */
 
-/** What Compass pays for a line today, averaged over its agencies at their share of the hours. */
-const todayOn = (line: SourcingLine) => Object.entries(line.baseline).reduce((sum, [s, rate]) => sum + rate * (line.share[s] ?? 0), 0)
-
-/** Every agency's latest bid on a line, lowest after VA first. */
-const bidsOn = (ev: SourcingEvent, line: SourcingLine) =>
-  ev.invited
-    .flatMap((s) => {
-      const bid = latestBid(ev, s)?.lines[line.id]
-      return bid ? [{ supplierId: s, bid, net: netOf(ev, s, bid.billRate) }] : []
-    })
-    .sort((a, b) => a.net - b.net)
-
-const VA_INFO = "VA is the rebate an agency pays Compass at year end, as a share of spend. Bids rank on what's left after it."
-
-const years = (n: number) => `${n} yr${n === 1 ? "" : "s"}`
+export const termsLine = (t: ContractTerms) => `${t.vaPct}% VA · Net ${t.netDays} · ${t.years} yr${t.years === 1 ? "" : "s"}`
 
 const pct = (n: number) => `${Math.round(n * 10) / 10}%`
 
-/** A term the agency offers, with what it has now beneath when the offer changes it. */
-function TermCell({ value, was, better }: { value: string; was?: string; better?: boolean }) {
+function CompassView({ ev }: { ev: SourcingEvent }) {
   return (
-    <span className="flex flex-col items-end">
-      <span className="font-medium tabular">{value}</span>
-      {was !== undefined && was !== value && <span className={cn("text-caption-1", better ? "text-positive-fg" : "text-faded")}>was {was}</span>}
-    </span>
+    <div className="flex flex-col gap-4">
+      <ValueBoard ev={ev} />
+      <IrisNegotiates ev={ev} />
+    </div>
   )
 }
 
-const termsLine = (t: ContractTerms) => `${t.vaPct}% VA · Net ${t.netDays} · ${years(t.years)}`
-
-/** An agency's latest bid against the market, weighted by its share of each role's hours. */
-function agencyVsMarket(ev: SourcingEvent, supplierId: string) {
-  let bid = 0
-  let market = 0
-  for (const line of ev.lines) {
-    const rate = latestBid(ev, supplierId)?.lines[line.id]?.billRate
-    if (rate === undefined) continue
-    const hours = line.hours * (line.share[supplierId] ?? 1 / Math.max(1, Object.keys(line.share).length))
-    bid += hours * rate
-    market += hours * benchmark(line.cityId, line.positionId).median
-  }
-  return market ? bid / market - 1 : undefined
-}
-
-type Selection = { kind: "role"; lineId: string } | { kind: "agency"; supplierId: string } | null
-
-function CompassView({ ev }: { ev: SourcingEvent }) {
-  const asked = useSearchParams().get("agency")
-  const [open, setOpen] = useState<Selection>(asked && ev.invited.includes(asked) ? { kind: "agency", supplierId: asked } : null)
+/**
+ * Every agency on one line: of each dollar Compass pays it, how much reaches the worker, what the agency keeps, and the
+ * VA that comes back. Most to the worker first, so the best value is the top row.
+ */
+function ValueBoard({ ev }: { ev: SourcingEvent }) {
+  const data = useData()
+  const [query, setQuery] = useState("")
+  const rows = ev.invited
+    .map((s) => ({ s, split: dollarSplit(ev, data.rateCards, s), bid: latestBid(ev, s), status: agencyStatus(ev, s) }))
+    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || b.split.worker - a.split.worker || b.split.back - a.split.back)
+  const bidding = rows.filter((r) => r.bid)
+  const best = bidding.length > 1 ? bidding[0] : undefined
+  const worst = bidding.at(-1)
+  const shown = rows.filter((r) => supplier(r.s).name.toLowerCase().includes(query.trim().toLowerCase()))
   return (
-    <div className="flex flex-col gap-4">
-      <IrisNegotiates ev={ev} />
-      <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
-        <SurfaceHeader title="Agencies up for renewal" info="Ranked on price against the market, after VA, so agencies in different markets compare fairly. Open one for its whole rate card." />
-        <AgencyTable ev={ev} onOpen={(supplierId) => setOpen({ kind: "agency", supplierId })} />
-      </Surface>
-      <RateCards ev={ev} onOpen={(lineId) => setOpen({ kind: "role", lineId })} />
-      <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <SheetContent side="right" onOpenAutoFocus={(e) => e.preventDefault()} className="gap-0 overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
-          {open?.kind === "role" && <RoleSheet ev={ev} line={lineOf(ev, open.lineId)} />}
-          {open?.kind === "agency" && <AgencySheet ev={ev} supplierId={open.supplierId} />}
-        </SheetContent>
-      </Sheet>
-    </div>
+    <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
+      <SurfaceHeader
+        title="Who pays workers the most"
+        description="Of every $1 you pay each agency"
+        actions={
+          <span className="flex items-center gap-4">
+            <DollarLegend />
+            {ev.invited.length > 8 && <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-52" />}
+          </span>
+        }
+      />
+      <ol className="flex flex-col pt-3">
+        {shown.map(({ s, split, bid, status }) => (
+          <li key={s} className="border-t border-border/70">
+            <Link
+              href={`/procurement/${ev.id}/${s}`}
+              data-supplier={s}
+              className="group grid grid-cols-[minmax(200px,1fr)_minmax(220px,1.6fr)_88px_112px_16px] items-center gap-6 px-5 py-4 transition-colors hover:bg-hover/50"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <SupplierLogo supplierId={s} size="md" />
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate text-body-2 font-semibold">{supplier(s).name}</span>
+                    {s === best?.s && (
+                      <StatusBadge tone="positive" size="sm">
+                        Best value
+                      </StatusBadge>
+                    )}
+                  </span>
+                  <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
+                    {bid ? status.label : "No bid yet, today's rates"}
+                  </span>
+                </span>
+              </span>
+              <DollarBar split={split} />
+              <span className="flex flex-col items-end">
+                <span className="text-featured-3 leading-tight font-semibold tabular text-positive-fg">{cents(split.worker)}</span>
+                <span className="text-caption-1 text-faded">to the worker</span>
+              </span>
+              <span className="flex flex-col items-end text-caption-1 tabular">
+                <span className="font-medium">{pct(split.markup)} markup</span>
+                <span className="text-faded">{cents(split.back)} back to you</span>
+              </span>
+              <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+            </Link>
+          </li>
+        ))}
+      </ol>
+      {best && worst && best.s !== worst.s && (
+        <p className="border-t border-border/70 bg-page-faded/60 px-5 py-3 text-body-3">
+          <span className="font-semibold">{supplier(best.s).shortName}</span> gets {cents(best.split.worker - worst.split.worker)} more of every dollar to the worker than{" "}
+          {supplier(worst.s).shortName}
+          {best.split.back > worst.split.back ? `, and gives you ${cents(best.split.back - worst.split.back)} more back` : ""}.
+        </p>
+      )}
+    </Surface>
   )
 }
 
@@ -148,7 +166,7 @@ const SHOWN = 5
 
 /**
  * Iris negotiates the whole event at once: it counters every bid above the market, then shows each agency's answer as
- * it comes in. Countering role by role, agency by agency, is still there in each role's sheet for the exceptions.
+ * it comes in. Countering one agency by hand is on that agency's page.
  */
 function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
   const negotiate = useStore((s) => s.negotiateBids)
@@ -235,467 +253,6 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
         )}
       </div>
     </Surface>
-  )
-}
-
-const th = "px-3 pb-2.5 font-medium whitespace-nowrap"
-
-/**
- * Every role in every market on the renewal, as one grid. Coverage shows how many agencies carry each one and the best
- * bid, so gaps and single-agency roles stand out. Each agency's tab is its rate card: its bid where it carries the role,
- * and "Not covered" where it doesn't.
- */
-function RateCards({ ev, onOpen }: { ev: SourcingEvent; onOpen: (lineId: string) => void }) {
-  const [tab, setTab] = useState("all")
-  const agency = tab === "all" ? undefined : tab
-  const roles = POSITIONS.filter((p) => ev.lines.some((l) => l.positionId === p.id)).map((p) => p.id)
-  const lineAt = (cityId: string, positionId: string) => ev.lines.find((l) => l.cityId === cityId && l.positionId === positionId)
-  const carries = (cityId: string, positionId: string, s: string) => lineAt(cityId, positionId)?.baseline[s] !== undefined
-  const carriers = (cityId: string, positionId: string) => ev.invited.filter((s) => carries(cityId, positionId, s))
-  const cells = ev.cityIds.flatMap((c) => roles.map((p) => carriers(c, p).length))
-  const gaps = cells.filter((n) => n === 0).length
-  const single = cells.filter((n) => n === 1).length
-  const coveredIn = (cityId: string) => roles.filter((p) => (agency ? carries(cityId, p, agency) : carriers(cityId, p).length > 0)).length
-  return (
-    <Surface elevated className="overflow-hidden" data-tour="rate-cards">
-      <SurfaceHeader
-        title="Rate cards"
-        info="Each role in each market. Coverage shows who carries it and the best bid. Pick an agency to see its own rate card."
-        actions={<PillTabs size="sm" value={tab} onChange={setTab} items={[{ value: "all", label: "Coverage" }, ...ev.invited.map((s) => ({ value: s, label: supplier(s).shortName }))]} />}
-      />
-      <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
-        <table className="w-full min-w-[720px] table-fixed text-body-3">
-          <thead>
-            <tr className="text-caption-1 text-faded">
-              <th className={cn(th, "w-[28%] text-left")}>Role</th>
-              {ev.cityIds.map((c) => (
-                <th key={c} className={cn(th, "text-left")}>
-                  <span className="flex flex-col">
-                    <span className="text-body-3 font-semibold text-foreground">{city(c).name}</span>
-                    <span>{coveredIn(c) ? `${coveredIn(c)} of ${plural(roles.length, "role")}` : "Not in this market"}</span>
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((p) => (
-              <tr key={p} className="border-t border-border/70">
-                <td className="px-3 py-2 font-medium">{position(p).name}</td>
-                {ev.cityIds.map((c) => {
-                  const line = lineAt(c, p)
-                  return (
-                    <td key={c} className="px-1 py-1">
-                      {agency ? <AgencyCell ev={ev} line={line} supplierId={agency} onOpen={onOpen} /> : <CoverageCell ev={ev} line={line} who={carriers(c, p)} onOpen={onOpen} />}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border/70 px-5 py-3 text-caption-1 text-faded">
-        {agency ? (
-          <span>
-            {supplier(agency).shortName} covers {plural(rolesOf(ev, agency).length, "role")} in {listOf(marketsOf(ev, agency).map((c) => city(c).name))}
-            {ev.cityIds.some((c) => !marketsOf(ev, agency).includes(c)) ? `, not ${listOf(ev.cityIds.filter((c) => !marketsOf(ev, agency).includes(c)).map((c) => city(c).name))}` : ""}. Rates are its latest bid.
-          </span>
-        ) : (
-          <>
-            <span className={cn(gaps && "font-medium text-warning-fg")}>{gaps ? `${plural(gaps, "gap")}: no agency carries the role there` : "Every role is covered in every market"}</span>
-            {single > 0 && <span>{plural(single, "role")} with only one agency</span>}
-          </>
-        )}
-      </p>
-    </Surface>
-  )
-}
-
-const cellClass = "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover/70"
-
-function CoverageCell({ ev, line, who, onOpen }: { ev: SourcingEvent; line?: SourcingLine; who: string[]; onOpen: (lineId: string) => void }) {
-  if (!line || !who.length)
-    return (
-      <span className="flex px-2.5 py-1.5">
-        <StatusBadge tone="warning" size="sm">
-          No agency
-        </StatusBadge>
-      </span>
-    )
-  const best = bidsOn(ev, line)[0]
-  return (
-    <button type="button" className={cellClass} onClick={() => onOpen(line.id)} aria-label={`${lineName(ev, line.id)}: ${plural(who.length, "agency", "agencies")}`}>
-      {who.length === 1 ? (
-        <StatusBadge tone="warning" size="sm">
-          Only {supplier(who[0]).shortName}
-        </StatusBadge>
-      ) : (
-        <span className="text-caption-1 text-faded">{plural(who.length, "agency", "agencies")}</span>
-      )}
-      <span className="flex flex-col items-end">
-        <span className="font-semibold tabular">{best ? money(best.bid.billRate) : "—"}</span>
-        <span className="text-caption-2 text-faded">{best ? `best, ${supplier(best.supplierId).shortName}` : "no bids yet"}</span>
-      </span>
-    </button>
-  )
-}
-
-function AgencyCell({ ev, line, supplierId, onOpen }: { ev: SourcingEvent; line?: SourcingLine; supplierId: string; onOpen: (lineId: string) => void }) {
-  if (!line || line.baseline[supplierId] === undefined) return <span className="flex px-2.5 py-1.5 text-caption-1 text-subtle">Not covered</span>
-  const bid = latestBid(ev, supplierId)?.lines[line.id]
-  const b = benchmark(line.cityId, line.positionId)
-  return (
-    <button type="button" className={cellClass} onClick={() => onOpen(line.id)} aria-label={`${supplier(supplierId).shortName}, ${lineName(ev, line.id)}`}>
-      <span className="font-semibold tabular">{money(bid?.billRate ?? line.baseline[supplierId])}</span>
-      <span className="text-caption-1 font-medium">{bid ? <VsMarket value={vsMarket(bid.billRate, b)} /> : <span className="text-faded">today, no bid</span>}</span>
-    </button>
-  )
-}
-
-/** One row per agency up for renewal: where it bids, what it bids on, and its markup as well as its rates. */
-function AgencyTable({ ev, onOpen }: { ev: SourcingEvent; onOpen: (supplierId: string) => void }) {
-  const data = useData()
-  const [query, setQuery] = useState("")
-  const rows = ev.invited
-    .filter((s) => supplier(s).name.toLowerCase().includes(query.trim().toLowerCase()))
-    .map((s) => ({ s, spend: spendOf(ev, s), bid: latestBid(ev, s), status: agencyStatus(ev, s), vs: agencyVsMarket(ev, s) }))
-    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || (a.vs ?? 0) - (b.vs ?? 0))
-  const leader = rows.filter((r) => r.bid).length > 1 ? rows[0]?.s : undefined
-  return (
-    <>
-      {ev.invited.length > 8 && (
-        <div className="px-5 pt-3">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-64" />
-        </div>
-      )}
-      <div className="overflow-x-auto px-2 pt-3 pb-2 scrollbar-thin">
-        <table className="w-full min-w-[720px] text-body-3">
-          <thead>
-            <tr className="text-caption-1 text-faded">
-              <th className={cn(th, "text-left")}>Agency</th>
-              <th className={cn(th, "text-right")}>Markets</th>
-              <th className={cn(th, "text-right")}>Roles</th>
-              <th className={cn(th, "text-right")}>
-                <span className="inline-flex items-center gap-1">
-                  Markup
-                  <InfoTip>What the agency adds on top of pay, across its roles, weighted by hours.</InfoTip>
-                </span>
-              </th>
-              <th className={cn(th, "text-right")}>
-                <span className="inline-flex items-center gap-1">
-                  VA
-                  <InfoTip>{VA_INFO}</InfoTip>
-                </span>
-              </th>
-              <th className={cn(th, "text-right")}>
-                <span className="inline-flex items-center gap-1">
-                  A year
-                  <InfoTip>At today&apos;s share of the hours, after VA.</InfoTip>
-                </span>
-              </th>
-              <th className={cn(th, "text-right")}>vs today</th>
-              <th className={cn(th, "text-right")}>vs market</th>
-              <th className="w-6" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ s, spend, bid, status }) => {
-              const now = termsOf(s)
-              const offer = offeredTerms(ev, s)
-              const markets = marketsOf(ev, s)
-              const markup = markupOf(ev, data.rateCards, s)
-              return (
-              <tr key={s} data-supplier={s} onClick={() => onOpen(s)} className="group cursor-pointer border-t border-border/70 transition-colors hover:bg-hover/60">
-                <td className="px-3 py-2.5">
-                  <span className="flex items-center gap-2.5">
-                    <SupplierLogo supplierId={s} size="sm" />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate font-medium">{supplier(s).name}</span>
-                        {s === leader && (
-                          <StatusBadge tone="positive" size="sm">
-                            Best value
-                          </StatusBadge>
-                        )}
-                      </span>
-                      <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
-                        {status.label === "Invited" ? "No bid yet" : status.label}
-                      </span>
-                    </span>
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <Tip content={markets.map((c) => city(c).name).join(", ")}>
-                    <span className="cursor-default font-medium tabular">{markets.length}</span>
-                  </Tip>
-                </td>
-                <td className="px-3 py-2.5 text-right font-medium tabular">{rolesOf(ev, s).length}</td>
-                <td className="px-3 py-2.5 text-right">
-                  {markup.bidding ? <TermCell value={pct(markup.bid)} was={pct(markup.today)} better={markup.bid < markup.today} /> : <span className="text-faded">{pct(markup.today)}</span>}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <TermCell value={`${offer.vaPct}%`} was={`${now.vaPct}%`} better={offer.vaPct > now.vaPct} />
-                </td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular">{bid ? moneyYear(spend.proposed) : "—"}</td>
-                <td className="px-3 py-2.5 text-right">{bid ? <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> : <span className="text-faded">—</span>}</td>
-                <td className="px-3 py-2.5 text-right text-caption-1 font-medium">
-                  <VsMarket value={bid ? agencyVsMarket(ev, s) : undefined} />
-                </td>
-                <td className="pr-3">
-                  <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
-                </td>
-              </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
-  )
-}
-
-/** A role's market benchmark up top, then every bid on it, lowest first, each one counterable. */
-function RoleSheet({ ev, line }: { ev: SourcingEvent; line: SourcingLine }) {
-  const b = benchmark(line.cityId, line.positionId)
-  const bids = bidsOn(ev, line)
-  const today = todayOn(line)
-  const waiting = ev.invited.filter((s) => line.baseline[s] !== undefined && !latestBid(ev, s)?.lines[line.id])
-  return (
-    <>
-      <SheetHeader className="gap-1 border-b border-border px-6 pt-6 pb-5">
-        <SheetTitle className="text-featured-3 font-semibold">{position(line.positionId).name}</SheetTitle>
-        <SheetDescription className="text-body-3 text-faded">
-          {city(line.cityId).name} · {line.hours.toLocaleString("en-US")} hours a year
-        </SheetDescription>
-      </SheetHeader>
-      <MarketBlock b={b} today={today} marks={[...bids.slice(1).map((x) => ({ value: x.bid.billRate, kind: "bid" as const })), ...(today ? [{ value: today, kind: "today" as const }] : []), ...(bids[0] ? [{ value: bids[0].bid.billRate, kind: "best" as const }] : [])]} cityId={line.cityId} />
-      <section className="flex flex-col gap-1 px-6 py-5">
-        <h3 className="flex items-center gap-1 pb-2 text-body-3 font-semibold">
-          Bids, lowest after VA first
-          <InfoTip>{VA_INFO}</InfoTip>
-        </h3>
-        {bids.length ? (
-          <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
-            {bids.map((x, i) => (
-              <BidRow key={x.supplierId} ev={ev} line={line} supplierId={x.supplierId} market={b} lead={<SupplierLogo supplierId={x.supplierId} size="md" />} title={supplier(x.supplierId).name} best={i === 0 && bids.length > 1} />
-            ))}
-          </ol>
-        ) : (
-          <p className="text-body-3 text-faded">No bids on this role yet.</p>
-        )}
-        {waiting.length > 0 && (
-          <p className="pt-3 text-caption-1 text-faded">
-            No bid yet from {listOf(waiting.map((s) => supplier(s).shortName))}.
-          </p>
-        )}
-      </section>
-    </>
-  )
-}
-
-/** One agency's whole rate card for the renewal, market by market, each role against that market. */
-function AgencySheet({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
-  const data = useData()
-  const bid = latestBid(ev, supplierId)
-  const spend = spendOf(ev, supplierId)
-  const status = agencyStatus(ev, supplierId)
-  const lines = ev.lines.filter((l) => bid?.lines[l.id])
-  const markets = marketsOf(ev, supplierId)
-  const markup = markupOf(ev, data.rateCards, supplierId)
-  return (
-    <>
-      <SheetHeader className="flex-row items-center gap-3 border-b border-border px-6 pt-6 pb-5">
-        <SupplierLogo supplierId={supplierId} size="lg" />
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <SheetTitle className="truncate text-featured-3 font-semibold">{supplier(supplierId).name}</SheetTitle>
-          <SheetDescription className="text-body-3 text-faded">
-            {status.label === "Approved" ? "Approved" : status.label === "Countered" ? "Countered" : bid ? `Round ${bid.round}` : "Hasn't bid yet"}
-            {bid ? ` · sent ${formatTimestamp(bid.at)}` : ""}
-            <span className="block">{termsLine(offeredTerms(ev, supplierId))}</span>
-          </SheetDescription>
-        </span>
-      </SheetHeader>
-      {bid && (
-        <dl className="grid grid-cols-3 border-b border-border text-body-3 [&>div:nth-child(-n+3)]:border-b [&>div:not(:nth-child(3n+1))]:border-l [&>div]:border-border">
-          {[
-            { label: "Markets", value: markets.length },
-            { label: "Roles", value: rolesOf(ev, supplierId).length },
-            { label: "Markup", value: <span>{pct(markup.bid)} <span className="text-caption-1 font-normal text-faded">was {pct(markup.today)}</span></span> },
-            { label: "A year, after VA", value: moneyYear(spend.proposed) },
-            { label: "vs today", value: <Change value={spend.baseline ? spend.proposed / spend.baseline - 1 : undefined} /> },
-            { label: "vs market", value: <VsMarket value={agencyVsMarket(ev, supplierId)} /> },
-          ].map((c) => (
-            <div key={c.label} className="flex flex-col gap-0.5 px-6 py-4">
-              <dt className="text-caption-1 text-faded">{c.label}</dt>
-              <dd className="text-body-2 font-semibold tabular">{c.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      <section className="flex flex-col gap-5 px-6 py-5">
-        {lines.length ? (
-          markets.map((c) => (
-            <div key={c} className="flex flex-col gap-2">
-              <h3 className="flex items-baseline justify-between gap-2 text-body-3 font-semibold">
-                {city(c).name}, {city(c).state}
-                <span className="text-caption-1 font-normal text-faded">{plural(lines.filter((l) => l.cityId === c).length, "role")}</span>
-              </h3>
-              <ol className="flex flex-col divide-y divide-border/70 rounded-xl border border-border">
-                {lines
-                  .filter((l) => l.cityId === c)
-                  .map((l) => (
-                    <BidRow key={l.id} ev={ev} line={l} supplierId={supplierId} market={benchmark(l.cityId, l.positionId)} title={position(l.positionId).name} best={bestOn(ev, l.id)?.supplierId === supplierId && responded(ev).length > 1} />
-                  ))}
-              </ol>
-            </div>
-          ))
-        ) : (
-          <p className="text-body-3 text-faded">Nothing to compare until {supplier(supplierId).shortName} bids.</p>
-        )}
-      </section>
-    </>
-  )
-}
-
-function MarketBlock({ b, today, marks, cityId }: { b: Benchmark; today?: number; marks: Mark[]; cityId: string }) {
-  const stats = [
-    { label: "Market median", value: money(b.median), sub: `${b.agencies} ${city(cityId).name} agencies` },
-    { label: "Middle half", value: `${money(b.p25)}–${money(b.p75)}` },
-    { label: "You pay today", value: today ? money(today) : "—", sub: today ? <VsMarket value={vsMarket(today, b)} /> : undefined },
-  ]
-  return (
-    <section className="flex flex-col gap-4 border-b border-border bg-page-faded/50 px-6 py-5">
-      <dl className="grid grid-cols-3 gap-4">
-        {stats.map((s) => (
-          <div key={s.label} className="flex flex-col gap-0.5">
-            <dt className="text-caption-1 text-faded">{s.label}</dt>
-            <dd className="text-body-2 font-semibold tabular">{s.value}</dd>
-            {s.sub && <dd className="text-caption-1 text-faded">{s.sub}</dd>}
-          </div>
-        ))}
-      </dl>
-      <div className="flex flex-col gap-1.5">
-        <BenchmarkBar b={b} marks={marks} className="h-5" />
-        <span className="flex justify-between text-caption-2 text-faded tabular">
-          <span>{money(b.low)}</span>
-          <span>{money(b.high)}</span>
-        </span>
-      </div>
-    </section>
-  )
-}
-
-/** One bid on one role, with its history a click away and a counter right in the row. */
-function BidRow({
-  ev,
-  line,
-  supplierId,
-  market,
-  lead,
-  title,
-  best,
-}: {
-  ev: SourcingEvent
-  line: SourcingLine
-  supplierId: string
-  market: Benchmark
-  lead?: React.ReactNode
-  title: string
-  best: boolean
-}) {
-  const counter = useStore((s) => s.counterBid)
-  const bid = latestBid(ev, supplierId)!.lines[line.id]
-  const asked = openCounters(ev, supplierId).find((m) => m.lineId === line.id)
-  const field = bestOn(ev, line.id)
-  const va = offeredTerms(ev, supplierId).vaPct
-  const net = netOf(ev, supplierId, bid.billRate)
-  const locked = !!ev.approved[supplierId] || ev.status === "awarded"
-  const first = bidsOf(ev, supplierId).find((b) => b.lines[line.id])?.lines[line.id]
-  const [ask, setAsk] = useState<string | null>(null)
-  const askN = Number(ask)
-  const valid = askN > 0 && askN < bid.billRate
-  const tie = field && field.supplierId !== supplierId && field.net < net ? round2(field.net / (1 - va / 100)) : undefined
-  const suggest = () => round2(tie && tie < bid.billRate ? tie : Math.min(bid.billRate * 0.97, market.median))
-  const send = () =>
-    void counter(ev.id, supplierId, line.id, askN).then((ok) => {
-      if (!ok) return
-      setAsk(null)
-      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `${position(line.positionId).name} at ${money(askN)}/hr` })
-    })
-  return (
-    <li className="flex flex-col" data-tour="bid-row" data-supplier={supplierId} data-position={line.positionId}>
-      <div className="flex items-center gap-3 px-4 py-3">
-        {lead}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-2">
-            <span className="truncate font-medium">{title}</span>
-            {best && (
-              <Tip content="Lowest after VA">
-                <span>
-                  <StatusBadge tone="positive" size="sm">
-                    Best
-                  </StatusBadge>
-                </span>
-              </Tip>
-            )}
-          </span>
-          <Tip content={`Pay ${money(bid.proRate)} + ${bid.markupPct}% markup · ${va}% VA${first && first.billRate !== bid.billRate ? ` · first bid ${money(first.billRate)}` : ""}`}>
-            <span className="w-fit cursor-default text-caption-1 text-faded">{bid.markupPct}% markup</span>
-          </Tip>
-        </span>
-        <span className="flex flex-col items-end">
-          <span className="font-semibold tabular">{money(bid.billRate)}</span>
-          <Tip content={`${money(bid.billRate)} less ${va}% VA`}>
-            <span className="text-caption-1 text-faded tabular">{money(net)} after VA</span>
-          </Tip>
-        </span>
-        <span className="flex w-[84px] shrink-0 justify-end">
-          {locked ? (
-            <span className="flex items-center gap-1 text-caption-1 font-medium text-positive-fg">
-              <CircleCheck className="size-3.5" /> Approved
-            </span>
-          ) : asked ? (
-            <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
-              <span className="text-right text-caption-1 font-medium text-warning-fg">Asked {money(asked.ask!)}</span>
-            </Tip>
-          ) : ask === null ? (
-            <Button variant="outline" size="sm" data-tour="counter" onClick={() => setAsk(suggest().toFixed(2))}>
-              Counter
-            </Button>
-          ) : null}
-        </span>
-      </div>
-      {ask !== null && !asked && !locked && (
-        <form
-          className="flex items-center gap-2 border-t border-border/70 bg-page-faded/60 px-4 py-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (valid) send()
-          }}
-        >
-          <span className="text-caption-1 font-medium text-faded">Counter at</span>
-          <span className="relative w-28">
-            <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">$</span>
-            <input
-              inputMode="decimal"
-              aria-label="Counter at"
-              value={ask}
-              autoFocus
-              onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
-              className="h-8 w-full rounded-lg border border-input bg-card pr-2 pl-6 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-            />
-          </span>
-          <span className="flex-1 truncate text-caption-1 text-faded">Market {money(market.median)}</span>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setAsk(null)}>
-            Cancel
-          </Button>
-          <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
-            Send
-          </Button>
-        </form>
-      )}
-    </li>
   )
 }
 

@@ -96,7 +96,7 @@ App: https://cruber-demo.replit.app (no passcode)
 2. The agency side, as Devon (Crewline): open an upcoming Levy bartender shift that still has open spots, such as one at West Loop Arena, and click **Assign Pros**. Iris lists who can work and, for everyone else, why not: Aaliyah Alvarez, Crewline's top-rated Chicago bartender, shows "Alcohol server cert expired"; another Pro shows "Booked elsewhere that day". The same check runs whoever assigns: the agency, the buyer, an upload, or Iris filling it.
 3. Attest and verify, as Luis (Metro): the Dashboard to-do for missing or expired documents opens Not compliant. Open a worker with an expired work authorization; their **Documents** tab opens.
    - Click **Attest**. The row turns green in place and reads "Attested by Luis Ortega".
-   - On a worker with an expired food handler or alcohol card, click **Verify**. Nothing to upload: the row turns green and reads "Verified".
+   - On a worker with an expired food handler or alcohol card, click **Upload** and drop the photo of the new card ("Do it for me" drops one). Iris reads the number and expiry, checks it with the issuer, and the row turns green.
 4. Continuity, if there's time: as Alex (Northwind), add the background checks for the two Pros Iris held at onboarding.
 5. Live check-in (needs a phone): user menu, **Demo controls**, **Start a live shift**. Open the link on a phone and clock out. Iris turns the punch into a timesheet on Levy's Timesheets, with Iris check-in as the clock. That's the bridge to block 4.
 
@@ -120,7 +120,7 @@ App: https://cruber-demo.replit.app (no passcode)
 7. The chat: "Approve yesterday's hours". Iris approves what matches and holds back what it flagged, naming each one.
 8. As Renee (Harbor): Timesheets, under **Done**, shows Jordan's correction and why.
 9. If invoices come up: approved hours go on the agency's open invoice for the week. Compass can send back hours billed above the clock for a credit, on Invoices, starting with INV-20453. Each agency's invoices are due on its own payment terms. Every month rolls into one consolidated invoice for all of Compass: **Invoices**, **All**, open October to break it down by super sector, sector, regional business and cost center. **Download CSV** carries the same columns.
-9. If contracts come up: **Procurement**, **Contracts** lists each agency's spend, VA rebate, payment terms and contract length, with what's offered in the open renewal underneath. In the Chicago renewal, bids rank after VA. Instawork's VA is 12%, the same as Crewline's, so the lower rate wins each role: Crewline's $27.18 on Bartender, Instawork's $23.54 on Concessions Attendant.
+9. If rates come up: **Procurement**, open the renewal. **Who pays workers the most** puts every agency on one line: of each $1 Compass pays it, what reaches the worker, what the agency keeps, and the VA that comes back. Instawork is the top row, about 77¢ to the worker and 12¢ back; Harbor is last, about 71¢ and 5¢. Click an agency for its full rate card, a market at a time, with **Counter** on every role.
 
 **Say:** Fieldglass shows what the agency submitted. Iris shows it next to what actually happened, says what's wrong, and proposes the fix.
 
