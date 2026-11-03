@@ -188,7 +188,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const saveExpense = () =>
     run(async () => {
       if (!(await addExpense(t.id, expense.kind, expenseAmount, note.trim() || undefined))) return
-      toast.success(`${EXPENSE_LABEL[expense.kind]} added`, { description: `${money(expenseAmount)}, billed at cost. The buyer approves it with the hours.` })
+      toast.success(`${EXPENSE_LABEL[expense.kind]} added`, { description: `${money(expenseAmount)} at cost` })
       setExpense({ kind: "parking", amount: "" })
       setMode("idle")
     })
@@ -491,7 +491,6 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
               </span>
             </div>
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={EXPENSE_HINT[expense.kind]} className="min-h-14 rounded-lg bg-background text-body-3" />
-            <span className="text-caption-1 text-faded">Billed at cost, with no markup. The buyer approves it with the hours.</span>
             <div className="flex gap-2">
               <Button
                 className="h-9 rounded-lg"

@@ -14,7 +14,7 @@ import { UPLOAD_SPECS, downloadCsv, planImport, specsFor, templateCsv, templateN
 import { formatClockShort, formatDay, formatTimestamp, paidHours, todayISO } from "@/lib/dates"
 import { previewOrder } from "@/lib/domain/order"
 import { money, round2 } from "@/lib/format"
-import { PROGRAM, approversFor, buyer as buyerOf, departmentOf, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
+import { PROGRAM, approversFor, departmentOf, location, locationsFor, policyFor, position, supplier } from "@/lib/reference"
 import { detectUploadType, isSpreadsheetFile, spreadsheetToCsv } from "@/lib/spreadsheet"
 import { EXPENSE_LABEL } from "@/lib/timesheets"
 import { joinNames, notifiedSuppliers, pickedOffer, useStore, type BookingInput } from "@/lib/store"
@@ -290,10 +290,9 @@ export function useAgent() {
           const n = await useStore.getState().addExpenses(action.ids, action.expense, action.amount, action.note)
           if (!n) return
           if (messageId) dropActions(ws.id, messageId)
-          const buyers = [...new Set(useStore.getState().data.timesheets.filter((t) => action.ids.includes(t.id)).map((t) => t.buyerId))]
           add({
             from: "agent",
-            text: `Added ${money(action.amount)} ${EXPENSE_LABEL[action.expense].toLowerCase()} to ${n} timesheet${n === 1 ? "" : "s"}. ${buyers.length === 1 ? buyerOf(buyers[0]).name : "The buyer"} approves it with the hours.`,
+            text: `Added ${money(action.amount)} ${EXPENSE_LABEL[action.expense].toLowerCase()} to ${n} timesheet${n === 1 ? "" : "s"}.`,
             actions: [{ label: "Open timesheets", kind: "link", href: "/timesheets" }],
           })
         } finally {
@@ -308,10 +307,9 @@ export function useAgent() {
         try {
           if (!(await useStore.getState().setTips(action.entries))) return
           if (messageId) dropActions(ws.id, messageId)
-          const group = useStore.getState().data.groups.find((g) => g.id === action.groupId)
           add({
             from: "agent",
-            text: `Added ${money(action.total)} in tips for ${action.entries.length} worker${action.entries.length === 1 ? "" : "s"}${group ? ` on ${position(group.positionId).name}, ${location(group.locationId).name}` : ""}. They go to the workers as entered, with no markup.`,
+            text: `Added ${money(action.total)} in tips for ${action.entries.length} worker${action.entries.length === 1 ? "" : "s"}.`,
           })
         } finally {
           approving.current.delete(key)

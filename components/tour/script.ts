@@ -564,7 +564,7 @@ const crewHref = (ctx: TourContext) => {
 const crewAsk = () => "Add a $20 parking expense to everyone who worked this shift"
 const crewButton = () => last('[data-tour="agent-add-expenses"]')
 /** Iris's confirmation once the crew's expense is on their timesheets. */
-const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.split(". ")[0]
+const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.replace(/\.$/, "")
 
 /** Last night's Levy bar shifts the agencies sent, with every hour matching the clock: the crew the tips are for. */
 const tipShifts = (data: DemoData) =>
@@ -589,7 +589,7 @@ const tipsAsk = (ctx: TourContext) => {
   return `Split $600 in tips by hours for ${night} ${position(g.positionId).name.toLowerCase()}s at ${location(g.locationId).name}`
 }
 const tipsButton = () => last('[data-tour="agent-set-tips"]')
-const tipsAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$[\d,.]+ in tips/.test(m.text))?.text.split(" on ")[0]
+const tipsAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$[\d,.]+ in tips/.test(m.text))?.text.replace(/\.$/, "")
 const approveHours = () => last('[data-tour="agent-approve-timesheets"]')
 /** Iris has laid out the week's hours, or the player is already past them. */
 const hoursPlan = (ctx: TourContext) => offers(ctx, "approve-timesheets") || offers(ctx, "accept-proposal") || correctedSince(ctx) || hoursApproved(ctx) > 0
@@ -1125,7 +1125,6 @@ export const SCRIPT: TourItem[] = [
     href: crewHref,
     startsChat: true,
     title: () => (crewButton() ? "Only what Harbor can still bill" : "Or the whole crew, in a sentence"),
-    body: () => (crewButton() ? "Already submitted timesheets stay as they are." : undefined),
     action: () => {
       const add = crewButton()
       if (add) return `Click ${add.textContent?.trim()}`

@@ -1,6 +1,6 @@
 import { addDaysISO, formatDay } from "@/lib/dates"
 import { joinNames } from "@/lib/domain/core"
-import { money, plural, round2 } from "@/lib/format"
+import { money, round2 } from "@/lib/format"
 import { LOCATIONS, POSITIONS, location, position } from "@/lib/reference"
 import { shareTips, tippable } from "@/lib/timesheets"
 import type { DemoData } from "@/lib/types"
@@ -70,10 +70,7 @@ export function tipsReply(data: DemoData, buyerId: string, text: string, today: 
   const list = shown.length > LISTED + 1 ? `${shown.slice(0, LISTED).join(", ")} and ${shown.length - LISTED} more` : joinNames(shown)
   const had = round2(sheets.reduce((s, t) => s + t.tips, 0))
   return {
-    text: [
-      `${each ? `${money(amount)} each for the ${plural(sheets.length, "worker")}` : `${money(amount)} split by hours across the ${plural(sheets.length, "worker")}`} on ${where}: ${list}.`,
-      `${had ? `It replaces the ${money(had)} entered before. ` : ""}Paid through with no markup. Nothing is saved until you click.`,
-    ].join("\n\n"),
+    text: [`${money(amount)} ${each ? "each" : "split by hours"} on ${where}: ${list}.`, had ? `It replaces the ${money(had)} entered before.` : ""].filter(Boolean).join("\n\n"),
     actions: [{ label: `Add ${money(total)} in tips`, kind: "set-tips", entries, total, groupId: group.id }],
   }
 }

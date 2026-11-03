@@ -135,9 +135,11 @@ export function expenseReply(data: DemoData, supplierId: string, text: string, t
   const shown = names.length > LISTED + 1 ? `${names.slice(0, LISTED).join(", ")} and ${names.length - LISTED} more` : joinNames(names)
   return {
     text: [
-      `${money(amount)} ${label} for each of the ${plural(adds.length, "worker")} on ${where}: ${shown}. ${money(round2(amount * adds.length))} at cost, approved with their hours.`,
-      `${sent ? `${plural(sent, "timesheet")} already submitted ${sent === 1 ? "stays" : "stay"} as ${sent === 1 ? "it is" : "they are"}. ` : ""}Nothing is added until you click.`,
-    ].join("\n\n"),
+      `${money(amount)} ${label} each for ${shown} on ${where}. ${money(round2(amount * adds.length))} at cost.`,
+      sent ? `${plural(sent, "timesheet")} already submitted ${sent === 1 ? "stays" : "stay"} as ${sent === 1 ? "it is" : "they are"}.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     actions: [{ label: `Add ${money(amount)} to ${plural(adds.length, "timesheet")}`, kind: "add-expenses", ids: adds.map((t) => t.id), expense: kind, amount, ...(note ? { note } : {}) }],
   }
 }
