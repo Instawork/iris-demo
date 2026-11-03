@@ -568,6 +568,10 @@ export function generateDemoData(today = todayISO()): DemoData {
 
   plantStoryGroups(groups, today)
   plantHoursStory(r, counters, groups, timesheets, pros, rateCards, today, nowISO)
+  // Last night's game, with no tips entered yet: the shift the tour adds tips to, whatever day the demo runs.
+  plantCleanShift(counters, groups, timesheets, pros, rateCards, nowISO, { locationId: "loc-nsb", positionId: "bartender", date: addDaysISO(today, -1), size: 4, eventName: "Night game", start: "17:00", end: "23:30", badges: ["TIPS"] })
+  // Last week's concessions crew, still waiting on Levy after "approve this week's": the tour moves one of them to barback.
+  plantCleanShift(counters, groups, timesheets, pros, rateCards, nowISO, { locationId: "loc-lfs", positionId: "concessions", also: "barback", date: addDaysISO(weekStartISO(today), -1), size: 2, eventName: "Day game", start: "11:00", end: "17:30", badges: [] })
   clockHarbor(timesheets)
   plantPaperSheet(r, counters, groups, timesheets, pros, rateCards, today)
   plantOvertime(counters, groups, timesheets, pros, rateCards, today)
@@ -729,6 +733,103 @@ function plantHoursStory(r: Random, counters: Counters, groups: ShiftGroup[], ti
       source: "csv",
       submittedAt,
       history: [change(created, "Iris", "created", { note: "From the clock" }), change(submittedAt, "Renee Park", "submitted", { note: "From the agency's CSV" })],
+    })
+  })
+}
+
+/** Clean clock times for planted crews, in minutes off the schedule: everyone within a few minutes, nothing to flag. */
+const CLEAN_DRIFT: [number, number][] = [
+  [-4, 8],
+  [2, 1],
+  [-2, 14],
+  [0, 3],
+]
+
+type CleanShift = { locationId: string; positionId: string; also?: string; date: string; size: number; eventName: string; start: string; end: string; badges: string[] }
+
+/**
+ * A crew whose every hour matches the clock and waits on Levy, staffed by Crewline, or Instawork when Crewline is
+ * booked. `also` is a second role every worker can do.
+ */
+function plantCleanShift(counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], nowISO: string, spec: CleanShift) {
+  const { date } = spec
+  const loc = location(spec.locationId)
+  const busy = new Set(groups.filter((g) => g.date === date).flatMap((g) => g.slots.flatMap((s) => (s.proId ? [s.proId] : []))))
+  const cardFor = (supplierId: string, positionId: string) =>
+    rateCards.find((c) => c.supplierId === supplierId && c.cityId === loc.cityId && c.positionId === positionId && c.status === "active")
+  const staffing = ["crewline", "instawork"]
+    .map((supplierId) => ({
+      sup: supplier(supplierId),
+      card: cardFor(supplierId, spec.positionId),
+      crew: pros
+        .filter((p) => p.supplierId === supplierId && p.cityId === loc.cityId && !busy.has(p.id) && [spec.positionId, spec.also ?? spec.positionId].every((id) => canWork(p, id, date, loc.id).ok))
+        .sort((a, b) => b.rating - a.rating)
+        .slice(0, spec.size),
+    }))
+    .find((s) => s.card && (!spec.also || cardFor(s.sup.id, spec.also)) && s.crew.length >= Math.min(spec.size, 2))
+  if (!staffing) return
+  const { sup, crew } = staffing
+  const card = staffing.card!
+  const code = `SG-${counters.sg++}`
+  const id = code.toLowerCase()
+  const pos = position(spec.positionId)
+  const group: ShiftGroup = {
+    id,
+    code,
+    buyerId: loc.buyerId,
+    locationId: loc.id,
+    positionId: pos.id,
+    eventName: spec.eventName,
+    date,
+    start: spec.start,
+    end: spec.end,
+    breakMins: 30,
+    supplierId: sup.id,
+    supplierIds: [sup.id],
+    billRate: card.billRate,
+    proRate: card.proRate,
+    markupPct: card.markupPct,
+    slots: crew.map((p, i) => ({ id: `${id}-${i + 1}`, proId: p.id, status: "completed" as const, confirmedAt: isoAt(addDaysISO(date, -5), "11:05") })),
+    badges: spec.badges,
+    instructions: pos.duties,
+    attire: pos.attire,
+    createdAt: isoAt(addDaysISO(date, -7), "09:50"),
+    createdBy: "Jordan Ellis",
+    source: "booking",
+  }
+  groups.push(group)
+  const endedAt = isoAt(date, spec.end)
+  const created = [addHoursISO(endedAt, 0.2), nowISO].sort()[0]
+  const submittedAt = [addHoursISO(endedAt, 0.5), nowISO].sort()[0]
+  group.slots.forEach((slot, i) => {
+    const [inDrift, outDrift] = CLEAN_DRIFT[i % CLEAN_DRIFT.length]
+    const clockIn = hhmmFromMinutes(minutesOf(spec.start) + inDrift)
+    const clockOut = hhmmFromMinutes(minutesOf(spec.end) + outDrift)
+    timesheets.push({
+      id: `ts-${counters.ts++}`,
+      groupId: group.id,
+      slotId: slot.id,
+      proId: slot.proId!,
+      supplierId: sup.id,
+      buyerId: group.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      date,
+      scheduledStart: group.start,
+      scheduledEnd: group.end,
+      scheduledBreakMins: group.breakMins,
+      clockIn,
+      clockOut,
+      breakMins: 30,
+      hours: paidHours(clockIn, clockOut, 30),
+      otHours: 0,
+      clock: { in: clockIn, out: clockOut, breakMins: 30, source: sup.isInstawork ? "instawork_app" : "iris_checkin" },
+      billRate: card.billRate,
+      tips: 0,
+      status: "pending_approval",
+      source: "app",
+      submittedAt,
+      history: [change(created, "Iris", "created", { note: "From the clock" }), change(submittedAt, `${sup.shortName} app`, "submitted", { note: "Sent by the agency's system" })],
     })
   })
 }

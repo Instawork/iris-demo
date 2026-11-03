@@ -7,6 +7,7 @@ import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { crewShift } from "@/lib/agent-agency"
+import { tipShift } from "@/lib/agent-tips"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
 import { eligiblePros } from "@/lib/domain/core"
@@ -578,16 +579,17 @@ const crewButton = () => last('[data-tour="agent-add-expenses"]')
 const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.split(". ")[0]
 
 /** Last night's Levy bar shifts the agencies sent, with no hours flagged and no tips yet: the first takes tips by hand, the next in a sentence. */
+/** Tips don't count against a shift here, so the two tips steps land on the same one before and after the first adds them. */
 const tipShifts = (data: DemoData) =>
   data.groups
     .filter((g) => g.buyerId === "levy-chi" && g.badges.includes("TIPS") && groupPhase(g) === "past")
     .map((g) => ({ g, sheets: data.timesheets.filter((t) => t.groupId === g.id && t.status !== "removed" && t.clockIn && t.clockOut) }))
-    .filter(({ sheets }) => sheets.length >= 2 && sheets.every((t) => t.status === "pending_approval" && !t.tips && !t.invoiceId && !timesheetChecks(t).length))
+    .filter(({ sheets }) => sheets.length >= 2 && sheets.every((t) => t.status === "pending_approval" && !t.invoiceId && !timesheetChecks(t).length))
     .sort((a, b) => b.g.date.localeCompare(a.g.date) || b.g.end.localeCompare(a.g.end))
     .map(({ g }) => g)
 
 const tipsHref = (ctx: TourContext) => {
-  const g = tipShifts(ctx.data)[0]
+  const g = tipShifts(ctx.data)[0] ?? tipShift(ctx.data, "levy-chi", todayISO())?.group
   return g ? `/shifts/${g.id}` : "/shifts"
 }
 
@@ -872,7 +874,7 @@ export const SCRIPT: TourItem[] = [
     example: askExample,
     targets: () => [COMPOSER()],
     clicks: () => sendButton(),
-    fill: { when: canAsk, run: () => typeAsk(askExample()) },
+    fill: { when: (ctx) => !hasDraft(ctx) && canAsk(ctx), run: () => typeAsk(askExample()) },
     placement: "top",
     done: (ctx) => hasDraft(ctx) || !!booked(ctx),
     success: () => "Draft ready",
@@ -1123,7 +1125,7 @@ export const SCRIPT: TourItem[] = [
     example: () => (crewButton() ? undefined : crewAsk()),
     targets: () => [crewButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
     clicks: () => crewButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => !crewButton() && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(crewAsk(), CHAT_COMPOSER_ID) },
+    fill: { when: (ctx) => !crewButton() && !crewAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(crewAsk(), CHAT_COMPOSER_ID) },
     placement: "left",
     done: (ctx) => !!crewAdded(ctx),
     success: (ctx) => crewAdded(ctx) ?? "Added",
@@ -1199,7 +1201,7 @@ export const SCRIPT: TourItem[] = [
     example: () => (tipsButton() ? undefined : tipsAsk()),
     targets: () => [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
     clicks: () => tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => !tipsButton() && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(tipsAsk(), CHAT_COMPOSER_ID) },
+    fill: { when: (ctx) => !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(tipsAsk(), CHAT_COMPOSER_ID) },
     placement: "left",
     done: (ctx) => !!tipsAdded(ctx),
     success: (ctx) => tipsAdded(ctx) ?? "Tips added",
@@ -1329,7 +1331,7 @@ export const SCRIPT: TourItem[] = [
     action: "Send it with Enter",
     targets: () => [COMPOSER()],
     clicks: () => sendButton(),
-    fill: { when: canAsk, run: () => typeAsk(reportAsk()) },
+    fill: { when: (ctx) => !reportLink(ctx) && canAsk(ctx), run: () => typeAsk(reportAsk()) },
     placement: "top",
     done: (ctx) => !!reportLink(ctx),
     success: () => "Answered",
