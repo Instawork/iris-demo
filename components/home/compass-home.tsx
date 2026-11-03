@@ -175,7 +175,7 @@ export function CompassHome() {
       ),
     },
     { id: "fill", header: "Fill rate", align: "right", sortValue: (r) => r.m.fillRate, cell: (r) => <span className="tabular">{pct(r.m.fillRate)}</span> },
-    { id: "noshow", header: "No show", align: "right", sortValue: (r) => r.m.noShowRate, cell: (r) => <span className="tabular">{pct(r.m.noShowRate, 1)}</span> },
+    { id: "noshow", header: "No show", align: "right", sortValue: (r) => r.m.noShowRate, cell: (r) => <span className="tabular">{pct(r.m.noShowRate)}</span> },
     { id: "compliance", header: "Compliance", align: "right", sortValue: (r) => r.m.compliance, cell: (r) => <span className="tabular">{pct(r.m.compliance)}</span> },
   ]
 
@@ -254,9 +254,9 @@ export function CompassHome() {
           sub="Worked hours and tips"
           trend={program.priorSpend ? { delta: (program.spend / program.priorSpend - 1) * 100, label: "vs. prior 28 days", goodWhen: "down" } : undefined}
         />
-        <StatCard label="Fill rate" value={program.fill.fillRate * 100} suffix="%" decimals={1} tone="positive" sub={`${program.fill.filled.toLocaleString()} of ${program.fill.slots.toLocaleString()} spots filled`} />
-        <StatCard label="Median time to fill" value={program.fill.hoursToFill} suffix="hrs" decimals={1} tone="neutral" sub={formatTimeToFill(program.fill.hoursToFill)} />
-        <StatCard label="No-show rate" value={program.fill.noShowRate * 100} suffix="%" decimals={1} tone={program.fill.noShowRate > 0.04 ? "warning" : "positive"} sub="Of filled spots" />
+        <StatCard label="Fill rate" value={program.fill.fillRate * 100} suffix="%" tone="positive" sub={`${program.fill.filled.toLocaleString()} of ${program.fill.slots.toLocaleString()} spots filled`} />
+        <StatCard label="Median time to fill" value={program.fill.hoursToFill} suffix="hrs" tone="neutral" sub={formatTimeToFill(program.fill.hoursToFill)} />
+        <StatCard label="No-show rate" value={program.fill.noShowRate * 100} suffix="%" tone={program.fill.noShowRate > 0.04 ? "warning" : "positive"} sub="Of filled spots" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">

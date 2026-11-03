@@ -279,7 +279,7 @@ function MySuppliers() {
       cell: (r) => <span className="tabular">{r.billRate ? `${money(r.billRate)}/hr` : "--"}</span>,
     },
     { id: "fill", header: "Fill rate", align: "right", sortValue: (r) => r.fillRate, cell: (r) => <span className="tabular">{r.worked ? pct(r.fillRate) : "--"}</span> },
-    { id: "noshow", header: "No show", align: "right", sortValue: (r) => r.noShowRate, cell: (r) => <span className="tabular">{r.worked ? pct(r.noShowRate, 1) : "--"}</span> },
+    { id: "noshow", header: "No show", align: "right", sortValue: (r) => r.noShowRate, cell: (r) => <span className="tabular">{r.worked ? pct(r.noShowRate) : "--"}</span> },
     { id: "compliance", header: "Compliance", align: "right", sortValue: (r) => r.compliance, cell: (r) => <span className="tabular">{pct(r.compliance)}</span> },
   ]
 

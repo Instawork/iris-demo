@@ -122,7 +122,7 @@ export function FillTrendChart({ data, height = 220, color = "var(--foreground)"
               formatter={(value, name) => (
                 <div className="flex w-full items-center justify-between gap-4">
                   <span className="text-faded">{name === "fillRate" ? "Fill rate" : "No-show rate"}</span>
-                  <span className="font-semibold tabular">{Number(value).toFixed(1)}%</span>
+                  <span className="font-semibold tabular">{Number(value).toFixed(0)}%</span>
                 </div>
               )}
             />

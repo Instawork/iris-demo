@@ -174,24 +174,24 @@ export function BenchmarkLegend({ today = "Today", best = "Best bid", bids, tone
   )
 }
 
-/** "3.1% under" in green, "2.0% over" in amber, "At market" when it's within a tenth of a percent. */
+/** "3% under" in green, "2% over" in amber, "At market" when it rounds to zero. */
 export function VsMarket({ value, className }: { value?: number; className?: string }) {
   if (value === undefined) return <span className={cn("text-faded", className)}>—</span>
-  if (Math.abs(value) < 0.001) return <span className={cn("text-faded", className)}>At market</span>
+  if (Math.abs(value) < 0.005) return <span className={cn("text-faded", className)}>At market</span>
   return (
     <span className={cn("tabular", value < 0 ? "text-positive-fg" : value > 0.05 ? "text-critical-fg" : "text-warning-fg", className)}>
-      {(Math.abs(value) * 100).toFixed(1)}% {value < 0 ? "under" : "over"}
+      {(Math.abs(value) * 100).toFixed(0)}% {value < 0 ? "under" : "over"}
     </span>
   )
 }
 
 /** A change against today's rate: green when it's lower, quiet when it's flat, and only loud when it's well up. */
 export function Change({ value, suffix = "" }: { value?: number; suffix?: string }) {
-  if (value === undefined || Math.abs(value) < 0.0005) return null
+  if (value === undefined || Math.abs(value) < 0.005) return null
   return (
     <span className={cn("text-caption-1 tabular", value < 0 ? "text-positive-fg" : value > 0.03 ? "text-critical-fg" : "text-faded")}>
       {value < 0 ? "−" : "+"}
-      {(Math.abs(value) * 100).toFixed(1)}%{suffix}
+      {(Math.abs(value) * 100).toFixed(0)}%{suffix}
     </span>
   )
 }

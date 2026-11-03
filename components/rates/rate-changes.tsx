@@ -95,10 +95,10 @@ export function RateChanges({ supplierId }: { supplierId?: string }) {
                 <>
                   <span className="text-faded line-through decoration-1">{money(c.from!.billRate)}</span>
                   <span className="font-semibold">{money(c.to!.billRate)}</span>
-                  {d !== undefined && Math.abs(d) >= 0.0005 && (
+                  {d !== undefined && Math.abs(d) >= 0.005 && (
                     <span className={d > 0.1 ? "text-critical-fg" : d < 0 ? "text-positive-fg" : "text-faded"}>
                       {d > 0 ? "+" : "−"}
-                      {Math.abs(d * 100).toFixed(1)}%
+                      {Math.abs(d * 100).toFixed(0)}%
                     </span>
                   )}
                 </>

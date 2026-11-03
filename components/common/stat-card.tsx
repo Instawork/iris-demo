@@ -72,7 +72,7 @@ export function StatCard({
             )}
           >
             <TrendIcon className="size-3.5" />
-            {trend.format ? trend.format(trend.delta) : `${Math.abs(trend.delta).toFixed(1)}%`}
+            {trend.format ? trend.format(trend.delta) : `${Math.abs(trend.delta).toFixed(0)}%`}
           </span>
         )}
       </div>

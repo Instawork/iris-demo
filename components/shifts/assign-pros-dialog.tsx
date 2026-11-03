@@ -99,7 +99,7 @@ export function AssignProsDialog({ group, open, onOpenChange }: { group: ShiftGr
                   </span>
                   <span className="flex items-center gap-1 text-caption-1 text-faded">
                     <Star className="size-3 fill-warning text-warning" />
-                    {pro.rating ? pro.rating.toFixed(2) : "New"} · {pro.shiftsWorked} shifts · {pro.code}
+                    {pro.rating ? pro.rating.toFixed(1) : "New"} · {pro.shiftsWorked} shifts · {pro.code}
                   </span>
                 </span>
                 {reason ? (

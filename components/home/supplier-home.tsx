@@ -61,7 +61,6 @@ export function SupplierHome() {
             label="Fill rate"
             info="Share of spots you filled on shifts that already happened."
             value={view.m.fillRate * 100}
-            decimals={1}
             suffix="%"
             sub={`${view.m.slotsFilled} spots filled`}
             href="/shifts"
@@ -69,8 +68,7 @@ export function SupplierHome() {
           <StatCard
             label="Time to fill"
             info="Median time from a buyer posting a shift to your worker confirming."
-            value={view.m.hoursToFill < 1 ? Math.round(view.m.hoursToFill * 60) : Math.round(view.m.hoursToFill * 10) / 10}
-            decimals={view.m.hoursToFill < 1 ? 0 : 1}
+            value={view.m.hoursToFill < 1 ? Math.round(view.m.hoursToFill * 60) : Math.round(view.m.hoursToFill)}
             suffix={view.m.hoursToFill < 1 ? "min" : "hrs"}
             sub={`Median: ${formatTimeToFill(view.m.hoursToFill)}`}
             href="/shifts"
@@ -79,7 +77,6 @@ export function SupplierHome() {
             label="No-show rate"
             info="Share of confirmed workers who didn't show up. Lower is better."
             value={view.m.noShowRate * 100}
-            decimals={1}
             suffix="%"
             sub="Of confirmed workers"
             href="/shifts"
@@ -88,7 +85,6 @@ export function SupplierHome() {
             label="Compliance"
             info="Share of your active workers with every document their positions need: background check, I-9, Compass orientation and certifications."
             value={view.m.compliance * 100}
-            decimals={1}
             suffix="%"
             sub={`${view.ready} of ${view.activeCount} active workers ready`}
             href="/professionals"

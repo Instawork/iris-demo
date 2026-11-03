@@ -382,11 +382,11 @@ export function formatValue(m: ReportMeasure, v: number | null | undefined, comp
     case "money":
       return compact ? moneyCompact(v) : m === "spend" ? moneyWhole(v) : money(v)
     case "hours":
-      return compact && v >= 1000 ? `${(v / 1000).toFixed(1)}k hrs` : formatHours(Math.round(v * 10) / 10)
+      return compact && v >= 1000 ? `${(v / 1000).toFixed(1)}k hrs` : formatHours(Math.round(v))
     case "count":
       return v.toLocaleString("en-US")
     case "pct":
-      return pct(v, compact ? 0 : 1)
+      return pct(v)
     case "duration":
       return formatTimeToFill(v)
     case "rate":
@@ -433,11 +433,11 @@ export function changeOf(m: ReportMeasure, now: number | null, before: number | 
   if (now === null || before === null) return undefined
   if (MEASURE[m].kind === "pct") {
     const delta = (now - before) * 100
-    return Math.abs(delta) < 0.05 ? undefined : { delta, label: `${delta > 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)} pts` }
+    return Math.abs(delta) < 0.5 ? undefined : { delta, label: `${delta > 0 ? "+" : "−"}${Math.abs(delta).toFixed(0)} pts` }
   }
   if (!before) return undefined
   const delta = now / before - 1
-  return Math.abs(delta) < 0.0005 ? undefined : { delta, label: `${delta > 0 ? "+" : "−"}${Math.abs(delta * 100).toFixed(1)}%` }
+  return Math.abs(delta) < 0.005 ? undefined : { delta, label: `${delta > 0 ? "+" : "−"}${Math.abs(delta * 100).toFixed(0)}%` }
 }
 
 const joinWords = (words: string[]) => (words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`)

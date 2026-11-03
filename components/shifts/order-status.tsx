@@ -17,7 +17,7 @@ import { joinNames, useStore } from "@/lib/store"
 import type { ShiftGroup } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const overText = (g: ShiftGroup) => `${((g.approval?.overPct ?? 0) * 100).toFixed(1)}%`
+const overText = (g: ShiftGroup) => `${Math.round((g.approval?.overPct ?? 0) * 100)}%`
 
 /** The approval decision for an over-budget order. The district approver decides; everyone else sees who it's waiting on. */
 export function ApprovalCard({ group, compact }: { group: ShiftGroup; compact?: boolean }) {

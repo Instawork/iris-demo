@@ -772,7 +772,7 @@ function RequestWorkers({ draft, setDraft, agency }: { draft: Draft; setDraft: R
                       {pro.firstName} {pro.lastName}
                       {favorite && <Heart className="size-3 fill-critical text-critical" />}
                     </span>
-                    <span className="truncate text-caption-1 text-faded">{worked ? `${worked} shifts here` : favorite ? "Favorite" : pro.rating ? `Rated ${pro.rating.toFixed(2)}` : "New"}</span>
+                    <span className="truncate text-caption-1 text-faded">{worked ? `${worked} shifts here` : favorite ? "Favorite" : pro.rating ? `Rated ${pro.rating.toFixed(1)}` : "New"}</span>
                   </span>
                   {reason && (
                     <StatusBadge tone={/expired|missing|pending/i.test(reason) ? "critical" : "neutral"} size="sm">

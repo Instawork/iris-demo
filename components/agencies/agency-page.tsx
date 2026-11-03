@@ -78,8 +78,8 @@ function AgencyBody({ supplierId }: { supplierId: string }) {
 
   const stats = [
     { label: "Fill rate", value: pct(m.fillRate), info: "Share of spots filled on shifts that already happened." },
-    { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from posting to a worker confirming." },
-    { label: "No-show rate", value: pct(m.noShowRate, 1), info: "Share of confirmed workers who didn't show up." },
+    { label: "Time to fill", value: formatTimeToFill(m.hoursToFill), info: "Median time from a shift going out to a worker confirming." },
+    { label: "No-show rate", value: pct(m.noShowRate), info: "Share of confirmed workers who didn't show up." },
     {
       label: "Compliance score",
       value: roster.active ? String(roster.score) : "--",
