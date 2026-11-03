@@ -397,13 +397,10 @@ export function Tour() {
 
 /* ---------------------------------- Steps ---------------------------------- */
 
-/** The step before or after this one, skipping the part cards between them. The finale is after the last. */
+/** The card or step before or after this one. Nothing comes before the first part's card. */
 const neighbor = (step: TourStep, by: -1 | 1) => {
-  for (let i = indexOf(step.id) + by; i >= 0 && i < SCRIPT.length; i += by) {
-    const item = SCRIPT[i]
-    if (item.kind === "step" || item.kind === "finale") return i
-  }
-  return undefined
+  const i = indexOf(step.id) + by
+  return SCRIPT[i] && SCRIPT[i].kind !== "intro" ? i : undefined
 }
 
 /** Stops Iris's cursor and closes the dialog or agent sheet a step left open. */
@@ -487,7 +484,11 @@ async function jumpTo(index: number, push: (href: string) => void) {
   if (!item) return
   clearStage()
   partJump = undefined
-  if (item.kind !== "step") return useTour.getState().go(index)
+  if (item.kind !== "step") {
+    useTour.getState().go(index)
+    if (item.kind === "chapter") partJump = useTour.getState().enteredAt
+    return
+  }
   if (!(await setUpFor(item))) return
   const { start } = useTour.getState()
   // A step played earlier in the run still holds, unless it lives in the chat, which the jump empties.
@@ -543,8 +544,11 @@ const ownsKeys = (target: EventTarget | null) =>
   target instanceof Element && !!target.closest('input, textarea, select, [contenteditable="true"], [role="tablist"], [role="radiogroup"], [role="menu"], [role="listbox"], [role="slider"], [role="grid"]')
 
 /** Arrows in an empty text field have nothing to move through, like the chat box once Iris sent what a step asked. */
+/** A tab the tour clicked keeps focus, so tabs leave the arrows to the tour. */
 const ownsArrows = (target: EventTarget | null) =>
-  (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && !target.value ? false : ownsKeys(target)
+  ((target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && !target.value) || (target instanceof Element && !!target.closest('[role="tablist"]'))
+    ? false
+    : ownsKeys(target)
 
 function StepScreen({ step }: { step: TourStep }) {
   const router = useRouter()
@@ -767,6 +771,7 @@ function StepScreen({ step }: { step: TourStep }) {
       to = next.href(contextNow())
       router.push(to)
     }
+    if (next?.kind === "step" && !next.inChat && !next.startsChat) useUi.getState().setAgentOpen(false)
     if (to) await arrivedAt(to)
     if (useTour.getState().enteredAt === at) useTour.getState().finish(step.id, how)
   }
@@ -988,6 +993,7 @@ function StepCard({
   const title = titleOf(step, ctx)
   const body = text(step.body, ctx)
   const status = step.status?.(ctx)
+  const example = step.example?.(ctx)
   const lost = mode === "lost"
   const preparing = mode === "preparing"
   const [parts, setParts] = useState(false)
@@ -1060,7 +1066,7 @@ function StepCard({
           <motion.div key={step.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: EASE }}>
             <h2 className="px-4 pt-2 text-[17px] leading-snug font-semibold tracking-[-0.01em] text-balance">{title}</h2>
             {body && <p className="px-4 pt-1 text-[13.5px] leading-relaxed text-pretty text-background/70">{body}</p>}
-            {step.example && <Example text={step.example(ctx)} />}
+            {example && <Example text={example} />}
             {status && (
               <p className="mx-4 mt-3 inline-flex items-center gap-2 rounded-lg bg-background/[0.08] px-2.5 py-1.5 text-[12.5px] font-medium tabular">
                 <span className="size-1.5 animate-live rounded-full bg-brand" />
@@ -1305,9 +1311,19 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     await jumpTo(indexOf(step.id), router.push)
   }
 
+  /** The step before this card, or the part card before the finale. The first part's card has none. */
+  const before = index > 1 && item.kind !== "intro" ? index - 1 : undefined
+  const back = async () => {
+    if (before === undefined) return
+    await resetting
+    await jumpTo(before, router.push)
+  }
+
   const primary = useRef<() => void>(undefined)
+  const previous = useRef<() => void>(undefined)
   useEffect(() => {
     primary.current = item.kind === "intro" ? () => start() : item.kind === "chapter" ? () => void play(item) : exit
+    previous.current = before === undefined ? undefined : () => void back()
   })
   useEffect(() => {
     useUi.getState().setAgentOpen(false)
@@ -1316,20 +1332,18 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     const here = item.kind === "chapter" ? item.chapter : undefined
     const onKey = (e: KeyboardEvent) => {
       if (item.kind !== "intro" && !e.repeat) {
-        const arrow = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0
-        const part =
-          partKey(e, here) ??
-          (arrow && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
-            ? here
-              ? partBeside(here, arrow)
-              : arrow < 0
-                ? CHAPTER_ORDER.at(-1)
-                : undefined
-            : undefined)
+        const part = partKey(e, here)
         if (part) {
           e.preventDefault()
           e.stopPropagation()
           openPart(part)
+          return
+        }
+        if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !ownsArrows(e.target)) {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.key === "ArrowLeft") previous.current?.()
+          else if (item.kind === "chapter") primary.current?.()
           return
         }
       }
@@ -1366,8 +1380,8 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
         transition={{ duration: 0.28, ease: EASE }}
       >
         {item.kind === "intro" && <IntroCard onStart={() => start()} onStartAt={(step) => void startAt(step)} starting={starting} onClose={exit} />}
-        {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onExit={exit} onStep={(step) => void toStep(step)} />}
-        {item.kind === "finale" && <FinaleCard onReplay={() => useTour.getState().open()} onClose={exit} />}
+        {item.kind === "chapter" && <ChapterCard item={item} onPlay={() => play(item)} onBack={before === undefined ? undefined : () => void back()} onExit={exit} onStep={(step) => void toStep(step)} />}
+        {item.kind === "finale" && <FinaleCard onReplay={() => useTour.getState().open()} onBack={() => void back()} onClose={exit} />}
       </motion.div>
     </motion.div>
   )
@@ -1490,7 +1504,20 @@ function PartList({
   )
 }
 
-function ChapterCard({ item, onPlay, onExit, onStep }: { item: TourChapter; onPlay: () => void; onExit: () => void; onStep: (step: TourStep) => void }) {
+function ChapterCard({
+  item,
+  onPlay,
+  onBack,
+  onExit,
+  onStep,
+}: {
+  item: TourChapter
+  onPlay: () => void
+  /** To the step before this card. None on the first part's card. */
+  onBack?: () => void
+  onExit: () => void
+  onStep: (step: TourStep) => void
+}) {
   const meta = CHAPTERS[item.chapter]
   const ws = workspace(item.wsId)
   const side = SIDES[ws.kind]
@@ -1515,6 +1542,9 @@ function ChapterCard({ item, onPlay, onExit, onStep }: { item: TourChapter; onPl
         <SideBadge kind={ws.kind} />
       </div>
       <div className="flex items-center justify-end gap-2 px-7 pt-5 pb-6">
+        <Button variant="ghost" size="icon" className="mr-auto size-9 rounded-lg" onClick={onBack} disabled={!onBack} aria-label="Previous step" title="Previous step" data-tour-card-back>
+          <ChevronLeft className="size-4" />
+        </Button>
         <Button variant="ghost" className="h-9 rounded-lg" onClick={onExit}>
           Exit tour
         </Button>
@@ -1526,7 +1556,7 @@ function ChapterCard({ item, onPlay, onExit, onStep }: { item: TourChapter; onPl
   )
 }
 
-function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () => void }) {
+function FinaleCard({ onReplay, onBack, onClose }: { onReplay: () => void; onBack: () => void; onClose: () => void }) {
   return (
     <>
       <div className="relative overflow-hidden px-7 pt-7 pb-5">
@@ -1557,7 +1587,10 @@ function FinaleCard({ onReplay, onClose }: { onReplay: () => void; onClose: () =
         ))}
       </ul>
       <div className="flex items-center justify-between gap-3 px-7 pt-5 pb-6">
-        <Button variant="ghost" className="h-9 gap-1.5 rounded-lg" onClick={onReplay}>
+        <Button variant="ghost" size="icon" className="size-9 rounded-lg" onClick={onBack} aria-label="Previous step" title="Previous step" data-tour-card-back>
+          <ChevronLeft className="size-4" />
+        </Button>
+        <Button variant="ghost" className="mr-auto h-9 gap-1.5 rounded-lg" onClick={onReplay}>
           <RotateCcw className="size-4" /> Start over
         </Button>
         <Button className="h-9 gap-1.5 rounded-lg px-3.5" onClick={onClose} autoFocus>

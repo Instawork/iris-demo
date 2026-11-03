@@ -1,4 +1,4 @@
-import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, MapPinned, ShieldCheck, UsersRound, type LucideIcon } from "lucide-react"
+import { BadgeDollarSign, CalendarPlus, ChartColumn, Clock, FileText, Layers, ShieldCheck, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
@@ -6,9 +6,12 @@ import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-sto
 import { compose } from "@/components/agent/agent-thread"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
+import { crewShift } from "@/lib/agent-agency"
 import { canWork, requirementRows } from "@/lib/compliance"
 import { addDaysISO, formatDay, todayISO } from "@/lib/dates"
+import { eligiblePros } from "@/lib/domain/core"
 import { fullName, money, plural } from "@/lib/format"
+import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { templateCsv } from "@/lib/csv"
 import { buyer, location, position, workspace } from "@/lib/reference"
@@ -16,14 +19,13 @@ import { irisCounters } from "@/lib/sourcing"
 import { timesheetChecks } from "@/lib/timesheets"
 import { SAMPLE_UNIT_SHEET } from "@/lib/unit-sheet"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
-import { CHECKS } from "@/lib/verification"
 
 /**
- * The guided demo: the core flows of a VMS, in the order Compass walks through them, each played as the person who does it. Nothing moves on until the
+ * The guided demo: the core flows of a VMS, in the order of Compass's working sessions, each played as the person who does it. Nothing moves on until the
  * player clicks: "Do it for me" makes their next move on screen, typing a form in or clicking what the card points at.
  */
 
-export type ChapterId = "units" | "shifts" | "assignments" | "compliance" | "timesheets" | "reporting" | "procurement"
+export type ChapterId = "rates" | "shifts" | "workers" | "timesheets" | "invoicing" | "reporting" | "nuanced"
 export type Placement = "top" | "bottom" | "left" | "right"
 
 /** Everything a step needs to decide where it is and whether the player has done it. */
@@ -61,7 +63,7 @@ export interface TourStep {
   body?: Copy
   /** What the player does. When there's nothing to do, the card shows Next. */
   action?: Copy
-  example?: (ctx: TourContext) => string
+  example?: (ctx: TourContext) => string | undefined
   /** Elements to spotlight. The first is the one the player acts on. */
   targets: (ctx: TourContext) => (Element | null | undefined)[]
   /** What the player's next click lands on, when that isn't the first target. */
@@ -103,16 +105,17 @@ export interface TourChapter {
 
 export type TourItem = { kind: "intro"; id: "intro" } | TourChapter | TourStep | { kind: "finale"; id: "finale" }
 
-export const CHAPTER_ORDER: ChapterId[] = ["units", "shifts", "assignments", "compliance", "timesheets", "reporting", "procurement"]
+/** The parts follow the agenda of Compass's working sessions. */
+export const CHAPTER_ORDER: ChapterId[] = ["rates", "shifts", "workers", "timesheets", "invoicing", "reporting", "nuanced"]
 
 export const CHAPTERS: Record<ChapterId, { number: number; label: string; short: string; icon: LucideIcon }> = {
-  units: { number: 1, label: "Units and cost centers", short: "Units", icon: MapPinned },
-  shifts: { number: 2, label: "Job postings", short: "Postings", icon: CalendarPlus },
-  assignments: { number: 3, label: "Worker assignments", short: "Assignments", icon: UsersRound },
-  compliance: { number: 4, label: "Worker compliance", short: "Compliance", icon: ShieldCheck },
-  timesheets: { number: 5, label: "Timesheets", short: "Timesheets", icon: Clock },
-  reporting: { number: 6, label: "Invoices and reporting", short: "Reporting", icon: ChartColumn },
-  procurement: { number: 7, label: "Procurement", short: "Procurement", icon: BadgeDollarSign },
+  rates: { number: 1, label: "Rate cards and supplier sourcing", short: "Rate cards", icon: BadgeDollarSign },
+  shifts: { number: 2, label: "Shift creation", short: "Shifts", icon: CalendarPlus },
+  workers: { number: 3, label: "Worker assignment and compliance", short: "Workers", icon: ShieldCheck },
+  timesheets: { number: 4, label: "Timesheets, tips and expenses", short: "Timesheets", icon: Clock },
+  invoicing: { number: 5, label: "Invoicing and accruals", short: "Invoicing", icon: FileText },
+  reporting: { number: 6, label: "Reporting", short: "Reporting", icon: ChartColumn },
+  nuanced: { number: 7, label: "Nuanced features", short: "Nuanced", icon: Layers },
 }
 
 const LEVY = "ws-levy"
@@ -132,7 +135,8 @@ const buttonIn = (root: string | Element | null | undefined, text: string) =>
 
 /** The button left lit for the player after Iris fills a screen, until they click it. */
 let handoff: HTMLElement | undefined
-export const handedOff = () => (handoff?.isConnected ? handoff : undefined)
+/** A question sent with Enter leaves Send disabled behind it, no longer the thing to click. */
+export const handedOff = () => (handoff?.isConnected && !(handoff instanceof HTMLButtonElement && handoff.disabled) ? handoff : undefined)
 const clearHandoff = () => {
   handoff?.removeAttribute("data-tour-next")
   handoff = undefined
@@ -267,16 +271,6 @@ export async function advance(step: TourStep, ctx: TourContext, api: TourApi) {
   await press(nextClick(step, ctx))
 }
 
-async function attach(root: string, name: string) {
-  const input = inside(root, 'input[type="file"]')
-  if (!(input instanceof HTMLInputElement)) throw STOPPED
-  const files = new DataTransfer()
-  files.items.add(new File(["Iris demo document"], name, { type: "application/pdf" }))
-  input.files = files.files
-  input.dispatchEvent(new Event("change", { bubbles: true }))
-  await sleep(300)
-}
-
 const serial = (id: string) => Number(id.split("-")[1]) || 0
 const nextDate = () => formatDay(addDaysISO(todayISO(), 2), "MMMM do")
 
@@ -392,68 +386,116 @@ const askFor = (text: () => string, ready: (ctx: TourContext) => boolean, id = C
   await until(() => ready(api.now()), 15000)
 }
 
-/* ------------------------------- Compliance -------------------------------- */
+/* ------------------------- Assignment and compliance ------------------------ */
+
+const ASSIGN = '[data-tour="assign-dialog"]'
+const ASSIGN_SUBMIT = '[data-tour="assign-submit"]'
+
+/** The soonest upcoming shift open to Metro with a spot left and a cleared worker free for it. */
+const assignShift = (data: DemoData) =>
+  data.groups
+    .filter((g) => isOpenTo(g, "metro") && groupPhase(g) === "upcoming" && filledCount(g) < g.slots.length && eligiblePros(data, g, "metro").length > 0)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.id.localeCompare(b.id))[0]
+
+const assignHref = (ctx: TourContext) => {
+  const g = assignShift(ctx.data)
+  return g ? `/shifts/${g.id}` : "/shifts"
+}
+
+/** Metro workers confirmed on a shift during the tour. */
+const assignedSince = (ctx: TourContext) => {
+  const metro = new Set(ctx.data.pros.filter((p) => p.supplierId === "metro").map((p) => p.id))
+  return ctx.data.groups.reduce((n, g) => n + g.slots.filter((s) => !!s.proId && !!s.confirmedAt && s.confirmedAt >= ctx.base.at && metro.has(s.proId)).length, 0)
+}
+
+const assignReady = () => !(one(ASSIGN_SUBMIT) as HTMLButtonElement | null)?.disabled
+
+/** Picks the first worker who's ready, leaving Assign for the player. */
+async function pickReady() {
+  if (!assignReady()) await press(inside(ASSIGN, '[data-tour="assign-row"][data-ready]:not(:disabled)'))
+  return one(ASSIGN_SUBMIT)
+}
 
 const DOC: Record<RequirementId, string> = {
   background: "background check",
-  i9: "I-9",
+  i9: "work authorization",
   orientation: "Compass orientation",
   foodHandler: "food handler card",
   alcohol: "alcohol server cert",
 }
 
 const BLOCKING = ["expired", "missing", "pending"]
+const CERTS: RequirementId[] = ["foodHandler", "alcohol"]
+const blockers = (pro: Pro) => requirementRows(pro).filter((r) => BLOCKING.includes(r.state))
+const byName = (a: Pro, b: Pro) => fullName(a).localeCompare(fullName(b))
 
-const blocker = (pro?: Pro) => (pro ? requirementRows(pro).find((r) => BLOCKING.includes(r.state)) : undefined)
+/** Metro's worker kept off shifts by a work authorization that lapsed. */
+const authPro = (data: DemoData) =>
+  data.pros.filter((p) => p.supplierId === "metro" && requirementRows(p).some((r) => r.id === "i9" && r.state === "expired")).sort(byName)[0]
 
-/** Metro's workers kept off shifts, expired documents first. */
-const blockedPros = (data: DemoData) =>
+/** Metro's worker kept off shifts by a lapsed certification and nothing else, so verifying it clears them. */
+const certPro = (data: DemoData) =>
   data.pros
-    .filter((p) => p.supplierId === "metro" && standingOf(p) === "not_compliant")
-    .map((pro) => ({ pro, expired: requirementRows(pro).some((r) => r.state === "expired") }))
-    .sort((a, b) => Number(b.expired) - Number(a.expired) || fullName(a.pro).localeCompare(fullName(b.pro)))
-    .map((x) => x.pro)
+    .filter((p) => {
+      const held = p.supplierId === "metro" ? blockers(p) : []
+      return held.length === 1 && CERTS.includes(held[0].id) && held[0].state === "expired"
+    })
+    .sort(byName)[0]
+
+const certOf = (pro?: Pro) => (pro ? requirementRows(pro).find((r) => CERTS.includes(r.id) && BLOCKING.includes(r.state))?.id : undefined)
+
+const verifyHref = (ctx: TourContext) => {
+  const pro = certPro(ctx.data)
+  return pro ? `/professionals?filter=not_compliant&pro=${pro.id}` : "/professionals?filter=not_compliant"
+}
 
 const openPro = (ctx: TourContext) => {
   const id = ctx.params.get("pro")
   return id ? ctx.data.pros.find((p) => p.id === id && p.supplierId === "metro") : undefined
 }
-const chosenPro = (ctx: TourContext): Pro | undefined => openPro(ctx) ?? blockedPros(ctx.data)[0]
 
 const VERIFY = '[data-tour="verify-dialog"]'
 
-/** The document Metro renewed during the tour, once Iris has checked it. */
-const verifiedSince = (ctx: TourContext) => {
+/** A document Metro cleared during the tour, once Iris has recorded it. */
+const verifiedSince = (ctx: TourContext, ids: RequirementId[]) => {
   for (const pro of ctx.data.pros) {
     if (pro.supplierId !== "metro") continue
-    for (const item of Object.values(pro.compliance)) if (item?.verification?.result === "verified" && item.verification.at >= ctx.base.at) return { pro, v: item.verification }
+    for (const id of ids) {
+      const v = pro.compliance[id]?.verification
+      if (v?.result === "verified" && v.at >= ctx.base.at) return { pro, v }
+    }
   }
   return undefined
 }
 
-/** Where the player clicks next on the way to the expired document: the tab, the worker, then the document. */
-const renewTarget = (ctx: TourContext) => {
-  const pro = openPro(ctx)
-  if (pro) {
-    const doc = blocker(pro)
-    const action = doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]')
-    return action ?? one('[role="dialog"] [role="tab"][data-value="documents"]')
-  }
+/** Where the player clicks next on the way to a document: the tab, the worker, then the document. */
+const docTarget = (ctx: TourContext, doc: RequirementId, pick: (data: DemoData) => Pro | undefined) => {
+  if (openPro(ctx)) return one(`[data-tour="doc-action"][data-doc-id="${doc}"]`) ?? one('[role="dialog"] [role="tab"][data-value="documents"]')
   if (ctx.params.get("filter") !== "not_compliant") return one('[role="tab"][data-value="not_compliant"]')
-  const first = chosenPro(ctx)
-  return (first && one(`tr[data-row-id="${first.id}"]`)) || one("tbody tr[data-row-id]")
+  const pro = pick(ctx.data)
+  return (pro && one(`tr[data-row-id="${pro.id}"]`)) || one("tbody tr[data-row-id]")
+}
+
+/** Opens the worker and the document's dialog, from wherever the player is. */
+async function openDoc(ctx: TourContext, api: TourApi, doc: RequirementId, pick: (data: DemoData) => Pro | undefined) {
+  if (!openPro(ctx)) {
+    const pro = pick(ctx.data)
+    if (!pro) throw STOPPED
+    const row = one(`tr[data-row-id="${pro.id}"]`)
+    if (row) await press(row)
+    else api.push(`/professionals?filter=not_compliant&pro=${pro.id}`)
+  }
+  if (!one(VERIFY)) await press(await until(() => one(`[data-tour="doc-action"][data-doc-id="${doc}"]`), 8000))
+  await until(() => one(VERIFY))
+  await sleep(400)
 }
 
 const askedIssuer = () => one(VERIFY)?.getAttribute("data-provider") ?? undefined
 
-/** Attaches a certificate and ticks the attestation. A document Iris asks the issuer for is already one click. */
-async function attest() {
-  if (askedIssuer()) return one('[data-tour="verify-submit"]')
-  const doc = one(VERIFY)?.getAttribute("data-doc-id") ?? "document"
-  await attach(VERIFY, `${doc}.pdf`)
-  await sleep(1100)
+/** Ticks the agency's attestation, leaving Attest for the player. */
+async function tickAttest() {
   const box = inside(VERIFY, 'button[role="checkbox"]')
-  if (box?.getAttribute("aria-checked") !== "true") await press(box)
+  if (box && box.getAttribute("aria-checked") !== "true") await press(box)
   return one('[data-tour="verify-submit"]')
 }
 
@@ -525,6 +567,48 @@ async function attachExpenses(ctx: TourContext) {
   return until(chatReview, 8000)
 }
 
+/** Harbor's latest shift with timesheets it can still bill: the crew that paid for parking. */
+const crewHref = (ctx: TourContext) => {
+  const shift = crewShift(ctx.data, "harbor", todayISO())
+  return shift ? `/shifts/${shift.group.id}` : "/shifts"
+}
+const crewAsk = () => "Add a $20 parking expense to everyone who worked this shift"
+const crewButton = () => last('[data-tour="agent-add-expenses"]')
+/** Iris's confirmation once the crew's expense is on their timesheets. */
+const crewAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$/.test(m.text))?.text.split(". ")[0]
+
+/** Last night's Levy bar shifts the agencies sent, with no hours flagged and no tips yet: the first takes tips by hand, the next in a sentence. */
+const tipShifts = (data: DemoData) =>
+  data.groups
+    .filter((g) => g.buyerId === "levy-chi" && g.badges.includes("TIPS") && groupPhase(g) === "past")
+    .map((g) => ({ g, sheets: data.timesheets.filter((t) => t.groupId === g.id && t.status !== "removed" && t.clockIn && t.clockOut) }))
+    .filter(({ sheets }) => sheets.length >= 2 && sheets.every((t) => t.status === "pending_approval" && !t.tips && !t.invoiceId && !timesheetChecks(t).length))
+    .sort((a, b) => b.g.date.localeCompare(a.g.date) || b.g.end.localeCompare(a.g.end))
+    .map(({ g }) => g)
+
+const tipsHref = (ctx: TourContext) => {
+  const g = tipShifts(ctx.data)[0]
+  return g ? `/shifts/${g.id}` : "/shifts"
+}
+
+const TIPS_DIALOG = '[data-tour="tips-dialog"]'
+const TIPS_POOL = "480"
+/** The pool is split once each worker's box has an amount. */
+const tipsSplit = () => [...(one(TIPS_DIALOG)?.querySelectorAll<HTMLInputElement>('input:not([data-tour="tips-pool"])') ?? [])].some((i) => !!i.value)
+/** Tips on the shift open on screen. */
+const tipsOnScreen = (ctx: TourContext) => {
+  const id = /^\/shifts\/([^/]+)$/.exec(ctx.path)?.[1]
+  return id ? ctx.data.timesheets.filter((t) => t.groupId === id).reduce((s, t) => s + t.tips, 0) : 0
+}
+const tipsAsk = () => "Split $600 in tips by hours for this shift"
+const tipsButton = () => last('[data-tour="agent-set-tips"]')
+const tipsAdded = (ctx: TourContext) => ctx.thread.find((m) => m.from === "agent" && /^Added \$[\d,.]+ in tips/.test(m.text))?.text.split(" on ")[0]
+const approveHours = () => last('[data-tour="agent-approve-timesheets"]')
+/** Iris has laid out the week's hours, or the player is already past them. */
+const hoursPlan = (ctx: TourContext) => offers(ctx, "approve-timesheets") || offers(ctx, "accept-proposal") || correctedSince(ctx) || hoursApproved(ctx) > 0
+/** The timesheet billed above the clock still waits on its fix. */
+const fixing = (ctx: TourContext) => hoursPlan(ctx) && !correctedSince(ctx) && !!proposalButton(ctx)
+
 /** Last night's Harbor bartender billed above the clock, while it's still waiting for approval. */
 const paddedSheet = (data: DemoData) =>
   data.timesheets
@@ -589,11 +673,11 @@ const movedSince = (ctx: TourContext) => ctx.data.timesheets.find((t) => !!t.mov
 
 /* ------------------------------ Invoices, reports ------------------------------ */
 
-/** The consolidated invoice the tour opens: the latest closed week with venue tips on it, as any weekday has one. */
-const tourWeek = (data: DemoData) => {
+/** The consolidated invoice the tour opens: the latest closed week with venue tips on it, the buyer's own when it's the buyer looking. */
+const tourWeek = (data: DemoData, buyerId?: string) => {
   const today = todayISO()
   const weeks = data.invoiceGroups.filter((g) => !!g.week && g.invoiceIds.length > 0).sort((a, b) => b.week!.localeCompare(a.week!))
-  const ids = new Set(data.invoices.filter((i) => i.lines.some((l) => l.tips > 0)).map((i) => i.id))
+  const ids = new Set(data.invoices.filter((i) => (!buyerId || i.buyerId === buyerId) && i.lines.some((l) => l.tips > 0)).map((i) => i.id))
   const tipped = (g: (typeof weeks)[number]) => g.invoiceIds.some((id) => ids.has(id))
   const closed = weeks.filter((g) => addDaysISO(g.week!, 6) < today)
   return closed.find(tipped) ?? weeks.find(tipped) ?? closed[0] ?? weeks[0]
@@ -615,20 +699,92 @@ const COMPOSER = (id = COMPOSER_ID) => document.getElementById(id)?.closest('[da
 export const SCRIPT: TourItem[] = [
   { kind: "intro", id: "intro" },
 
-  /* ------------------------- 1. Units and cost centers ------------------------ */
+  /* -------------------- 1. Rate cards and supplier sourcing -------------------- */
+  {
+    kind: "chapter",
+    id: "chapter-rates",
+    chapter: "rates",
+    title: "Rate cards and supplier sourcing",
+    wsId: COMPASS,
+    href: `/procurement/${EVENT}`,
+    shows: "Next year's rates: every agency's bid, countered at once, approved and benchmarked.",
+  },
+  {
+    kind: "step",
+    id: "negotiate",
+    chapter: "rates",
+    label: "Negotiate every bid",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
+    body: (ctx) => (irisSent(ctx).length ? "Sped up here so you can watch." : undefined),
+    action: (ctx) => (irisSent(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
+    targets: () => [one('[data-tour="iris-negotiate"]')],
+    clicks: () => one('[data-tour="negotiate"]'),
+    placement: "left",
+    status: (ctx) => (irisSent(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSent(ctx).length} answered` : undefined),
+    done: negotiated,
+    success: () => "Every agency answered",
+    skip: async (_, api) => {
+      if (!irisSent(api.now()).length) await press(one('[data-tour="negotiate"]'))
+      await until(() => negotiated(api.now()), 30000)
+    },
+  },
+  {
+    kind: "step",
+    id: "approve",
+    chapter: "rates",
+    needs: "negotiate",
+    label: "Approve the best bids",
+    wsId: COMPASS,
+    path: new RegExp(`^/procurement/${EVENT}`),
+    href: () => `/procurement/${EVENT}`,
+    title: "Approve the best bids",
+    body: "Approved bids go live on each agency's rate card.",
+    action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
+    targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
+    placement: "bottom",
+    anchor: () => approveDialog(),
+    done: (ctx) => approvedSince(ctx) > 0,
+    success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
+    onDone: (_, api) => api.push("/procurement?tab=rates"),
+    skip: async () => {
+      if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
+      await sleep(500)
+      await press(await until(() => approveButton()))
+    },
+  },
+  {
+    kind: "step",
+    id: "coverage",
+    chapter: "rates",
+    label: "Compare market rates",
+    wsId: COMPASS,
+    path: /^\/procurement$/,
+    href: () => "/procurement?tab=rates",
+    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "Who has a rate where"),
+    body: () => (one('[data-tour="market-rates"]') ? "Agencies price Compass's definition of each role, so every rate compares like for like." : undefined),
+    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Market rates"),
+    targets: () => [one('[data-tour="market-rates"]') ?? one('[role="tab"][data-value="rates"]')],
+    placement: "top",
+    skip: () => press(one('[role="tab"][data-value="rates"]')),
+  },
+
+  /* ----------------------------- 2. Shift creation ----------------------------- */
   {
     kind: "chapter",
     id: "chapter-units",
-    chapter: "units",
-    title: "Units and cost centers",
+    chapter: "shifts",
+    title: "Shift creation",
     wsId: COMPASS,
     href: "/units",
-    shows: "Add a venue by hand, or the whole roster at once.",
+    shows: "First the venue. Add one by hand, or the whole roster at once.",
   },
   {
     kind: "step",
     id: "unit",
-    chapter: "units",
+    chapter: "shifts",
     label: "Add a cost center",
     wsId: COMPASS,
     path: /^\/units/,
@@ -655,7 +811,7 @@ export const SCRIPT: TourItem[] = [
   {
     kind: "step",
     id: "units-sheet",
-    chapter: "units",
+    chapter: "shifts",
     label: "Upload the roster",
     wsId: COMPASS,
     path: /^\/units/,
@@ -694,16 +850,14 @@ export const SCRIPT: TourItem[] = [
       await press(add)
     },
   },
-
-  /* ------------------------------ 2. Job postings ----------------------------- */
   {
     kind: "chapter",
     id: "chapter-shifts",
     chapter: "shifts",
-    title: "Job postings",
+    title: "Shift creation",
     wsId: LEVY,
     href: "/",
-    shows: "Post shifts in a sentence.",
+    shows: "Then order shifts in a sentence, or send them to one agency.",
   },
   {
     kind: "step",
@@ -749,21 +903,10 @@ export const SCRIPT: TourItem[] = [
       await until(() => booked(api.now()))
     },
   },
-
-  /* --------------------------- 3. Worker assignments --------------------------- */
-  {
-    kind: "chapter",
-    id: "chapter-assignments",
-    chapter: "assignments",
-    title: "Worker assignments",
-    wsId: LEVY,
-    href: "/shifts/new",
-    shows: "Send it to one agency and ask for workers by name.",
-  },
   {
     kind: "step",
     id: "one-agency",
-    chapter: "assignments",
+    chapter: "shifts",
     label: "Send to one agency",
     wsId: LEVY,
     path: /^\/shifts\/new/,
@@ -809,112 +952,133 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------------ 4. Compliance ------------------------------ */
+  /* --------------------- 3. Worker assignment and compliance --------------------- */
   {
     kind: "chapter",
-    id: "chapter-compliance",
-    chapter: "compliance",
-    title: "Worker compliance",
+    id: "chapter-workers",
+    chapter: "workers",
+    title: "Worker assignment and compliance",
     wsId: METRO,
-    href: "/professionals?filter=not_compliant",
-    shows: "Renew an expired document. Iris checks it with the issuer.",
+    href: assignHref,
+    shows: "Fill the shifts open to the agency. Only cleared workers get through.",
   },
   {
     kind: "step",
-    id: "renew",
-    chapter: "compliance",
-    label: "Renew a document",
+    id: "assign",
+    chapter: "workers",
+    label: "Assign workers",
+    wsId: METRO,
+    path: /^\/shifts\/(?!new$)[^/]+$/,
+    href: assignHref,
+    title: () => (one(ASSIGN) ? "Only cleared workers can be picked" : "A shift open to Metro"),
+    body: () => (one(ASSIGN) ? "Anyone else shows why not." : "Metro assigns its workers here, or its own system does it through Iris's API."),
+    action: () => (!one(ASSIGN) ? "Click Assign workers" : assignReady() ? `Click ${one(ASSIGN_SUBMIT)?.textContent?.trim() || "Assign"}` : "Pick a worker who's ready, then Assign"),
+    targets: () => [one(ASSIGN) ?? one('[data-tour="assign"]')],
+    clicks: () => (one(ASSIGN) ? one(ASSIGN_SUBMIT) : one('[data-tour="assign"]')),
+    placement: "left",
+    done: (ctx) => assignedSince(ctx) > 0,
+    success: (ctx) => `${plural(assignedSince(ctx), "worker")} assigned and confirmed`,
+    fill: { when: () => !!one(ASSIGN) && !assignReady(), run: pickReady },
+    skip: async (ctx, api) => {
+      if (!one(ASSIGN)) {
+        if (!one('[data-tour="assign"]')) api.push(assignHref(ctx))
+        await press(await until(() => one('[data-tour="assign"]'), 8000))
+      }
+      await until(() => one(ASSIGN))
+      await sleep(300)
+      await press(await pickReady())
+      await until(() => assignedSince(api.now()) > 0, 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "attest",
+    chapter: "workers",
+    label: "Attest work authorization",
     wsId: METRO,
     path: /^\/professionals$/,
     href: () => "/professionals?filter=not_compliant",
-    title: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Iris asks ${askedIssuer()}` : "Metro attests it. Iris checks it") : openPro(ctx) ? "Renew it" : "Expired means off the schedule"),
+    title: (ctx) => (one(VERIFY) ? "Metro attests it" : openPro(ctx) ? "Work authorization is attested" : "Off the schedule until it's fixed"),
     body: (ctx) => {
-      if (one(VERIFY)) return askedIssuer() ? `Nothing to upload. ${askedIssuer()} already has it.` : `Iris confirms it with ${CHECKS[(one(VERIFY)?.getAttribute("data-doc-id") as RequirementId) ?? "background"].providers[0]}.`
-      if (openPro(ctx)) return undefined
-      const pro = chosenPro(ctx)
-      const doc = blocker(pro)
-      return pro && doc ? `${pro.firstName}'s ${DOC[doc.id]} ${doc.state === "expired" ? "expired" : `is ${doc.state}`}, so Iris won't place them.` : undefined
+      if (one(VERIFY)) return "Iris records who attested it, and when."
+      if (openPro(ctx)) return "The agency redoes the I-9 as the employer."
+      const pro = authPro(ctx.data)
+      return pro ? `${pro.firstName}'s work authorization expired, so Iris won't place them.` : undefined
     },
-    action: (ctx) => (one(VERIFY) ? (askedIssuer() ? `Click Ask ${askedIssuer()}` : "Attach any file, tick the attestation, then Verify") : openPro(ctx) ? `Click ${renewTarget(ctx)?.textContent?.trim() || "Renew"}` : `Open ${chosenPro(ctx)?.firstName ?? "the worker"}`),
-    fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: attest },
-    targets: (ctx) => [one(VERIFY) ?? renewTarget(ctx)],
-    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : renewTarget(ctx)),
+    action: (ctx) => (one(VERIFY) ? "Tick the attestation, then Attest" : openPro(ctx) ? "Click Attest" : `Open ${authPro(ctx.data)?.firstName ?? "the worker"}`),
+    fill: { when: () => inside(VERIFY, 'button[role="checkbox"]')?.getAttribute("aria-checked") === "false", run: tickAttest },
+    targets: (ctx) => [one(VERIFY) ?? docTarget(ctx, "i9", authPro)],
+    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : docTarget(ctx, "i9", authPro)),
     placement: "left",
     anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
-    done: (ctx) => !!verifiedSince(ctx),
+    done: (ctx) => !!verifiedSince(ctx, ["i9"]),
     success: (ctx) => {
-      const found = verifiedSince(ctx)
+      const found = verifiedSince(ctx, ["i9"])
+      return found && standingOf(found.pro) === "compliant" ? `Attested. ${found.pro.firstName} can work again` : "Attested"
+    },
+    onDone: (ctx, api) => api.push(verifyHref(ctx)),
+    skip: async (ctx, api) => {
+      await openDoc(ctx, api, "i9", authPro)
+      await press(await tickAttest())
+      await until(() => !one(VERIFY), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "verify",
+    chapter: "workers",
+    label: "Verify a certification",
+    wsId: METRO,
+    path: /^\/professionals$/,
+    href: verifyHref,
+    title: (ctx) => (one(VERIFY) ? `Iris asks ${askedIssuer() ?? "the issuer"}` : openPro(ctx) ? "Certifications are verified" : "Then a lapsed certification"),
+    body: (ctx) => {
+      if (one(VERIFY)) return `Nothing to upload. ${askedIssuer() ?? "The issuer"} already has the current one.`
+      const pro = openPro(ctx) ?? certPro(ctx.data)
+      const doc = certOf(pro)
+      return pro && doc ? `${pro.firstName}'s ${DOC[doc]} expired. Iris checks with whoever issued it.` : undefined
+    },
+    action: (ctx) => {
+      if (one(VERIFY)) return `Click Ask ${askedIssuer() ?? "the issuer"}`
+      if (!openPro(ctx)) return `Open ${certPro(ctx.data)?.firstName ?? "the worker"}`
+      return `Click ${docTarget(ctx, certOf(openPro(ctx)) ?? "foodHandler", certPro)?.textContent?.trim() || "Ask"}`
+    },
+    targets: (ctx) => [one(VERIFY) ?? docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)],
+    clicks: (ctx) => (one(VERIFY) ? one('[data-tour="verify-submit"]') : docTarget(ctx, certOf(openPro(ctx) ?? certPro(ctx.data)) ?? "foodHandler", certPro)),
+    placement: "left",
+    anchor: () => (one(VERIFY) ? undefined : one('[data-tour="doc-action"]')?.closest('[role="dialog"]')),
+    done: (ctx) => !!verifiedSince(ctx, CERTS),
+    success: (ctx) => {
+      const found = verifiedSince(ctx, CERTS)
       return found && standingOf(found.pro) === "compliant" ? `Verified with ${found.v.checkedWith}. ${found.pro.firstName} can work again` : `Verified with ${found?.v.checkedWith ?? "the issuer"}`
     },
     skip: async (ctx, api) => {
-      let pro = openPro(ctx)
-      if (!pro) {
-        pro = chosenPro(ctx)
-        if (!pro) return
-        const row = one(`tr[data-row-id="${pro.id}"]`)
-        if (row) await press(row)
-        else api.push(`/professionals?filter=not_compliant&pro=${pro.id}`)
-      }
-      const doc = blocker(pro)
-      if (!one(VERIFY)) await press(await until(() => (doc ? one(`[data-tour="doc-action"][data-doc-id="${doc.id}"]`) : one('[data-tour="doc-action"]'))))
-      await until(() => one(VERIFY))
-      await sleep(400)
-      await press(await attest())
+      const pro = openPro(ctx) ?? certPro(ctx.data)
+      await openDoc(ctx, api, certOf(pro) ?? "foodHandler", certPro)
+      await press(one('[data-tour="verify-submit"]'))
       await until(() => !one(VERIFY), 8000)
     },
   },
 
-  /* ------------------------------ 5. Timesheets ------------------------------ */
+  /* ----------------------- 4. Timesheets, tips and expenses ----------------------- */
   {
     kind: "chapter",
     id: "chapter-agency-hours",
     chapter: "timesheets",
-    title: "Timesheets",
+    title: "Timesheets, tips and expenses",
     wsId: HARBOR,
-    href: "/timesheets",
-    shows: "Agencies send hours already checked against the clock, and what they paid for the shift.",
-  },
-  {
-    kind: "step",
-    id: "paper",
-    chapter: "timesheets",
-    label: "Scan a paper sheet",
-    wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "First, what doesn't match the clock"),
-    body: () => (one(SCAN) || justScanned() ? undefined : "It's at the top. Here, a venue that still signs in on paper."),
-    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : justScanned() ? undefined : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
-    targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
-    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
-    placement: "right",
-    done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
-    success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
-    // The closed dialog hands focus back to its button, where the next Enter would open it again.
-    // Its toast would sit over the button the next step points at.
-    onDone: (ctx, api) => {
-      ;(document.activeElement as HTMLElement | null)?.blur()
-      toast.dismiss()
-      api.push(parkingHref(ctx))
-    },
-    skip: async () => {
-      if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
-      if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
-      const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
-      await sleep(1200)
-      await press(apply)
-    },
+    href: (ctx) => parkingHref(ctx),
+    shows: "Agencies add what they paid for a shift, on one timesheet or for the whole crew at once.",
   },
   {
     kind: "step",
     id: "expense",
     chapter: "timesheets",
-    label: "Bill an expense",
+    label: "Add an expense",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: parkingHref,
-    needs: "paper",
-    title: () => (one(EXPENSE_FORM) ? "Parking, at cost" : "Then what it paid for the shift"),
+    title: () => (one(EXPENSE_FORM) ? "Parking, at cost" : "What Harbor paid for the shift"),
     body: () => (one(EXPENSE_FORM) ? "No markup. The buyer approves it with the hours." : "Event parking, or a background check the event required."),
     action: (ctx) => (one(EXPENSE_FORM) ? `Enter $${PARKING}, then Add` : one(SHEET) ? "Click Add expense" : `Open ${sheetOwner(ctx, parkingSheet(ctx.data))}`),
     targets: (ctx) => {
@@ -928,7 +1092,6 @@ export const SCRIPT: TourItem[] = [
     placement: "top",
     done: (ctx) => !!expenseSince(ctx),
     success: (ctx) => `${money(expenseSince(ctx)?.expenses?.at(-1)?.amount ?? Number(PARKING))} parking added`,
-    onDone: (_, api) => api.push("/timesheets"),
     fill: {
       when: () => !!one(EXPENSE_FORM) && !!(inside(EXPENSE_FORM, '[data-tour="expense-save"]') as HTMLButtonElement | null)?.disabled,
       run: fillParking,
@@ -943,185 +1106,166 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "expense-sheet",
+    id: "crew-expense",
     chapter: "timesheets",
-    label: "Upload an expense sheet",
+    label: "Or for the whole crew",
     wsId: HARBOR,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    needs: "paper",
+    path: /^\/shifts\/(?!new$)[^/]+$/,
+    href: crewHref,
     startsChat: true,
-    title: () => (uploadSave() ? "Matched to every shift" : "Or the whole week, from a sheet"),
-    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
+    title: () => (crewButton() ? "Only what Harbor can still bill" : "Or the whole crew, in a sentence"),
+    body: () => (crewButton() ? "Already submitted timesheets stay as they are." : undefined),
     action: () => {
-      const next = uploadSave() ?? chatReview()
-      if (next) return `Click ${next.textContent?.trim()}`
-      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
+      const add = crewButton()
+      if (add) return `Click ${add.textContent?.trim()}`
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
     },
-    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
-    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
+    example: () => (crewButton() ? undefined : crewAsk()),
+    targets: () => [crewButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => crewButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
+    fill: { when: (ctx) => !crewButton() && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(crewAsk(), CHAT_COMPOSER_ID) },
     placement: "left",
-    anchor: () => uploadSave()?.closest('[role="dialog"]'),
-    done: (ctx) => !!expenseUpload(ctx),
-    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
-    skip: async (_, api) => {
-      if (!uploadSave() && !chatReview()) {
+    done: (ctx) => !!crewAdded(ctx),
+    success: (ctx) => crewAdded(ctx) ?? "Added",
+    skip: async (ctx, api) => {
+      if (!crewButton()) {
         if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-        await until(() => COMPOSER(CHAT_COMPOSER_ID))
-        await attachExpenses(api.now())
+        await askFor(crewAsk, () => !!crewButton(), CHAT_COMPOSER_ID)(ctx, api)
       }
-      if (!uploadSave()) await press(await until(chatReview, 8000))
-      await press(await until(uploadSave, 8000))
-      await until(() => expenseUpload(api.now()), 8000)
+      await press(await until(crewButton, 8000))
+      await until(() => crewAdded(api.now()), 8000)
     },
   },
   {
     kind: "chapter",
     id: "chapter-timesheets",
     chapter: "timesheets",
-    title: "Timesheets",
+    title: "Timesheets, tips and expenses",
     wsId: LEVY,
-    href: (ctx) => splitHref(ctx),
-    shows: "Split a shift by role, then approve the week in one message.",
+    href: (ctx) => tipsHref(ctx),
+    shows: "Venues add tips and approve the week, by hand or in a sentence.",
   },
   {
     kind: "step",
-    id: "split",
+    id: "tips",
     chapter: "timesheets",
-    label: "Split a shift by role",
+    label: "Add tips",
     wsId: LEVY,
-    path: /^\/timesheets/,
-    href: splitHref,
-    title: () => (one(MOVE) ? "Pick the role and when they switched" : "Someone switched roles mid-shift"),
-    body: (ctx) => {
-      if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
-      const m = movable(ctx.data)
-      return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
-    },
-    action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
-    targets: (ctx) => [splitTarget(ctx)],
-    clicks: (ctx) => (one(MOVE) ? one('[data-tour="move-submit"]') : splitTarget(ctx)),
+    path: /^\/shifts\/(?!new$)[^/]+$/,
+    href: tipsHref,
+    title: () => (tipsSplit() ? "Each worker's share" : one(TIPS_DIALOG) ? "Split the pool by hours" : "Tips, right on the shift"),
+    body: () => (tipsSplit() ? "No markup. Approved with the hours." : one(TIPS_DIALOG) ? "Or type each worker's tip." : "Each worker's tip goes on their timesheet."),
+    action: () => (tipsSplit() ? "Click Save tips" : one(TIPS_DIALOG) ? `Enter $${TIPS_POOL}, then Split by hours` : "Click Add tips"),
+    targets: () => [one(TIPS_DIALOG) ?? one('[data-tour="tips-open"]')],
+    clicks: () => (one(TIPS_DIALOG) ? one(tipsSplit() ? '[data-tour="tips-save"]' : '[data-tour="tips-split"]') : one('[data-tour="tips-open"]')),
     placement: "left",
-    anchor: () => (one(MOVE) ? undefined : one(SHEET)),
-    done: (ctx) => !!movedSince(ctx),
-    success: (ctx) => {
-      const t = movedSince(ctx)
-      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
-    },
-    onDone: (_, api) => api.push("/timesheets"),
+    done: (ctx) => !one(TIPS_DIALOG) && tipsOnScreen(ctx) > 0,
+    success: (ctx) => `${money(tipsOnScreen(ctx))} in tips added`,
+    // The saved toast would sit over the agent's button the next step points at.
+    onDone: () => toast.dismiss(),
     fill: {
-      when: () => !!one(MOVE),
-      run: async (ctx) => {
-        await pickRole(ctx)
-        return one('[data-tour="move-submit"]')
+      when: () => !!one(TIPS_DIALOG) && !tipsSplit() && !(inside(TIPS_DIALOG, '[data-tour="tips-pool"]') as HTMLInputElement | null)?.value,
+      run: async () => {
+        await type(inside(TIPS_DIALOG, '[data-tour="tips-pool"]'), TIPS_POOL)
+        return inside(TIPS_DIALOG, '[data-tour="tips-split"]')
       },
     },
     skip: async (ctx, api) => {
-      if (!one(SHEET)) {
-        const m = movable(ctx.data)
-        if (!m) return
-        const row = one(`tr[data-row-id="${m.t.id}"]`)
-        if (row) await press(row)
-        else api.push(`/timesheets?ts=${m.t.id}`)
+      if (!one(TIPS_DIALOG)) await press(await until(() => one('[data-tour="tips-open"]'), 8000))
+      await until(() => one(TIPS_DIALOG))
+      if (!tipsSplit()) {
+        await type(inside(TIPS_DIALOG, '[data-tour="tips-pool"]'), TIPS_POOL)
+        await press(inside(TIPS_DIALOG, '[data-tour="tips-split"]'))
       }
-      if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
-      await until(() => one(MOVE))
-      await sleep(400)
-      await pickRole(api.now())
-      await press(one('[data-tour="move-submit"]'))
+      await press(await until(() => tipsSplit() && one('[data-tour="tips-save"]')))
+      await until(() => tipsOnScreen(api.now()) > 0, 8000)
     },
   },
   {
     kind: "step",
-    id: "approve-ask",
+    id: "tips-ask",
+    chapter: "timesheets",
+    label: "Or tips in a sentence",
+    wsId: LEVY,
+    path: /^\/shifts\/(?!new$)[^/]+$/,
+    href: tipsHref,
+    startsChat: true,
+    title: () => (tipsButton() ? "Every worker's share, by hours" : "Or the whole pool, in a sentence"),
+    action: () => {
+      const add = tipsButton()
+      if (add) return `Click ${add.textContent?.trim()}`
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
+    },
+    example: () => (tipsButton() ? undefined : tipsAsk()),
+    targets: () => [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
+    fill: { when: (ctx) => !tipsButton() && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(tipsAsk(), CHAT_COMPOSER_ID) },
+    placement: "left",
+    done: (ctx) => !!tipsAdded(ctx),
+    success: (ctx) => tipsAdded(ctx) ?? "Tips added",
+    skip: async (ctx, api) => {
+      if (!tipsButton()) {
+        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+        await askFor(tipsAsk, () => !!tipsButton(), CHAT_COMPOSER_ID)(ctx, api)
+      }
+      await press(await until(tipsButton, 8000))
+      await until(() => tipsAdded(api.now()), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "approve-week",
     chapter: "timesheets",
     label: "Approve in a sentence",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
-    title: "Then approve the week at once",
-    action: () => (COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"),
-    example: approveAsk,
-    targets: () => [COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(approveAsk(), CHAT_COMPOSER_ID) },
-    placement: "left",
-    done: (ctx) => offers(ctx, "approve-timesheets") || hoursApproved(ctx) > 0,
-    success: () => "Checked against the clock",
     startsChat: true,
-    skip: async (ctx, api) => {
-      if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
-      await askFor(approveAsk, (now) => offers(now, "approve-timesheets"), CHAT_COMPOSER_ID)(ctx, api)
-    },
-  },
-  {
-    kind: "step",
-    id: "fix",
-    chapter: "timesheets",
-    label: "Fix what doesn't match",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "What doesn't match comes first",
-    body: (ctx) => (proposalButton(ctx) ? "Iris proposes the clock's hours." : undefined),
+    title: (ctx) => (!hoursPlan(ctx) ? "Then approve the week in a sentence" : fixing(ctx) ? "What doesn't match comes first" : "Then the rest in one click"),
+    body: (ctx) => (fixing(ctx) ? "Iris checks every timesheet against the clock, and proposes the clock's hours." : undefined),
     action: (ctx) => {
+      if (!hoursPlan(ctx)) return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
+      if (!fixing(ctx)) return `Click ${approveHours()?.textContent?.trim() || "Approve"}`
       const hrs = proposalButton(ctx)?.textContent?.trim()
       const row = proposalButton(ctx)?.closest('[data-tour="agent-flag"]')
       const name = row?.querySelector(".font-semibold")?.textContent?.split(" ")[0]
       return hrs ? `Click ${hrs}${name ? ` for ${name}` : ""}` : "Click the proposed hours"
     },
-    targets: () => [last('[data-tour="agent-plan"]')],
-    clicks: proposalButton,
+    example: (ctx) => (hoursPlan(ctx) ? undefined : approveAsk()),
+    targets: (ctx) => [hoursPlan(ctx) ? last('[data-tour="agent-plan"]') : (COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN))],
+    clicks: (ctx) => (!hoursPlan(ctx) ? (sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)) : fixing(ctx) ? proposalButton(ctx) : approveHours()),
+    fill: { when: (ctx) => !hoursPlan(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: () => typeAsk(approveAsk(), CHAT_COMPOSER_ID) },
     placement: "left",
-    done: correctedSince,
-    inChat: true,
-    success: () => "Corrected to the clock and approved",
-    back: "approve-ask",
-    needs: "approve-ask",
+    done: (ctx) => hoursApproved(ctx) > 0 && !fixing(ctx),
+    success: (ctx) => (correctedSince(ctx) ? `Corrected to the clock, and ${plural(hoursApproved(ctx), "timesheet")} approved` : `${plural(hoursApproved(ctx), "timesheet")} approved`),
     skip: async (ctx, api) => {
-      await press(proposalButton(ctx))
-      await until(() => correctedSince(api.now()))
-    },
-  },
-  {
-    kind: "step",
-    id: "approve-hours",
-    chapter: "timesheets",
-    label: "Approve the rest",
-    wsId: LEVY,
-    path: /^\/timesheets/,
-    href: () => "/timesheets",
-    title: "Then the rest in one click",
-    action: () => `Click ${last('[data-tour="agent-approve-timesheets"]')?.textContent?.trim() || "Approve"}`,
-    targets: () => [last('[data-tour="agent-plan"]')],
-    clicks: () => last('[data-tour="agent-approve-timesheets"]'),
-    placement: "left",
-    done: (ctx) => hoursApproved(ctx) > 0,
-    inChat: true,
-    success: (ctx) => `${plural(hoursApproved(ctx), "timesheet")} approved`,
-    back: "approve-ask",
-    needs: "fix",
-    skip: async (_, api) => {
-      await press(last('[data-tour="agent-approve-timesheets"]'))
+      if (!hoursPlan(ctx)) {
+        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+        await askFor(approveAsk, (now) => offers(now, "approve-timesheets") || offers(now, "accept-proposal"), CHAT_COMPOSER_ID)(ctx, api)
+      }
+      if (fixing(api.now())) {
+        await press(proposalButton(api.now()))
+        await until(() => correctedSince(api.now()))
+      }
+      await press(await until(approveHours, 8000))
       await until(() => hoursApproved(api.now()) > 0)
     },
   },
 
-  /* ------------------------- 6. Invoices and reporting ------------------------ */
+  /* -------------------------- 5. Invoicing and accruals -------------------------- */
   {
     kind: "chapter",
-    id: "chapter-reporting",
-    chapter: "reporting",
-    title: "Invoices and reporting",
+    id: "chapter-invoicing",
+    chapter: "invoicing",
+    title: "Invoicing and accruals",
     wsId: COMPASS,
     href: "/invoices",
-    shows: "One invoice a week, and any number you ask for.",
+    shows: "One invoice a week for all of Compass, and what to accrue before it lands.",
   },
   {
     kind: "step",
     id: "weekly",
-    chapter: "reporting",
+    chapter: "invoicing",
     label: "Open the weekly invoice",
     wsId: COMPASS,
     path: /^\/invoices(\/groups\/[^/]+)?$/,
@@ -1148,41 +1292,29 @@ export const SCRIPT: TourItem[] = [
   },
   {
     kind: "step",
-    id: "tips",
-    chapter: "reporting",
-    label: "Check the tips",
-    wsId: COMPASS,
-    path: /^\/invoices\/groups\/[^/]+$/,
-    href: (ctx) => {
-      const g = tourWeek(ctx.data)
-      return g ? `/invoices/groups/${g.id}` : "/invoices"
-    },
-    title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
-    body: () => (one('[data-tour="venue-tips"]') ? "Passed through with no markup. Hover for each worker's share." : undefined),
-    action: () => (one('[data-tour="venue-tips"]') ? undefined : "Click Tips"),
-    targets: () => {
-      const rows = [...document.querySelectorAll('[data-tour="venue-tips"]')].slice(0, 3)
-      return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
-    },
-    placement: "bottom",
-    onDone: (_, api) => api.push("/invoices?filter=accrue"),
-    skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
-  },
-  {
-    kind: "step",
     id: "accruals",
-    chapter: "reporting",
+    chapter: "invoicing",
     label: "Review accruals",
     wsId: COMPASS,
     path: /^\/invoices$/,
     href: () => "/invoices?filter=accrue",
     title: () => (one(ACCRUALS) ? "To accrue, by cost center" : "Spend before the invoice lands"),
-    body: () => (one(ACCRUALS) ? "Hours worked that no invoice covers yet. Accounting books it at month end." : undefined),
+    body: () => (one(ACCRUALS) ? "Hours worked that no invoice covers yet. Pick a period, like last month, to book it." : undefined),
     action: () => (one(ACCRUALS) ? undefined : "Click Not invoiced yet"),
     targets: () => (one(ACCRUALS) ? [one(ACCRUALS), one('[data-tour="accrual-total"]')] : [one(ACCRUE_TAB)]),
     placement: "bottom",
-    onDone: (_, api) => api.push("/"),
     skip: () => press(one(ACCRUE_TAB)),
+  },
+
+  /* --------------------------------- 6. Reporting -------------------------------- */
+  {
+    kind: "chapter",
+    id: "chapter-reporting",
+    chapter: "reporting",
+    title: "Reporting",
+    wsId: COMPASS,
+    href: "/",
+    shows: "Any number, in a sentence. Then what Iris expects next.",
   },
   {
     kind: "step",
@@ -1244,76 +1376,156 @@ export const SCRIPT: TourItem[] = [
     },
   },
 
-  /* ------------------------------ 7. Procurement ----------------------------- */
+  /* ------------------------------ 7. Nuanced features ------------------------------ */
   {
     kind: "chapter",
-    id: "chapter-procurement",
-    chapter: "procurement",
-    title: "Procurement",
-    wsId: COMPASS,
-    href: `/procurement/${EVENT}`,
-    shows: "Next year's rates, every agency's bids, countered at once.",
+    id: "chapter-more-agency",
+    chapter: "nuanced",
+    title: "Nuanced features",
+    wsId: HARBOR,
+    href: "/timesheets",
+    shows: "Hours from a paper sign-in sheet, and a week of expenses from a spreadsheet.",
   },
   {
     kind: "step",
-    id: "negotiate",
-    chapter: "procurement",
-    label: "Negotiate every bid",
-    wsId: COMPASS,
-    path: new RegExp(`^/procurement/${EVENT}`),
-    href: () => `/procurement/${EVENT}`,
-    title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
-    body: (ctx) => (irisSent(ctx).length ? "Sped up here so you can watch." : undefined),
-    action: (ctx) => (irisSent(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
-    targets: () => [one('[data-tour="iris-negotiate"]')],
-    clicks: () => one('[data-tour="negotiate"]'),
-    placement: "left",
-    status: (ctx) => (irisSent(ctx).length && !negotiated(ctx) ? `${answered(ctx)} of ${irisSent(ctx).length} answered` : undefined),
-    done: negotiated,
-    success: () => "Every agency answered",
-    skip: async (_, api) => {
-      if (!irisSent(api.now()).length) await press(one('[data-tour="negotiate"]'))
-      await until(() => negotiated(api.now()), 30000)
+    id: "paper",
+    chapter: "nuanced",
+    label: "Scan a paper sheet",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: () => (one('[data-tour="scan-apply"]') || justScanned() ? "Matched to each worker on the shift" : one(SCAN) ? "Iris reads it" : "A venue that signs in on paper"),
+    body: () => (one(SCAN) || justScanned() ? undefined : "Scan the sheet. Iris matches it to each worker."),
+    action: () => (one('[data-tour="scan-apply"]') ? "Click Update" : justScanned() ? undefined : one(SCAN) ? "Click Read the sheet" : "Click Scan a sign-in sheet"),
+    targets: () => (one(SCAN) ? [one(SCAN)] : [one('[data-tour="scan-sheet-open"]')]),
+    clicks: () => (one(SCAN) ? (one('[data-tour="scan-apply"]') ?? one('[data-tour="scan-read"]')) : justScanned() ? undefined : one('[data-tour="scan-sheet-open"]')),
+    placement: "right",
+    done: (ctx) => scannedSince(ctx) > 0 && !one(SCAN),
+    success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
+    // The closed dialog hands focus back to its button, where the next Enter would open it again.
+    // Its toast would sit over the button the next step points at.
+    onDone: () => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      toast.dismiss()
     },
-  },
-  {
-    kind: "step",
-    id: "approve",
-    chapter: "procurement",
-    needs: "negotiate",
-    label: "Approve the best bids",
-    wsId: COMPASS,
-    path: new RegExp(`^/procurement/${EVENT}`),
-    href: () => `/procurement/${EVENT}`,
-    title: "Approve the best bids",
-    body: "Approved bids go live on each agency's rate card.",
-    action: () => (approveDialog() ? "Click Approve" : "Click Approve bids"),
-    targets: () => (approveDialog() ? [approveButton()] : [one('[data-tour="approve-all"]')]),
-    placement: "bottom",
-    anchor: () => approveDialog(),
-    done: (ctx) => approvedSince(ctx) > 0,
-    success: (ctx) => `${plural(approvedSince(ctx), "bid")} approved. The new rates are live`,
-    onDone: (_, api) => api.push("/procurement?tab=rates"),
     skip: async () => {
-      if (!approveDialog()) await press(one('[data-tour="approve-all"]'))
-      await sleep(500)
-      await press(await until(() => approveButton()))
+      if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
+      if (!one('[data-tour="scan-apply"]')) await press(await until(() => one('[data-tour="scan-read"]')))
+      const apply = await until(() => one('[data-tour="scan-apply"]'), 4000)
+      await sleep(1200)
+      await press(apply)
     },
   },
   {
     kind: "step",
-    id: "coverage",
-    chapter: "procurement",
-    label: "Compare market rates",
-    wsId: COMPASS,
-    path: /^\/procurement$/,
-    href: () => "/procurement?tab=rates",
-    title: () => (one('[data-tour="market-rates"]') ? "Every role, every market, one standard" : "Who has a rate where"),
-    body: () => (one('[data-tour="market-rates"]') ? "Agencies price Compass's definition of each role, so every rate compares like for like." : undefined),
-    action: () => (one('[data-tour="market-rates"]') ? undefined : "Click Market rates"),
-    targets: () => [one('[data-tour="market-rates"]') ?? one('[role="tab"][data-value="rates"]')],
-    placement: "top",
-    skip: () => press(one('[role="tab"][data-value="rates"]')),
+    id: "expense-sheet",
+    chapter: "nuanced",
+    label: "Upload an expense sheet",
+    wsId: HARBOR,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    needs: "paper",
+    startsChat: true,
+    title: () => (uploadSave() ? "Matched to every shift" : "A week of expenses, from a sheet"),
+    body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
+    action: () => {
+      const next = uploadSave() ?? chatReview()
+      if (next) return `Click ${next.textContent?.trim()}`
+      return COMPOSER(CHAT_COMPOSER_ID) ? "Attach Harbor's expense sheet" : "Click Agent Chat"
+    },
+    targets: () => [uploadSave() ?? chatReview() ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => uploadSave() ?? chatReview() ?? (COMPOSER(CHAT_COMPOSER_ID) ? null : one(CHAT_OPEN)),
+    fill: { when: () => !!COMPOSER(CHAT_COMPOSER_ID) && !chatReview() && !uploadSave(), run: attachExpenses },
+    placement: "left",
+    anchor: () => uploadSave()?.closest('[role="dialog"]'),
+    done: (ctx) => !!expenseUpload(ctx),
+    success: (ctx) => expenseUpload(ctx)?.summary ?? "Expenses added",
+    skip: async (_, api) => {
+      if (!uploadSave() && !chatReview()) {
+        if (!COMPOSER(CHAT_COMPOSER_ID)) await press(one(CHAT_OPEN))
+        await until(() => COMPOSER(CHAT_COMPOSER_ID))
+        await attachExpenses(api.now())
+      }
+      if (!uploadSave()) await press(await until(chatReview, 8000))
+      await press(await until(uploadSave, 8000))
+      await until(() => expenseUpload(api.now()), 8000)
+    },
+  },
+  {
+    kind: "chapter",
+    id: "chapter-more-venue",
+    chapter: "nuanced",
+    title: "Nuanced features",
+    wsId: LEVY,
+    href: (ctx) => splitHref(ctx),
+    shows: "A worker who switched roles mid-shift, and where tips land on the invoice.",
+  },
+  {
+    kind: "step",
+    id: "split",
+    chapter: "nuanced",
+    label: "Split a shift by role",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: splitHref,
+    title: () => (one(MOVE) ? "Pick the role and when they switched" : "Someone switched roles mid-shift"),
+    body: (ctx) => {
+      if (one(MOVE)) return "Each part bills at its own rate, to its department's cost center."
+      const m = movable(ctx.data)
+      return m ? `${m.pro.firstName} went from ${position(m.t.positionId).name.toLowerCase()} to ${position(m.card.positionId).name.toLowerCase()} partway through.` : undefined
+    },
+    action: (ctx) => (one(MOVE) ? "Pick a role and a time, then Move" : one(SHEET) ? "Click Split by role" : `Open ${sheetOwner(ctx, movable(ctx.data)?.t)}`),
+    targets: (ctx) => [splitTarget(ctx)],
+    clicks: (ctx) => (one(MOVE) ? one('[data-tour="move-submit"]') : splitTarget(ctx)),
+    placement: "left",
+    anchor: () => (one(MOVE) ? undefined : one(SHEET)),
+    done: (ctx) => !!movedSince(ctx),
+    success: (ctx) => {
+      const t = movedSince(ctx)
+      return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
+    },
+    fill: {
+      when: () => !!one(MOVE),
+      run: async (ctx) => {
+        await pickRole(ctx)
+        return one('[data-tour="move-submit"]')
+      },
+    },
+    skip: async (ctx, api) => {
+      if (!one(SHEET)) {
+        const m = movable(ctx.data)
+        if (!m) return
+        const row = one(`tr[data-row-id="${m.t.id}"]`)
+        if (row) await press(row)
+        else api.push(`/timesheets?ts=${m.t.id}`)
+      }
+      if (!one(MOVE)) await press(await until(() => one('[data-tour="split-role"]')))
+      await until(() => one(MOVE))
+      await sleep(400)
+      await pickRole(api.now())
+      await press(one('[data-tour="move-submit"]'))
+    },
+  },
+  {
+    kind: "step",
+    id: "invoice-tips",
+    chapter: "nuanced",
+    label: "Tips on the invoice",
+    wsId: LEVY,
+    path: /^\/invoices\/groups\/[^/]+$/,
+    href: (ctx) => {
+      const g = tourWeek(ctx.data, "levy-chi")
+      return g ? `/invoices/groups/${g.id}` : "/invoices"
+    },
+    title: () => (one('[data-tour="venue-tips"]') ? "One line per venue and night" : "Tips, billed the way venues approve them"),
+    body: () => (one('[data-tour="venue-tips"]') ? "Passed through with no markup. Hover for each worker's share." : undefined),
+    action: () => (one('[data-tour="venue-tips"]') ? undefined : "Click Tips"),
+    targets: () => {
+      const rows = [...document.querySelectorAll('[data-tour="venue-tips"]')].slice(0, 3)
+      return rows.length ? rows : [one(`${GROUP} [role="tab"][data-value="tips"]`)]
+    },
+    placement: "bottom",
+    skip: () => press(one(`${GROUP} [role="tab"][data-value="tips"]`)),
   },
 
   { kind: "finale", id: "finale" },
