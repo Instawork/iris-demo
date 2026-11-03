@@ -705,7 +705,6 @@ export const SCRIPT: TourItem[] = [
     path: new RegExp(`^/procurement/${EVENT}`),
     href: () => `/procurement/${EVENT}`,
     title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
-    body: (ctx) => (irisSent(ctx).length ? "Sped up here so you can watch." : undefined),
     action: (ctx) => (irisSent(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
     targets: () => [one('[data-tour="iris-negotiate"]')],
     clicks: () => one('[data-tour="negotiate"]'),
