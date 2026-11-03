@@ -83,6 +83,8 @@ export interface TourStep {
   startsChat?: boolean
   /** Acts on a reply in the bottom-right Agent Chat, so arriving here opens it. */
   inChat?: boolean
+  /** Starts by asking Iris, so arriving here opens Agent Chat ready to type. */
+  opensChat?: boolean
   /** Fills in the screen the player is on, and returns the button they click to move on. */
   fill?: {
     when: (ctx: TourContext) => boolean
@@ -1043,7 +1045,7 @@ export const SCRIPT: TourItem[] = [
     title: "Timesheets, tips and expenses",
     wsId: HARBOR,
     href: "/timesheets",
-    shows: "Agencies send hours from a paper sheet, and add what they paid: one shift, the whole crew, or a week from a spreadsheet.",
+    shows: "Agencies send hours and what they paid. Then the venue adds tips, splits a shift by role, and approves the week.",
   },
   {
     kind: "step",
@@ -1063,9 +1065,10 @@ export const SCRIPT: TourItem[] = [
     success: (ctx) => `Updated ${plural(scannedSince(ctx), "timesheet")} from the sheet`,
     // The closed dialog hands focus back to its button, where the next Enter would open it again.
     // Its toast would sit over the button the next step points at.
-    onDone: () => {
+    onDone: (ctx, api) => {
       ;(document.activeElement as HTMLElement | null)?.blur()
       toast.dismiss()
+      api.push(parkingHref(ctx))
     },
     skip: async () => {
       if (!one(SCAN)) await press(one('[data-tour="scan-sheet-open"]'))
@@ -1118,11 +1121,12 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "crew-expense",
     chapter: "timesheets",
-    label: "Or for the whole crew",
+    label: "For the whole crew",
     wsId: HARBOR,
     path: /^\/shifts\/(?!new$)[^/]+$/,
     href: crewHref,
     startsChat: true,
+    opensChat: true,
     title: () => (crewButton() ? "Only what Harbor can still bill" : "Or the whole crew, in a sentence"),
     action: () => {
       const add = crewButton()
@@ -1149,12 +1153,13 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "expense-sheet",
     chapter: "timesheets",
-    label: "Upload an expense sheet",
+    label: "Upload expenses",
     wsId: HARBOR,
     path: /^\/timesheets/,
     href: () => "/timesheets",
     needs: "paper",
     startsChat: true,
+    opensChat: true,
     title: () => (uploadSave() ? "Matched to every shift" : "A week of expenses, from a sheet"),
     body: () => (uploadSave() ? "Billed at cost, with the hours." : chatReview() ? undefined : "Drop it in Agent Chat. Iris checks each row."),
     action: () => {
@@ -1181,15 +1186,6 @@ export const SCRIPT: TourItem[] = [
     },
   },
   {
-    kind: "chapter",
-    id: "chapter-timesheets",
-    chapter: "timesheets",
-    title: "Timesheets, tips and expenses",
-    wsId: LEVY,
-    href: (ctx) => tipsHref(ctx),
-    shows: "Venues add tips, split a shift by role, and approve the week in a sentence.",
-  },
-  {
     kind: "step",
     id: "tips",
     chapter: "timesheets",
@@ -1198,7 +1194,8 @@ export const SCRIPT: TourItem[] = [
     path: /^\/timesheets/,
     href: tipsHref,
     startsChat: true,
-    title: () => (tipsButton() ? "Every worker's share, by hours" : "Tips, right on the timesheet"),
+    opensChat: true,
+    title: () => (tipsButton() ? "Every worker's share, by hours" : "Now Levy, the venue, adds tips"),
     body: () => (tipsButton() ? "No markup. Nothing is saved until you click." : "Type one in, or ask Iris to split the pool."),
     action: () => {
       const add = tipsButton()
@@ -1273,11 +1270,12 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "approve-week",
     chapter: "timesheets",
-    label: "Approve in a sentence",
+    label: "Approve the week",
     wsId: LEVY,
     path: /^\/timesheets/,
     href: () => "/timesheets",
     startsChat: true,
+    opensChat: true,
     title: (ctx) => (!hoursPlan(ctx) ? "Then approve the week in a sentence" : fixing(ctx) ? "What doesn't match comes first" : "Then the rest in one click"),
     body: (ctx) => (fixing(ctx) ? "Iris checks every timesheet against the clock, and proposes the clock's hours." : undefined),
     action: (ctx) => {

@@ -508,7 +508,10 @@ async function jumpTo(index: number, push: (href: string) => void) {
   preparing = setUp.length ? item.id : undefined
   useTour.getState().go(index)
   if (item.inChat && !setUp[0]?.startsChat) useUi.getState().setAgentOpen(true)
-  if (!setUp.length) return
+  if (!setUp.length) {
+    if (item.opensChat) useUi.getState().setAgentOpen(true)
+    return
+  }
   const at = useTour.getState().enteredAt
   // The step being left stops Iris as it unmounts, and a chat it left open has to finish closing, or Iris types into it.
   await new Promise((resolve) => window.setTimeout(resolve, 120))
@@ -529,6 +532,7 @@ async function jumpTo(index: number, push: (href: string) => void) {
         push(there)
         await arrivedAt(there)
       }
+      if (item.opensChat && useTour.getState().enteredAt === at) useUi.getState().setAgentOpen(true)
     }
   } catch (error) {
     if (!pilotStopped(error)) throw error
@@ -777,7 +781,9 @@ function StepScreen({ step }: { step: TourStep }) {
     }
     if (next?.kind === "step" && !next.inChat && !next.startsChat) useUi.getState().setAgentOpen(false)
     if (to) await arrivedAt(to)
-    if (useTour.getState().enteredAt === at) useTour.getState().finish(step.id, how)
+    if (useTour.getState().enteredAt !== at) return
+    if (next?.kind === "step" && next.opensChat) useUi.getState().setAgentOpen(true)
+    useTour.getState().finish(step.id, how)
   }
   const visit = enteredAt
   const flying = piloting?.visit === visit
@@ -1304,6 +1310,7 @@ function CardScreen({ item, index }: { item: Exclude<TourItem, TourStep>; index:
     router.push(href)
     // The part's first step must not judge the page being left: its sheet or labels can look like that step done.
     await arrivedAt(href)
+    if (first?.kind === "step" && first.opensChat) useUi.getState().setAgentOpen(true)
     useTour.getState().go(index + 1)
   }
 
@@ -1447,6 +1454,7 @@ function PartList({
       {CHAPTER_ORDER.map((id) => {
         const c = CHAPTERS[id]
         const expanded = open === id
+        const steps = STEPS.filter((s) => s.chapter === id)
         return (
           <li key={id}>
             <button
@@ -1466,8 +1474,12 @@ function PartList({
               <ChevronDown className={cn("ml-auto size-3.5 shrink-0 transition-transform", dark ? "text-background/45" : "text-subtle", expanded && "rotate-180")} />
             </button>
             {expanded && (
-              <ol className={cn("flex flex-col", dark ? "mb-1 ml-[15px] border-l border-background/15 pl-1.5" : "pb-2 pl-[42px] pr-2")} aria-label="Steps">
-                {STEPS.filter((s) => s.chapter === id).map((s) => {
+              <ol
+                className={cn(steps.length > 4 ? "grid grid-flow-col grid-cols-2 gap-x-1" : "flex flex-col", dark ? "mb-1 ml-[15px] border-l border-background/15 pl-1.5" : "pb-2 pl-[42px] pr-2")}
+                style={steps.length > 4 ? { gridTemplateRows: `repeat(${Math.ceil(steps.length / 2)}, auto)` } : undefined}
+                aria-label="Steps"
+              >
+                {steps.map((s) => {
                   const current = s.id === here
                   return (
                     <li key={s.id}>
