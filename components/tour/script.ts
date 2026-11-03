@@ -4,7 +4,9 @@ import { toast } from "sonner"
 import { CHAT_COMPOSER_ID } from "@/components/agent/agent-chat"
 import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-store"
 import { compose } from "@/components/agent/agent-thread"
+import { enteringTips } from "@/components/agent/enter-tips"
 import { COMPOSER_ID } from "@/components/home/agent-home"
+import { STOPPED, cursorStopped, haltCursor, point, press, restCursor, sleep, type, until } from "@/components/tour/cursor"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
 import { crewShift } from "@/lib/agent-agency"
 import { tipShift } from "@/lib/agent-tips"
@@ -151,113 +153,12 @@ export const handOff = (el: Element | null | undefined) => {
   el.addEventListener("click", () => handoff === el && clearHandoff(), { once: true })
 }
 
-/** Bumped when the step changes or the tour ends, so Iris stops where she is. */
-let pilot = 0
-const STOPPED = new Error("Tour autopilot stopped")
+/** Called when the step changes or the tour ends, so Iris stops where she is. */
 export const stopPilot = () => {
-  pilot++
   clearHandoff()
-  restCursor(250)
+  haltCursor()
 }
-export const pilotStopped = (error: unknown) => error === STOPPED
-
-const sleep = (ms: number) => {
-  const run = pilot
-  return new Promise<void>((resolve, reject) => window.setTimeout(() => (run === pilot ? resolve() : reject(STOPPED)), ms))
-}
-
-/** Waits for the next screen, or gives up and hands the step back to the player. */
-async function until<T>(find: () => T | null | undefined | false, ms = 5000): Promise<T> {
-  const end = performance.now() + ms
-  for (;;) {
-    const found = find()
-    if (found) return found
-    if (performance.now() > end) throw STOPPED
-    await sleep(80)
-  }
-}
-
-/** Iris's cursor, drawn over the page while she works so everyone watching sees what she clicks. */
-let cursor: HTMLElement | undefined
-let cursorAt = { x: 0, y: 0 }
-let resting = 0
-
-const CURSOR = `<svg width="27" height="29" viewBox="0 0 22 24" aria-hidden="true"><path d="M3 2.5v16.2l4.3-4.1 2.9 6.4 2.9-1.3-2.8-6.3 6-.3z" fill="#16130f" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg><span>Iris</span>`
-
-const cursorEl = () => {
-  if (cursor?.isConnected) return cursor
-  cursor = document.createElement("div")
-  cursor.setAttribute("data-tour-cursor", "")
-  cursor.setAttribute("aria-hidden", "true")
-  cursor.innerHTML = CURSOR
-  document.body.append(cursor)
-  return cursor
-}
-
-const moveCursor = (el: HTMLElement, x: number, y: number, ms: number) => {
-  el.style.setProperty("--glide", `${ms}ms`)
-  el.style.transform = `translate(${x}px, ${y}px)`
-  cursorAt = { x, y }
-}
-
-function restCursor(after = 850) {
-  window.clearTimeout(resting)
-  resting = window.setTimeout(() => cursor?.removeAttribute("data-on"), after)
-}
-
-/** Glides the cursor onto an element, from the tour card's button if it isn't on screen yet. */
-async function point(target: Element) {
-  const c = cursorEl()
-  window.clearTimeout(resting)
-  const r = target.getBoundingClientRect()
-  const to = { x: r.left + Math.min(r.width / 2, 140), y: r.top + Math.min(r.height / 2, 24) }
-  if (!c.hasAttribute("data-on")) {
-    const from = document.querySelector("[data-tour-do]")?.getBoundingClientRect()
-    moveCursor(c, from ? from.left + from.width / 2 : window.innerWidth / 2, from ? from.top + from.height / 2 : window.innerHeight - 80, 0)
-    c.getBoundingClientRect()
-    c.setAttribute("data-on", "")
-  }
-  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  const ms = still ? 0 : Math.round(Math.min(750, Math.max(300, 240 + Math.hypot(to.x - cursorAt.x, to.y - cursorAt.y) * 0.5)))
-  moveCursor(c, to.x, to.y, ms)
-  await sleep(ms + 60)
-}
-
-/** Types into a field a few letters at a time, through the field's own change handler. */
-async function type(el: Element | null | undefined, value: string) {
-  if (!(el instanceof HTMLInputElement)) throw STOPPED
-  if (el.value === value) return
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-  el.scrollIntoView({ block: "nearest" })
-  await point(el)
-  el.focus()
-  const pace = value.length > 20 ? 22 : 38
-  for (let i = 1; i <= value.length; i++) {
-    setValue?.call(el, value.slice(0, i))
-    el.dispatchEvent(new Event("input", { bubbles: true }))
-    await sleep(pace)
-  }
-  await sleep(220)
-}
-
-/** Presses a button the way a person would: the cursor goes to it, it lights up for a moment, then clicks. */
-async function press(el: Element | null | undefined) {
-  if (!(el instanceof HTMLElement)) throw STOPPED
-  el.scrollIntoView({ block: "nearest" })
-  await point(el)
-  const c = cursorEl()
-  el.setAttribute("data-tour-press", "")
-  c.setAttribute("data-down", "")
-  try {
-    await sleep(300)
-  } finally {
-    el.removeAttribute("data-tour-press")
-    c.removeAttribute("data-down")
-  }
-  el.click()
-  restCursor()
-  await sleep(300)
-}
+export const pilotStopped = cursorStopped
 
 /** What the player's next click is on this step, if it's something Iris can click. */
 export const nextClick = (step: TourStep, ctx: TourContext) => {
@@ -1195,17 +1096,23 @@ export const SCRIPT: TourItem[] = [
     href: tipsHref,
     startsChat: true,
     opensChat: true,
-    title: () => (tipsButton() ? "Every worker's share, by hours" : "Now Levy, the venue, adds tips"),
-    body: () => (tipsButton() ? "No markup. Nothing is saved until you click." : "Type one in, or ask Iris to split the pool."),
+    title: () => (enteringTips() ? "Iris types each share in" : tipsButton() ? "Every worker's share, by hours" : "Now Levy, the venue, adds tips"),
+    body: () =>
+      enteringTips() ? "Right on the timesheet, the way you would. Each one saves as she goes." : tipsButton() ? "No markup. Nothing is saved until you click." : "Type one in, or ask Iris to split the pool.",
     action: () => {
+      if (enteringTips()) return "Watch Iris enter each share"
       const add = tipsButton()
       if (add) return `Click ${add.textContent?.trim()}`
       return COMPOSER(CHAT_COMPOSER_ID) ? "Send it with Enter" : "Click Agent Chat"
     },
-    example: (ctx) => (tipsButton() ? undefined : tipsAsk(ctx)),
-    targets: () => [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
-    clicks: () => tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN),
-    fill: { when: (ctx) => !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID), run: (ctx) => typeAsk(tipsAsk(ctx), CHAT_COMPOSER_ID) },
+    example: (ctx) => (enteringTips() || tipsButton() ? undefined : tipsAsk(ctx)),
+    targets: () =>
+      enteringTips() ? [...document.querySelectorAll('[data-tour="tip-input"]')] : [tipsButton()?.closest('[data-tour="agent-plan"]') ?? COMPOSER(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN)],
+    clicks: () => (enteringTips() ? null : (tipsButton() ?? sendButton(CHAT_COMPOSER_ID) ?? one(CHAT_OPEN))),
+    fill: {
+      when: (ctx) => !enteringTips() && !tipsButton() && !tipsAdded(ctx) && canAsk(ctx, CHAT_COMPOSER_ID),
+      run: (ctx) => typeAsk(tipsAsk(ctx), CHAT_COMPOSER_ID),
+    },
     placement: "left",
     done: (ctx) => !!tipsAdded(ctx),
     success: (ctx) => tipsAdded(ctx) ?? "Tips added",
@@ -1217,7 +1124,7 @@ export const SCRIPT: TourItem[] = [
         await askFor(() => tipsAsk(ctx), () => !!tipsButton(), CHAT_COMPOSER_ID)(ctx, api)
       }
       await press(await until(tipsButton, 8000))
-      await until(() => tipsAdded(api.now()), 8000)
+      await until(() => tipsAdded(api.now()), 30000)
     },
   },
   {

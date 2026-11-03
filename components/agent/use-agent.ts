@@ -1,8 +1,10 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useCallback, useRef } from "react"
 
 import { NO_MESSAGES, useAgentThreads, type AgentAction, type AgentMessage } from "@/components/agent/agent-store"
+import { enterTips } from "@/components/agent/enter-tips"
 import { useWorkspace } from "@/hooks/use-app"
 import { useUi } from "@/hooks/use-ui"
 import { asksToAssign, asksToExpense, asksToSubmit, assignReply, expenseReply, submitFrom, submitReply, submittedLine } from "@/lib/agent-agency"
@@ -36,6 +38,7 @@ export function useAgent() {
   const openUpload = useUi((state) => state.openUpload)
   const stageUpload = useUi((state) => state.stageUpload)
   const approving = useRef(new Set<number>())
+  const router = useRouter()
 
   const add = useCallback((message: Parameters<typeof push>[1]) => (message.from === "agent" ? void reply(ws.id, message) : push(ws.id, message)), [push, reply, ws.id])
 
@@ -305,7 +308,7 @@ export function useAgent() {
         if (approving.current.has(key)) return
         approving.current.add(key)
         try {
-          if (!(await useStore.getState().setTips(action.entries))) return
+          if (!(await enterTips(action, router.push))) return
           if (messageId) dropActions(ws.id, messageId)
           add({
             from: "agent",
@@ -370,7 +373,7 @@ export function useAgent() {
       }
       setOpen(false)
     },
-    [add, dropActions, openUpload, setOpen, stageUpload, ws],
+    [add, dropActions, openUpload, router, setOpen, stageUpload, ws],
   )
 
   /** A prediction the user accepted: show their ask, then the same reviewed draft a typed request would get. */
