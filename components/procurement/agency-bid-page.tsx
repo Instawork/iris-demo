@@ -9,7 +9,7 @@ import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
 import { InfoTip, Tip } from "@/components/common/info-tip"
-import { PillTabs } from "@/components/common/pill-tabs"
+import { CitySelect } from "@/components/common/city-select"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { DollarBar, PARTS, SPLIT_INFO, hundred } from "@/components/procurement/dollar-split"
@@ -111,14 +111,16 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
         <SurfaceHeader
           title="Rate card"
           description={bid ? `${plural(inMarket, "role")}${asked ? ` · ${plural(asked, "counter")} waiting on ${s.shortName}` : ""}` : `Nothing to counter until ${s.shortName} bids`}
-          actions={<SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />}
+          actions={
+            <span className="flex items-center gap-2">
+              {markets.length > 1 && (
+                <CitySelect value={market} onChange={setMarket} items={markets.map((c) => ({ value: c, label: `${city(c).name}, ${city(c).state}` }))} />
+              )}
+              <SearchInput value={query} onChange={setQuery} placeholder="Search roles" className="w-56" />
+            </span>
+          }
         />
-        {markets.length > 1 && (
-          <div className="px-5 pt-3">
-            <PillTabs size="sm" value={market} onChange={setMarket} items={markets.map((c) => ({ value: c, label: city(c).name }))} />
-          </div>
-        )}
-        <div className="mt-3 grid grid-cols-[minmax(180px,1fr)_100px_90px_120px_150px] gap-4 border-t border-border/70 px-5 py-2 text-caption-1 text-faded">
+        <div className="grid grid-cols-[minmax(180px,1fr)_100px_90px_120px_150px] gap-4 border-t border-border/70 px-5 py-2 text-caption-1 text-faded">
           <span>Role</span>
           <span className="text-right">Worker pay</span>
           <span className="text-right">Markup</span>

@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
 import { Tip } from "@/components/common/info-tip"
 import { PageHeader } from "@/components/common/page-header"
+import { CitySelect } from "@/components/common/city-select"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
@@ -172,13 +173,10 @@ function MyRates({ embedded }: { embedded: boolean }) {
       {!embedded && <RateEquation example={{ pro: 20, markup: sup.profile.markupPct }} />}
       {embedded && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PillTabs
+        <CitySelect
           value={cityId}
           onChange={setCityId}
-          items={[
-            { value: "all", label: "All cities", count: cards.length },
-            ...sup.cityIds.map((id) => ({ value: id, label: `${city(id).name}, ${city(id).state}`, count: cards.filter((c) => c.cityId === id).length })),
-          ]}
+          items={[{ value: "all", label: "All cities" }, ...sup.cityIds.map((id) => ({ value: id, label: `${city(id).name}, ${city(id).state}` }))]}
         />
         <SearchInput value={query} onChange={setQuery} placeholder="Search positions" className="w-56" />
       </div>
@@ -307,7 +305,7 @@ function RateComparison({ embedded }: { embedded: boolean }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="flex flex-wrap items-center gap-3">
           {cities.length > 1 ? (
-            <PillTabs value={cityId} onChange={setCityId} items={cities.map((c) => ({ value: c.id, label: `${c.name}, ${c.state}` }))} />
+            <CitySelect value={cityId} onChange={setCityId} items={cities.map((c) => ({ value: c.id, label: `${c.name}, ${c.state}` }))} />
           ) : (
             <span className="text-body-2 font-semibold">
               {city(cityId).name}, {city(cityId).state}
