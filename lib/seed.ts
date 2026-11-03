@@ -29,7 +29,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 24
+export const DATA_VERSION = 25
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -575,6 +575,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   clockHarbor(timesheets)
   plantPaperSheet(r, counters, groups, timesheets, pros, rateCards, today)
   plantOvertime(counters, groups, timesheets, pros, rateCards, today)
+  plantLaborWeek(counters, groups, timesheets, pros, rateCards, today, nowISO)
   plantSentHome(groups, timesheets, today)
   plantMissingPunch(timesheets, today)
   plantRejections(r, timesheets, today)
@@ -907,6 +908,92 @@ function plantOvertime(counters: Counters, groups: ShiftGroup[], timesheets: Tim
       history: [],
     })
   }
+}
+
+/**
+ * This week's convention setup at Riverside Convention Center, staffed by two Crewline porters. One is booked five
+ * 8.5-hour days, so the last one takes them past 40 hours. The other worked through lunch on Sunday, nine hours with no
+ * meal break, which Illinois requires from 7.5 hours. What Iris flags under breaks and overtime, whatever day the demo runs.
+ */
+function plantLaborWeek(counters: Counters, groups: ShiftGroup[], timesheets: Timesheet[], pros: Pro[], rateCards: RateCard[], today: string, nowISO: string) {
+  const loc = location("loc-rcc")
+  const pos = position("porter")
+  const card = rateCards.find((c) => c.supplierId === "crewline" && c.cityId === loc.cityId && c.positionId === pos.id && c.status === "active")
+  if (!card) return
+  const week = weekStartISO(today)
+  const days = [0, 1, 2, 4, 6].map((i) => addDaysISO(week, i))
+  const free = (p: Pro, on: string[]) =>
+    p.supplierId === "crewline" &&
+    p.cityId === loc.cityId &&
+    on.every((d) => canWork(p, pos.id, d, loc.id).ok && !groups.some((g) => g.date === d && g.slots.some((s) => s.proId === p.id)))
+  const long = pros.find((p) => free(p, days))
+  const lunch = pros.find((p) => p !== long && free(p, days.slice(0, 2)))
+  if (!long || !lunch) return
+  days.forEach((date, day) => {
+    const code = `SG-${counters.sg++}`
+    const id = code.toLowerCase()
+    const worked = date < today
+    const staff = day < 2 ? [long, lunch] : [long]
+    groups.push({
+      id,
+      code,
+      buyerId: loc.buyerId,
+      locationId: loc.id,
+      positionId: pos.id,
+      eventName: "Convention setup",
+      date,
+      start: "06:30",
+      end: "15:30",
+      breakMins: 30,
+      supplierId: "crewline",
+      supplierIds: ["crewline"],
+      billRate: card.billRate,
+      proRate: card.proRate,
+      markupPct: card.markupPct,
+      slots: staff.map((p, i) => ({ id: `${id}-${i + 1}`, proId: p.id, status: worked ? ("completed" as const) : ("confirmed" as const), confirmedAt: isoAt(addDaysISO(week, -4), "13:20") })),
+      badges: [],
+      instructions: pos.duties,
+      attire: pos.attire,
+      createdAt: isoAt(addDaysISO(week, -5), "10:05"),
+      createdBy: "Jordan Ellis",
+      source: "booking",
+    })
+    if (!worked) return
+    staff.forEach((p, i) => {
+      const breakMins = p === lunch && day === 1 ? 0 : 30
+      const clockIn = hhmmFromMinutes(minutesOf("06:30") - ((hashString(id) + i) % 4))
+      const clockOut = hhmmFromMinutes(minutesOf("15:30") + ((hashString(id) + i) % 5))
+      const approvedAt = [isoAt(addDaysISO(date, 1), "10:15"), nowISO].sort()[0]
+      timesheets.push({
+        id: `ts-${counters.ts++}`,
+        groupId: id,
+        slotId: `${id}-${i + 1}`,
+        proId: p.id,
+        supplierId: "crewline",
+        buyerId: loc.buyerId,
+        locationId: loc.id,
+        positionId: pos.id,
+        date,
+        scheduledStart: "06:30",
+        scheduledEnd: "15:30",
+        scheduledBreakMins: 30,
+        clockIn,
+        clockOut,
+        breakMins,
+        hours: paidHours(clockIn, clockOut, breakMins),
+        otHours: 0,
+        clock: { in: clockIn, out: clockOut, breakMins, source: "iris_checkin" },
+        billRate: card.billRate,
+        tips: 0,
+        status: "approved",
+        source: "app",
+        submittedAt: isoAt(date, "16:00"),
+        approvedAt,
+        approvedBy: "Jordan Ellis",
+        history: [],
+      })
+    })
+  })
 }
 
 /** A worker sent home early on yesterday's shifts is billed at the four-hour minimum. */

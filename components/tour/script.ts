@@ -422,6 +422,7 @@ const newestFirst = (a: Timesheet, b: Timesheet) => b.date.localeCompare(a.date)
 
 const SHEET = '[data-tour="timesheet-sheet"]'
 const MOVE = '[data-tour="move-dialog"]'
+const LABOR = '[data-tour="labor-flags"]'
 const TIPS_FILE = "levy_bar_tips.csv"
 /** What each bartender's share of the pooled tips came to, so the sheet reads like a real night. */
 const TIP_SHARES = [168.5, 152, 139.75, 121.25, 134.5, 147]
@@ -1073,6 +1074,7 @@ export const SCRIPT: TourItem[] = [
       const t = movedSince(ctx)
       return t?.movedFrom ? `Split in two: ${position(t.movedFrom.positionId).name}, then ${position(t.positionId).name}` : "Split by role"
     },
+    onDone: (_, api) => api.push("/timesheets"),
     fill: {
       when: () => !!one(MOVE),
       run: async (ctx) => {
@@ -1093,6 +1095,24 @@ export const SCRIPT: TourItem[] = [
       await sleep(400)
       await pickRole(api.now())
       await press(one('[data-tour="move-submit"]'))
+    },
+  },
+  {
+    kind: "step",
+    id: "labor",
+    chapter: "timesheets",
+    label: "Breaks and overtime",
+    wsId: LEVY,
+    path: /^\/timesheets/,
+    href: () => "/timesheets",
+    title: "Breaks and overtime, flagged early",
+    body: "Every shift checked against its state's meal-break rule, and every week against 40 hours, booked shifts included.",
+    targets: () => [one(LABOR)],
+    clicks: () => null,
+    placement: "bottom",
+    skip: async (_, api) => {
+      api.push("/timesheets")
+      await until(() => one(LABOR), 8000)
     },
   },
   {

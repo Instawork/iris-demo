@@ -13,6 +13,7 @@ import { MultiSelectFilter, ResetFilters, SearchInput, SelectFilter } from "@/co
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { ProAvatar } from "@/components/common/pro-avatar"
+import { LaborFlags } from "@/components/timesheets/labor-flags"
 import { ScanSheetDialog } from "@/components/timesheets/scan-sheet-dialog"
 import { ChecksCell, HoursCell, TimesheetStatusBadge, shortRange, useTimesheetChecks } from "@/components/timesheets/timesheet-bits"
 import { TimesheetSheet } from "@/components/timesheets/timesheet-sheet"
@@ -409,6 +410,7 @@ export function TimesheetsPage() {
       />
 
       <div className="flex flex-col gap-4">
+        {kind === "buyer" && ws.buyerId && !shiftId && <LaborFlags buyerId={ws.buyerId} onOpen={(id) => setParams({ ts: id })} />}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <PillTabs
             size="sm"
