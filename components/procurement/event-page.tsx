@@ -26,7 +26,7 @@ import { useStore } from "@/lib/store"
 import type { ContractTerms, SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export function EventPage({ id }: { id: string }) {
+export function EventPage({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const data = useData()
   const { ws } = useWorkspace()
   const ev = (data.sourcing ?? []).find((e) => e.id === id)
@@ -49,10 +49,10 @@ export function EventPage({ id }: { id: string }) {
   }
   return (
     <>
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pt-4">
+      <header className={cn("flex flex-wrap items-end justify-between gap-x-6 gap-y-3", !embedded && "pt-4")}>
         <div className="flex min-w-0 flex-col gap-1.5">
           <span className="font-mono text-caption-1 text-faded">{ev.number}</span>
-          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-featured-1 font-semibold">
+          <h1 className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 font-semibold", embedded ? "text-featured-3" : "text-featured-1")}>
             {ev.title}
             <InfoTip className="size-[18px] [&>svg]:size-4">{`${marketName(ev)}. ${new Set(ev.lines.map((l) => l.positionId)).size} roles, ${ev.invited.length} agencies. Term ${termLabel(ev)}.`}</InfoTip>
             <StageBadge ev={ev} />

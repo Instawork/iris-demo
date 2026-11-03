@@ -65,7 +65,7 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
   return (
     <>
       <div className="flex flex-col gap-3 pt-4">
-        <Link href={`/procurement/${ev.id}`} className="flex w-fit items-center gap-1.5 text-body-3 text-faded transition-colors hover:text-foreground">
+        <Link href="/procurement" className="flex w-fit items-center gap-1.5 text-body-3 text-faded transition-colors hover:text-foreground">
           <ArrowLeft className="size-4" /> {ev.title}
         </Link>
         <header className="flex flex-wrap items-center gap-4">

@@ -52,7 +52,7 @@ function useCrumbs(): Crumb[] {
     }
     if (section === "procurement") {
       const label = data.sourcing?.find((e) => e.id === sub)?.number ?? "Event"
-      return parts[2] ? [root, { label, href: `/procurement/${sub}` }, { label: findSupplier(parts[2])?.name ?? "Agency" }] : [root, { label }]
+      return parts[2] ? [root, { label, href: "/procurement" }, { label: findSupplier(parts[2])?.name ?? "Agency" }] : [root, { label }]
     }
     if (section === "agencies") return [ws.kind === "compass" ? root : { label: "Rate Cards", href: "/rates" }, { label: findSupplier(sub)?.name ?? "Agency" }]
     return [root, { label: sub }]
