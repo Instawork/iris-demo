@@ -31,7 +31,7 @@ import {
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
-import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, lineName, nextNumber, openCounters, responded } from "@/lib/sourcing"
+import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, nextNumber, openCounters, pct, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
@@ -1245,19 +1245,19 @@ function createSourcingEvent(data: DemoData, ctx: CommandContext, input: { cityI
   }
 }
 
-/** An agency sends its prices, a new round each time. Sending answers any counter Compass has open with it. */
-function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string; lines: Record<string, { proRate: number; markupPct: number }>; note?: string }): Outcome<number> {
+/** An agency sends its prices, a new round each time: a pay rate per role and one markup on all of them. Sending answers any counter Compass has open with it. */
+function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string; pay: Record<string, number>; markupPct: number; note?: string }): Outcome<number> {
   const ev = sourcingEvent(data, input?.eventId)
   const supplierId = ctx.ws.supplierId
   if (ctx.ws.kind !== "supplier" || !supplierId || !ev.invited.includes(supplierId)) forbid("Only an invited agency can bid on this event.")
   if (ev.status === "awarded" || ev.approved[supplierId!]) fail("Your rates on this event are already approved.")
-  const sent = input.lines && typeof input.lines === "object" ? input.lines : fail("Price at least one role.")
+  const sent = input.pay && typeof input.pay === "object" ? input.pay : fail("Price at least one role.")
+  const markupPct = round2(num(input.markupPct, "Markup", 0, 200))
   const lines: Record<string, BidLine> = {}
   for (const line of ev.lines) {
     const v = sent[line.id]
-    if (!v) continue
-    const role = position(line.positionId).name
-    lines[line.id] = bidLine(num(v.proRate, `${role} pay rate`, 1, 500), num(v.markupPct, `${role} markup`, 0, 200))
+    if (v === undefined) continue
+    lines[line.id] = bidLine(num(v, `${position(line.positionId).name} pay rate`, 1, 500), markupPct)
   }
   if (!Object.keys(lines).length) fail("Price at least one role.")
   const prior = latestBid(ev, supplierId!)
@@ -1268,64 +1268,53 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
   const answered = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
   const text = note ?? (round > 1 ? `Round ${round} is in.` : undefined)
   const message: SourcingMessage[] = text ? [{ id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId: supplierId!, from: "agency", text }] : []
-  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, lines, note, ...(prior?.terms ? { terms: prior.terms } : {}) }], messages: [...answered, ...message] }
+  const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, markupPct, lines, note, ...(prior?.terms ? { terms: prior.terms } : {}) }], messages: [...answered, ...message] }
   return {
     ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
     notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],
   }
 }
 
-/** Compass asks an agency for a lower rate on one line. Agencies nobody is playing answer on their own. */
-function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string; lineId: string; ask: number; note?: string }): Outcome<null> {
+/** Compass asks an agency for a lower markup, on every role. Agencies nobody is playing answer on their own. */
+function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string; ask: number; note?: string }): Outcome<null> {
   if (!isCompass(ctx.ws)) forbid("Only Compass counters a bid.")
   const ev = sourcingEvent(data, input?.eventId)
   if (ev.status === "awarded") fail("This event is closed.")
   const supplierId = str(input.supplierId, "Agency")
-  const line = need(ev.lines.find((l) => l.id === input.lineId), "That line isn't on this event")
-  const current = need(latestBid(ev, supplierId)?.lines[line.id], "That agency hasn't priced this role yet.")
+  const current = need(latestBid(ev, supplierId), "That agency hasn't bid yet.")
   if (ev.approved[supplierId]) fail("This agency's rates are already approved.")
-  const ask = round2(num(input.ask, "Ask", 1, 1000))
-  if (ask >= current.billRate) fail(`Ask for less than the ${money(current.billRate)} they bid.`)
-  const role = lineName(ev, line.id)
+  const ask = round2(num(input.ask, "Ask", 0, 200))
+  if (ask >= current.markupPct) fail(`Ask for less than the ${pct(current.markupPct)} markup they bid.`)
   const by = actorName(ctx)
-  const text = optStr(input.note, 1000) ?? `Can you get ${role} to ${money(ask)}?`
-  const messages = ev.messages.map((m) => (m.open && m.supplierId === supplierId && m.lineId === line.id ? { ...m, open: false } : m))
-  const message: SourcingMessage = { id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId, from: "compass", text, lineId: line.id, ask, open: true }
+  const text = optStr(input.note, 1000) ?? `Can you bring your markup from ${pct(current.markupPct)} to ${pct(ask)}?`
+  const messages = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
+  const message: SourcingMessage = { id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId, from: "compass", text, ask, open: true }
   return {
     ...done(data, null, withSourcing(data, { ...ev, messages: [...messages, message] })),
-    notices: [{ text: `Compass countered your ${role} rate on ${ev.title}: ${money(ask)}`, tone: "warning", supplierId }],
+    notices: [{ text: `Compass countered your markup on ${ev.title}: ${pct(ask)}`, tone: "warning", supplierId }],
   }
 }
 
-/** Iris counters every bid above the market in one go, at the asks it planned. Each agency answers on its own. */
+/** Iris counters every markup above the lowest in one go, at the asks it planned. Each agency answers on its own. */
 function negotiateBids(data: DemoData, ctx: CommandContext, input: { eventId: string }): Outcome<number> {
   if (!isCompass(ctx.ws)) forbid("Only Compass negotiates bids.")
   const ev = sourcingEvent(data, input?.eventId)
   if (ev.status === "awarded") fail("This event is closed.")
   const plan = counterPlan(ev)
-  if (!plan.length) fail("Every bid is at or below the market already.")
-  const messages: SourcingMessage[] = plan.map((c, i) => {
-    const line = ev.lines.find((l) => l.id === c.lineId)!
-    const role = position(line.positionId).name
-    return {
-      id: `${ev.id}-m${ev.messages.length + i + 1}`,
-      at: ctx.now,
-      by: IRIS,
-      supplierId: c.supplierId,
-      from: "compass",
-      text: `${role} is above the ${city(line.cityId).name} market. Can you get to ${money(c.ask)}?`,
-      lineId: c.lineId,
-      ask: c.ask,
-      open: true,
-    }
-  })
-  const agencies = [...new Set(plan.map((c) => c.supplierId))]
+  if (!plan.length) fail("Every markup is at the lowest already.")
+  const messages: SourcingMessage[] = plan.map((c, i) => ({
+    id: `${ev.id}-m${ev.messages.length + i + 1}`,
+    at: ctx.now,
+    by: IRIS,
+    supplierId: c.supplierId,
+    from: "compass",
+    text: `Your ${pct(c.from)} markup is above the lowest we were bid. Can you get to ${pct(c.ask)} on every role?`,
+    ask: c.ask,
+    open: true,
+  }))
   return {
     ...done(data, plan.length, withSourcing(data, { ...ev, messages: [...ev.messages, ...messages] })),
-    notices: agencies.map((s) => {
-      const n = plan.filter((c) => c.supplierId === s).length
-      return { text: `Iris countered ${n === 1 ? "one of your rates" : `${n} of your rates`} on ${ev.title} for Compass`, tone: "warning" as const, supplierId: s }
-    }),
+    notices: plan.map((c) => ({ text: `Iris asked for a ${pct(c.ask)} markup on ${ev.title} for Compass`, tone: "warning" as const, supplierId: c.supplierId })),
   }
 }
 

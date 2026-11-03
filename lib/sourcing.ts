@@ -1,15 +1,16 @@
 import { addDaysISO } from "@/lib/dates"
-import { billFrom, money, round2 } from "@/lib/format"
-import { benchmark } from "@/lib/market"
+import { billFrom, round2 } from "@/lib/format"
+import { marketPay } from "@/lib/market"
 import { hashString } from "@/lib/random"
 import { POSITIONS, SUPPLIERS, afterVa, city, position, supplier, termsOf } from "@/lib/reference"
 import type { Bid, BidLine, ContractTerms, DemoData, RateCard, SourcingEvent, SourcingLine, SourcingMessage } from "@/lib/types"
 
 /**
  * Sourcing events: Compass invites agencies to price their roles in each market for the fiscal year, compares the bids side by
- * side, counters line by line, and approves each agency's final prices. Approval is what writes the rate cards, so
- * every rate on the program traces back to the round that won it. Bids compare after VA, the rebate each agency pays
- * back at year end, so a higher rate with a bigger rebate can be the better buy.
+ * side, counters each agency's markup, and approves each agency's final prices. An agency bids one markup on top of
+ * its pay for every role, so the markup is what gets negotiated. Approval is what writes the rate cards, so every rate
+ * on the program traces back to the round that won it. Bids compare after VA, the rebate each agency pays back at year
+ * end, so a higher markup with a bigger rebate can be the better buy.
  */
 
 export const CATEGORY = "Temporary labor"
@@ -71,44 +72,40 @@ export const marketsOf = (ev: SourcingEvent, supplierId: string) => ev.cityIds.f
 /** The roles an agency bids on across its markets, counted once each. */
 export const rolesOf = (ev: SourcingEvent, supplierId: string) => [...new Set(ev.lines.filter((l) => l.baseline[supplierId] !== undefined).map((l) => l.positionId))]
 
-/** An agency's markup across its lines, weighted by its hours: on its latest bid, and on its rate cards today. */
-export function markupOf(ev: SourcingEvent, cards: RateCard[], supplierId: string) {
-  let hours = 0
-  let bid = 0
-  let today = 0
-  const latest = latestBid(ev, supplierId)
+/** An agency's markup on today's rate cards, weighted by the hours Compass buys from it. */
+function markupToday(ev: SourcingEvent, cards: RateCard[], supplierId: string) {
+  let pay = 0
+  let bill = 0
   for (const line of ev.lines) {
-    if (line.baseline[supplierId] === undefined) continue
-    const h = line.hours * (line.share[supplierId] ?? 0)
-    const card = activeCard(cards, supplierId, line.cityId, line.positionId)
-    hours += h
-    bid += h * (latest?.lines[line.id]?.markupPct ?? card?.markupPct ?? 0)
-    today += h * (card?.markupPct ?? 0)
+    const card = line.baseline[supplierId] === undefined ? undefined : activeCard(cards, supplierId, line.cityId, line.positionId)
+    if (!card) continue
+    const hours = line.hours * (line.share[supplierId] ?? 0)
+    pay += hours * card.proRate
+    bill += hours * card.billRate
   }
-  return { bid: hours ? bid / hours : 0, today: hours ? today / hours : 0, bidding: !!latest }
+  return pay ? (bill / pay - 1) * 100 : 0
 }
 
 /**
- * Of what Compass pays an agency on its latest bid, across all its roles and markets at the hours Compass buys from it:
- * what reaches the worker as pay, what the agency keeps of its markup after VA, and what comes back to Compass as VA.
- * The three add up to one. Roles it hasn't bid on count at today's rate card.
+ * An agency's bid in three numbers: its markup, what it pays workers against the market, and its VA. Pay is weighted
+ * by the hours Compass buys from it across every role and market. `cost` is what Compass pays per dollar of wages
+ * after VA, the one number that ranks them. Agencies that haven't bid read off today's rate cards.
  */
-export function dollarSplit(ev: SourcingEvent, cards: RateCard[], supplierId: string) {
+export function agencyValue(ev: SourcingEvent, cards: RateCard[], supplierId: string) {
   const latest = latestBid(ev, supplierId)
   let pay = 0
-  let bill = 0
+  let market = 0
   for (const line of ev.lines) {
     if (line.baseline[supplierId] === undefined) continue
     const rate = latest?.lines[line.id] ?? activeCard(cards, supplierId, line.cityId, line.positionId)
     if (!rate) continue
     const hours = line.hours * (line.share[supplierId] ?? 0)
     pay += hours * rate.proRate
-    bill += hours * rate.billRate
+    market += hours * marketPay(line.cityId, line.positionId)
   }
+  const markupPct = latest?.markupPct ?? markupToday(ev, cards, supplierId)
   const vaPct = offeredTerms(ev, supplierId).vaPct
-  const worker = bill ? pay / bill : 0
-  const back = vaPct / 100
-  return { worker, agency: Math.max(0, 1 - worker - back), back, markup: pay ? (bill / pay - 1) * 100 : 0, vaPct }
+  return { markupPct, vaPct, payVsMarket: market ? pay / market - 1 : 0, cost: (1 + markupPct / 100) * (1 - vaPct / 100), bidding: !!latest }
 }
 
 /** What an agency bills Compass in a year on its rate cards today, at its share of each market's hours. */
@@ -185,65 +182,63 @@ export function spendOf(ev: SourcingEvent, supplierId?: string, gross = false) {
   return { baseline, proposed, lowest, savings: baseline - proposed, savingsPct: baseline ? (baseline - proposed) / baseline : 0 }
 }
 
-/** The agency with the lowest bid on a line after VA. */
-export function bestOn(ev: SourcingEvent, lineId: string) {
-  let best: { supplierId: string; billRate: number; net: number } | undefined
-  for (const s of ev.invited) {
-    const r = latestBid(ev, s)?.lines[lineId]?.billRate
-    if (r === undefined) continue
-    const net = netOf(ev, s, r)
-    if (!best || net < best.net) best = { supplierId: s, billRate: r, net }
-  }
-  return best
-}
-
 /** Who counters on Compass's behalf when Iris negotiates. */
 export const IRIS = "Iris"
 
 export interface PlannedCounter {
   supplierId: string
-  lineId: string
+  /** The markup it bid, and the one Iris asks for. */
   from: number
   ask: number
   /** A year at the agency's share of the hours, after its VA, if it meets the ask. */
   saves: number
 }
 
+/** A year of what an agency's markup earns it on its bid, per point of markup, after its VA. */
+function perPoint(ev: SourcingEvent, supplierId: string) {
+  const bid = latestBid(ev, supplierId)
+  if (!bid) return 0
+  const pay = ev.lines.reduce((sum, l) => sum + (bid.lines[l.id] ? l.hours * (l.share[supplierId] ?? 0) * bid.lines[l.id].proRate : 0), 0)
+  return afterVa(pay / 100, offeredTerms(ev, supplierId).vaPct)
+}
+
+/** The lowest markup bid on the event, the one every other agency is pushed toward. */
+export const bestMarkup = (ev: SourcingEvent) => Math.min(...responded(ev).map((s) => latestBid(ev, s)!.markupPct))
+
+/** The most Iris asks an agency to move in one counter, in points of markup. */
+const STEP = 3
+
 /**
- * The counters Iris would send: every bid above the market median that isn't approved and hasn't been countered on that
- * role, asked down to the median but never more than 5% in one go. Biggest savings first.
+ * The counters Iris would send: every agency whose markup is above the lowest on the event, that isn't approved and
+ * that Iris hasn't countered yet, asked down toward the lowest but never more than three points in one go. Biggest
+ * savings first.
  */
 export function counterPlan(ev: SourcingEvent): PlannedCounter[] {
-  if (ev.status !== "open") return []
+  if (ev.status !== "open" || responded(ev).length < 2) return []
+  const best = bestMarkup(ev)
   const plan: PlannedCounter[] = []
-  for (const line of ev.lines) {
-    const median = benchmark(line.cityId, line.positionId).median
-    for (const s of ev.invited) {
-      const bid = latestBid(ev, s)?.lines[line.id]
-      if (!bid || ev.approved[s] || bid.billRate <= median) continue
-      if (ev.messages.some((m) => m.from === "compass" && m.supplierId === s && m.lineId === line.id)) continue
-      const ask = round2(Math.max(median, bid.billRate * 0.95))
-      if (ask >= bid.billRate) continue
-      const hours = line.hours * (line.share[s] ?? 0)
-      plan.push({ supplierId: s, lineId: line.id, from: bid.billRate, ask, saves: afterVa(hours * (bid.billRate - ask), offeredTerms(ev, s).vaPct) })
-    }
+  for (const s of responded(ev)) {
+    const from = latestBid(ev, s)!.markupPct
+    if (ev.approved[s] || from <= best) continue
+    if (ev.messages.some((m) => m.from === "compass" && m.supplierId === s && (m.open || m.by === IRIS))) continue
+    const ask = Math.max(best, Math.ceil(from) - STEP)
+    if (ask >= from) continue
+    plan.push({ supplierId: s, from, ask, saves: perPoint(ev, s) * (from - ask) })
   }
   return plan.sort((a, b) => b.saves - a.saves)
 }
 
 export type CounterOutcome = "waiting" | "met" | "down" | "held"
 
-/** Every counter Iris sent on this event, with where the agency's rate stands now. */
+/** Every counter Iris sent on this event, with where the agency's markup stands now. */
 export function irisCounters(ev: SourcingEvent) {
   return ev.messages
-    .filter((m) => m.from === "compass" && m.by === IRIS && m.ask !== undefined && m.lineId)
+    .filter((m) => m.from === "compass" && m.by === IRIS && m.ask !== undefined)
     .map((m) => {
-      const before = bidsOf(ev, m.supplierId).filter((b) => b.at <= m.at).pop()?.lines[m.lineId!]?.billRate ?? m.ask!
-      const now = latestBid(ev, m.supplierId)?.lines[m.lineId!]?.billRate ?? before
+      const before = bidsOf(ev, m.supplierId).filter((b) => b.at <= m.at).pop()?.markupPct ?? m.ask!
+      const now = latestBid(ev, m.supplierId)?.markupPct ?? before
       const outcome: CounterOutcome = m.open ? "waiting" : now <= m.ask! ? "met" : now < before ? "down" : "held"
-      const line = lineOf(ev, m.lineId!)
-      const saves = afterVa(line.hours * (line.share[m.supplierId] ?? 0) * (before - now), offeredTerms(ev, m.supplierId).vaPct)
-      return { message: m, supplierId: m.supplierId, lineId: m.lineId!, from: before, ask: m.ask!, now, outcome, saves }
+      return { message: m, supplierId: m.supplierId, from: before, ask: m.ask!, now, outcome, saves: perPoint(ev, m.supplierId) * (before - now) }
     })
 }
 
@@ -259,49 +254,44 @@ export const lineName = (ev: SourcingEvent, lineId: string) => {
 
 export const bidLine = (proRate: number, markupPct: number): BidLine => ({ proRate: round2(proRate), markupPct: round2(markupPct), billRate: billFrom(proRate, markupPct) })
 
+/** The same pay on every line at a new markup. */
+export const atMarkup = (lines: Record<string, BidLine>, markupPct: number) =>
+  Object.fromEntries(Object.entries(lines).map(([id, l]) => [id, bidLine(l.proRate, markupPct)]))
+
+export const pct = (n: number) => `${round2(n)}%`
+
 const messageId = (ev: SourcingEvent) => `${ev.id}-m${ev.messages.length + 1}`
 
 /**
- * How an agency answers a counter it can live with: it meets the ask if that still clears its floor markup, comes down
- * to its floor if not, and holds if its bid is already there.
+ * How an agency answers a counter on its markup: it meets the ask if that still clears its floor, comes down to its
+ * floor if not, and holds if its bid is already there.
  */
 export function agencyAnswer(ev: SourcingEvent, counter: SourcingMessage, now: string): { event: SourcingEvent; text: string } | undefined {
   const bid = latestBid(ev, counter.supplierId)
-  const line = counter.lineId ? bid?.lines[counter.lineId] : undefined
-  if (!bid || !line || counter.ask === undefined) return undefined
+  if (!bid || counter.ask === undefined) return undefined
   const s = supplier(counter.supplierId)
-  const role = lineName(ev, counter.lineId!)
-  const floor = billFrom(line.proRate, floorOf(s.id))
-  const target = round2(Math.max(counter.ask, floor))
+  const target = Math.max(counter.ask, floorOf(s.id))
   const messages = ev.messages.map((m) => (m.id === counter.id ? { ...m, open: false } : m))
-  if (target >= line.billRate) {
-    const text = `We're at our floor on ${role}. Pay is ${money(line.proRate)}, so ${money(line.billRate)} is as low as we can go.`
-    return { event: { ...ev, messages: [...messages, reply(ev, s.id, s.contactName, text, counter.lineId, now)] }, text: `${s.shortName} is holding at ${money(line.billRate)} on ${role}` }
+  if (target >= bid.markupPct) {
+    const text = `We're at our floor. ${pct(bid.markupPct)} is as low as we can go and still cover pay and burden.`
+    return { event: { ...ev, messages: [...messages, reply(ev, s.id, s.contactName, text, now)] }, text: `${s.shortName} is holding at a ${pct(bid.markupPct)} markup` }
   }
-  const met = target === round2(counter.ask)
-  const next: Bid = {
-    supplierId: s.id,
-    round: bid.round + 1,
-    at: now,
-    by: s.contactName,
-    lines: { ...bid.lines, [counter.lineId!]: bidLine(line.proRate, (target / line.proRate - 1) * 100) },
-    ...(bid.terms ? { terms: bid.terms } : {}),
-  }
-  const text = met ? `We can do ${money(target)} on ${role}.` : `We can come down to ${money(target)} on ${role}. Below that we can't cover pay and burden.`
+  const met = target === counter.ask
+  const next: Bid = { supplierId: s.id, round: bid.round + 1, at: now, by: s.contactName, markupPct: target, lines: atMarkup(bid.lines, target), ...(bid.terms ? { terms: bid.terms } : {}) }
+  const text = met ? `We can do ${pct(target)} on every role.` : `We can come down to ${pct(target)}. Below that we can't cover pay and burden.`
   return {
-    event: { ...ev, bids: [...ev.bids, next], messages: [...messages, reply(ev, s.id, s.contactName, text, counter.lineId, now)] },
-    text: met ? `${s.shortName} met your ask on ${role}: ${money(target)}` : `${s.shortName} came down to ${money(target)} on ${role}`,
+    event: { ...ev, bids: [...ev.bids, next], messages: [...messages, reply(ev, s.id, s.contactName, text, now)] },
+    text: met ? `${s.shortName} met your ask: a ${pct(target)} markup` : `${s.shortName} came down to a ${pct(target)} markup`,
   }
 }
 
-const reply = (ev: SourcingEvent, supplierId: string, by: string, text: string, lineId: string | undefined, at: string): SourcingMessage => ({
+const reply = (ev: SourcingEvent, supplierId: string, by: string, text: string, at: string): SourcingMessage => ({
   id: messageId(ev),
   at,
   by,
   supplierId,
   from: "agency",
   text,
-  lineId,
 })
 
 export const nextNumber = (events: SourcingEvent[], today: string) => {
@@ -326,22 +316,24 @@ const offerOf = (supplierId: string) => (OFFERED[supplierId] ? { terms: OFFERED[
 /** Metro is raising wages to fix its fill rate, so its prices go up while the others sharpen theirs. */
 const WAGE_BUMP: Record<string, number> = { metro: 1.045, harbor: 1.015 }
 
-/** A first-round bid: wages go up a little, markup comes down a little, the same every time for an agency and role. */
-function firstRound(lines: SourcingLine[], cards: RateCard[], supplierId: string, cut: number, override: Record<string, number> = {}) {
+/** A first-round bid: wages go up a little, the same every time for an agency and role, all at one markup. */
+function firstRound(lines: SourcingLine[], cards: RateCard[], supplierId: string, markupPct: number) {
   const out: Record<string, BidLine> = {}
   for (const line of lines) {
     const card = activeCard(cards, supplierId, line.cityId, line.positionId)
     if (!card) continue
     const h = hashString(`${supplierId}:${line.cityId}:${line.positionId}`)
     const pay = Math.round(card.proRate * ((WAGE_BUMP[supplierId] ?? 1.01) + (h % 3) * 0.005) * 4) / 4
-    const markup = override[line.id] ?? Math.max(floorOf(supplierId) + 1, Math.round((card.markupPct - cut - ((h >>> 4) % 3) * 0.5) * 10) / 10)
-    out[line.id] = bidLine(pay, markup)
+    out[line.id] = bidLine(pay, markupPct)
   }
   return out
 }
 
 const roles = POSITIONS.map((p) => p.id)
 const MARKETS = ["chi", "atl", "dal"]
+
+/** Each agency's first-round markup. Harbor's is the highest by a distance, and Priya has already pushed it. */
+const BID_MARKUP: Record<string, number> = { instawork: 29, crewline: 32, metro: 37, harbor: 42 }
 
 /** Last year's award, and this year's renewal mid-negotiation: every agency on the program, across all its markets. */
 export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): SourcingEvent[] {
@@ -351,40 +343,16 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
 
   const invited = SUPPLIERS.filter((s) => s.cityIds.some((c) => MARKETS.includes(c))).map((s) => s.id)
   const lines = eventLines(cards, MARKETS, roles, invited)
-  const cut: Record<string, number> = { instawork: 6, crewline: 5.5, harbor: 2.5, metro: 0.5 }
-  const bids: Bid[] = invited.map((s, i) => ({
-    supplierId: s,
-    round: 1,
-    at: at(addDaysISO(today, -11 + i), 14 + i),
-    by: supplier(s).contactName,
-    lines: firstRound(lines, cards, s, cut[s] ?? 3, s === "harbor" ? { "chi-bartender": 45, "chi-suite": 44.5 } : {}),
-    ...offerOf(s),
-  }))
-  const bartender = lines.find((l) => l.id === "chi-bartender")!
-  const barback = lines.find((l) => l.id === "chi-barback")!
-  const harborR1 = bids.find((b) => b.supplierId === "harbor")!
-  const crewR1 = bids.find((b) => b.supplierId === "crewline")!
-  const fieldBartender = Math.min(...bids.filter((b) => b.supplierId !== "harbor").map((b) => b.lines[bartender.id]?.billRate ?? Infinity))
-  const harborAsk = round2(fieldBartender * 1.04)
-  const harborPay = harborR1.lines[bartender.id].proRate
-  const harborR2: Bid = {
-    supplierId: "harbor",
-    round: 2,
-    at: at(addDaysISO(today, -4), 11),
-    by: "Renee Park",
-    lines: { ...harborR1.lines, [bartender.id]: bidLine(harborPay, Math.min(44.5, Math.max(floorOf("harbor"), (harborAsk / harborPay - 1) * 100 + 2))) },
-    note: "Revised bartender rate after Compass's counter.",
-    ...offerOf("harbor"),
+  const bids: Bid[] = invited.map((s, i) => {
+    const markupPct = BID_MARKUP[s] ?? 34
+    return { supplierId: s, round: 1, at: at(addDaysISO(today, -11 + i), 14 + i), by: supplier(s).contactName, markupPct, lines: firstRound(lines, cards, s, markupPct), ...offerOf(s) }
+  })
+  const secondRound = (supplierId: string, markupPct: number, at: string, by: string, note?: string): Bid => {
+    const r1 = bids.find((b) => b.supplierId === supplierId)!
+    return { supplierId, round: 2, at, by, markupPct, lines: atMarkup(r1.lines, markupPct), ...(note ? { note } : {}), ...offerOf(supplierId) }
   }
-  const crewAsk = round2(crewR1.lines[barback.id].billRate * 0.97)
-  const crewR2: Bid = {
-    supplierId: "crewline",
-    round: 2,
-    at: at(addDaysISO(today, -3), 16),
-    by: "Devon Brooks",
-    lines: { ...crewR1.lines, [barback.id]: bidLine(crewR1.lines[barback.id].proRate, (crewAsk / crewR1.lines[barback.id].proRate - 1) * 100) },
-    ...offerOf("crewline"),
-  }
+  const harborR2 = secondRound("harbor", 40, at(addDaysISO(today, -4), 11), "Renee Park", "Revised markup after Compass's counter.")
+  const crewR2 = secondRound("crewline", 31, at(addDaysISO(today, -3), 16), "Devon Brooks")
   const renewal: SourcingEvent = {
     id: "rfp-27",
     number: `RFP-${fy.label.slice(2)}-01`,
@@ -407,9 +375,8 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
         by: "Priya Raman",
         supplierId: "harbor",
         from: "compass",
-        lineId: bartender.id,
-        ask: harborAsk,
-        text: `Your Chicago Bartender rate is well above the field. Can you get to ${money(harborAsk)}?`,
+        ask: 38,
+        text: "Your 42% markup is the highest of the four. Can you get to 38%?",
       },
       {
         id: "rfp-27-m2",
@@ -417,8 +384,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
         by: "Renee Park",
         supplierId: "harbor",
         from: "agency",
-        lineId: bartender.id,
-        text: `We can come down to ${money(harborR2.lines[bartender.id].billRate)}. Our bartenders are alcohol-certified and work the premium suites.`,
+        text: "We can come down to 40%. Our bartenders are alcohol-certified and work the premium suites.",
       },
       {
         id: "rfp-27-m3",
@@ -426,9 +392,8 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
         by: "Priya Raman",
         supplierId: "crewline",
         from: "compass",
-        lineId: barback.id,
-        ask: crewAsk,
-        text: `Can you sharpen Chicago Barback to ${money(crewAsk)}? It's our third-largest line at the stadiums.`,
+        ask: 31,
+        text: "Can you sharpen your markup to 31%? You're our second-largest agency at the stadiums.",
       },
       {
         id: "rfp-27-m4",
@@ -436,8 +401,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
         by: "Devon Brooks",
         supplierId: "crewline",
         from: "agency",
-        lineId: barback.id,
-        text: `Done. ${money(crewAsk)} on Barback, round 2 is in.`,
+        text: "Done. 31% on every role, round 2 is in.",
       },
     ],
     approved: {},
@@ -459,18 +423,17 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
     termEnd: lastFy.end,
     lines: lastLines,
     invited,
-    bids: invited.map((s, i) => ({
-      supplierId: s,
-      round: 1,
-      at: at(addDaysISO(lastFy.start, -38 + i), 12),
-      by: supplier(s).contactName,
-      lines: Object.fromEntries(
+    bids: invited.map((s, i) => {
+      const lines: Record<string, BidLine> = Object.fromEntries(
         lastLines.flatMap((l) => {
           const card = activeCard(cards, s, l.cityId, l.positionId)
           return card ? [[l.id, { proRate: card.proRate, markupPct: card.markupPct, billRate: card.billRate }]] : []
         }),
-      ),
-    })),
+      )
+      const pay = Object.values(lines).reduce((sum, l) => sum + l.proRate, 0)
+      const bill = Object.values(lines).reduce((sum, l) => sum + l.billRate, 0)
+      return { supplierId: s, round: 1, at: at(addDaysISO(lastFy.start, -38 + i), 12), by: supplier(s).contactName, markupPct: pay ? Math.round((bill / pay - 1) * 100) : 0, lines }
+    }),
     messages: [],
     approved: Object.fromEntries(invited.map((s) => [s, awardedAt])),
     awardedAt,

@@ -298,6 +298,8 @@ export interface Bid {
   round: number
   at: string
   by: string
+  /** One markup on every role in every market: each line bills its pay plus this. */
+  markupPct: number
   lines: Record<string, BidLine>
   note?: string
   /** The terms the agency offers with these prices. Missing means the ones it has now. */
@@ -312,7 +314,7 @@ export interface SourcingMessage {
   from: "compass" | "agency"
   text: string
   lineId?: string
-  /** A counter: the bill rate Compass asked for. */
+  /** A counter: the markup Compass asked for, on every role. */
   ask?: number
   /** A counter stays open until the agency answers it. */
   open?: boolean

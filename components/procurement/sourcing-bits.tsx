@@ -195,3 +195,9 @@ export function Change({ value, suffix = "" }: { value?: number; suffix?: string
     </span>
   )
 }
+
+/** "3% above market", "At market" or "2% below market", from a ratio like 0.03. */
+export function vsMarketLabel(ratio: number) {
+  const n = Math.round(ratio * 100)
+  return n === 0 ? "At market" : `${Math.abs(n)}% ${n > 0 ? "above" : "below"} market`
+}

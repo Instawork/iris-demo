@@ -8,20 +8,19 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
-import { InfoTip } from "@/components/common/info-tip"
+import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { DollarBar, DollarLegend, SPLIT_INFO, hundred } from "@/components/procurement/dollar-split"
-import { Change, StageBadge, agencyStatus, moneyYear, termLabel } from "@/components/procurement/sourcing-bits"
+import { Change, StageBadge, agencyStatus, moneyYear, termLabel, vsMarketLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
-import { billFrom, money, plural, round2 } from "@/lib/format"
+import { billFrom, money, plural } from "@/lib/format"
 import { city, position, supplier } from "@/lib/reference"
-import { activeCard, counterPlan, dollarSplit, irisCounters, latestBid, lineName, marketName, marketsOf, offeredTerms, openCounters, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
+import { activeCard, agencyValue, bestMarkup, counterPlan, irisCounters, latestBid, lineName, marketName, marketsOf, offeredTerms, openCounters, pct, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
 import type { ContractTerms, SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -79,72 +78,96 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
   )
 }
 
+const BOARD = "grid grid-cols-[minmax(220px,1.4fr)_1fr_1fr_1fr_16px] items-center gap-6 px-5"
+
 /**
- * Every agency on one line: of each dollar Compass pays it, how much reaches the worker, what the agency keeps, and the
- * VA that comes back. Most to the worker first, so the best value is the top row.
+ * Every agency's bid in three numbers: its markup, what it pays workers against the market, and the VA it gives back.
+ * Best value after VA first, and the best number in each column is tinted, so the comparison reads at a glance.
  */
 function ValueBoard({ ev }: { ev: SourcingEvent }) {
   const data = useData()
   const [query, setQuery] = useState("")
   const rows = ev.invited
-    .map((s) => ({ s, split: dollarSplit(ev, data.rateCards, s), bid: latestBid(ev, s), status: agencyStatus(ev, s) }))
-    .sort((a, b) => Number(!!b.bid) - Number(!!a.bid) || b.split.worker - a.split.worker || b.split.back - a.split.back)
-  const bidding = rows.filter((r) => r.bid)
-  const best = bidding.length > 1 ? bidding[0] : undefined
+    .map((s) => ({ s, ...agencyValue(ev, data.rateCards, s), status: agencyStatus(ev, s) }))
+    .sort((a, b) => Number(b.bidding) - Number(a.bidding) || a.cost - b.cost)
+  const bidding = rows.filter((r) => r.bidding)
+  const compare = bidding.length > 1
+  const top = {
+    markup: Math.min(...bidding.map((r) => r.markupPct)),
+    pay: Math.max(...bidding.map((r) => Math.round(r.payVsMarket * 100))),
+    va: Math.max(...bidding.map((r) => r.vaPct)),
+  }
+  const best = compare ? bidding[0] : undefined
+  const wins = best ? [best.markupPct === top.markup && "the lowest markup", best.vaPct === top.va && "the most VA"].filter((x): x is string => !!x) : []
+  const takeaway = best
+    ? `${supplier(best.s).shortName} is the best value${wins.length ? `, with ${listOf(wins)}` : ""}. It pays workers ${vsMarketLabel(best.payVsMarket).toLowerCase()}.`
+    : "Each agency's markup, pay and VA"
   const shown = rows.filter((r) => supplier(r.s).name.toLowerCase().includes(query.trim().toLowerCase()))
   return (
     <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
       <SurfaceHeader
-        title="Who pays workers the most"
-        description="Of every $100 you pay each agency"
-        info={SPLIT_INFO}
-        actions={
-          <span className="flex items-center gap-4">
-            <DollarLegend />
-            {ev.invited.length > 8 && <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-52" />}
-          </span>
-        }
+        title="Compare agencies"
+        description={takeaway}
+        info="Best value is what you pay for each dollar of worker pay, after the VA comes back. Pay is averaged over every role and market, weighted by the hours you buy."
+        actions={ev.invited.length > 8 ? <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-52" /> : undefined}
       />
-      <ol className="flex flex-col pt-3">
-        {shown.map(({ s, split, bid, status }) => (
-          <li key={s} className="border-t border-border/70">
-            <Link
-              href={`/procurement/${ev.id}/${s}`}
-              data-supplier={s}
-              className="group grid grid-cols-[minmax(200px,1fr)_minmax(220px,1.6fr)_88px_112px_16px] items-center gap-6 px-5 py-4 transition-colors hover:bg-hover/50"
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <SupplierLogo supplierId={s} size="md" />
-                <span className="flex min-w-0 flex-col">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate text-body-2 font-semibold">{supplier(s).name}</span>
-                    {s === best?.s && (
-                      <StatusBadge tone="positive" size="sm">
-                        Best value
-                      </StatusBadge>
-                    )}
-                  </span>
-                  <span className={cn("text-caption-1", status.tone === "neutral" || status.tone === "primary" ? "text-faded" : toneText[status.tone])}>
-                    {bid ? status.label : "No bid yet, today's rates"}
+      <div className={cn(BOARD, "mt-3 border-t border-border/70 py-2 text-caption-1")}>
+        <span className="text-faded">Agency</span>
+        <Heading label="Markup" hint="Lower is better" />
+        <Heading label="Worker pay vs market" hint="Higher is better" />
+        <Heading label="VA" hint="Higher is better" />
+        <span />
+      </div>
+      <ol className="flex flex-col">
+        {shown.map((r) => {
+          const pay = Math.round(r.payVsMarket * 100)
+          return (
+            <li key={r.s} className="border-t border-border/70">
+              <Link href={`/procurement/${ev.id}/${r.s}`} data-supplier={r.s} className={cn(BOARD, "group py-3.5 transition-colors hover:bg-hover/50")}>
+                <span className="flex min-w-0 items-center gap-3">
+                  <SupplierLogo supplierId={r.s} size="md" />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
+                      {r.s === best?.s && (
+                        <StatusBadge tone="positive" size="sm">
+                          Best value
+                        </StatusBadge>
+                      )}
+                    </span>
+                    <span className={cn("text-caption-1", r.status.tone === "neutral" || r.status.tone === "primary" ? "text-faded" : toneText[r.status.tone])}>
+                      {r.bidding ? r.status.label : "No bid yet, today's rates"}
+                    </span>
                   </span>
                 </span>
-              </span>
-              <DollarBar split={split} />
-              <span className="flex flex-col items-end">
-                <span className="text-featured-3 leading-tight font-semibold tabular text-positive-fg">{hundred(split).worker}</span>
-                <span className="text-caption-1 text-faded">to the worker</span>
-              </span>
-              <span className="flex flex-col items-end text-caption-1 tabular">
-                <span className="font-medium">{Math.round(split.markup)}% avg markup</span>
-                <span className="text-faded">{split.vaPct}% VA</span>
-              </span>
-              <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
-            </Link>
-          </li>
-        ))}
+                <Cell best={compare && r.bidding && r.markupPct === top.markup}>{pct(Math.round(r.markupPct))}</Cell>
+                <Tip content={`Pays ${money(1 + r.payVsMarket)} for every $1.00 the market pays`}>
+                  <span className="w-fit">
+                    <Cell best={compare && r.bidding && pay === top.pay}>{vsMarketLabel(r.payVsMarket)}</Cell>
+                  </span>
+                </Tip>
+                <Cell best={compare && r.bidding && r.vaPct === top.va}>{pct(r.vaPct)}</Cell>
+                <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
+              </Link>
+            </li>
+          )
+        })}
       </ol>
     </Surface>
   )
+}
+
+function Heading({ label, hint }: { label: string; hint: string }) {
+  return (
+    <span className="flex flex-col">
+      <span className="font-medium text-foreground">{label}</span>
+      <span className="text-subtle">{hint}</span>
+    </span>
+  )
+}
+
+function Cell({ best, children }: { best: boolean; children: React.ReactNode }) {
+  return <span className={cn("-ml-2 w-fit rounded-md px-2 py-0.5 text-body-2 tabular", best ? "bg-positive-faded font-semibold text-positive-fg" : "font-medium")}>{children}</span>
 }
 
 const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
@@ -154,33 +177,29 @@ const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
   held: { label: "Held", tone: "neutral" },
 }
 
-const SHOWN = 5
-
 /**
- * Iris negotiates the whole event at once: it counters every bid above the market, then shows each agency's answer as
- * it comes in. Countering one agency by hand is on that agency's page.
+ * Iris negotiates the whole event at once: it asks every agency above the lowest markup to come down, then shows each
+ * answer as it comes in. Countering one agency by hand is on that agency's page.
  */
 function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
   const negotiate = useStore((s) => s.negotiateBids)
   const [busy, setBusy] = useState(false)
-  const [all, setAll] = useState(false)
   const sent = irisCounters(ev)
   const plan = sent.length ? [] : counterPlan(ev)
   if (!sent.length && !plan.length) return null
 
-  const agencies = [...new Set((sent.length ? sent : plan).map((c) => c.supplierId))].map((s) => supplier(s).shortName)
   const waiting = sent.filter((c) => c.outcome === "waiting").length
   const count = (o: CounterOutcome) => sent.filter((c) => c.outcome === o).length
   const rows = sent.length
-    ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, lineId: c.lineId, from: c.from, ask: c.ask, now: c.now, outcome: c.outcome as CounterOutcome | undefined }))
-    : plan.map((c) => ({ key: `${c.supplierId}-${c.lineId}`, supplierId: c.supplierId, lineId: c.lineId, from: c.from, ask: c.ask, now: c.from, outcome: undefined }))
-  const shown = all ? rows : rows.slice(0, SHOWN)
-  const title = !sent.length ? `${plural(plan.length, "bid")} above the market` : waiting ? "Iris is negotiating" : `Iris negotiated ${plural(sent.length, "rate")}`
+    ? sent.map((c) => ({ key: c.message.id, supplierId: c.supplierId, from: c.from, ask: c.ask, now: c.now, outcome: c.outcome as CounterOutcome | undefined }))
+    : plan.map((c) => ({ key: c.supplierId, supplierId: c.supplierId, from: c.from, ask: c.ask, now: c.from, outcome: undefined }))
+  const worth = (sent.length ? sent : plan).reduce((sum, c) => sum + c.saves, 0)
+  const title = !sent.length ? `${plural(plan.length, "agency", "agencies")} above the lowest markup` : waiting ? "Iris is negotiating" : `Iris negotiated ${plural(sent.length, "markup")}`
   const detail = !sent.length
-    ? `From ${listOf(agencies)}. Iris counters each one toward its market's median.`
+    ? `Iris asks each to come down toward ${pct(bestMarkup(ev))}. Worth ${moneyYear(worth)} if they all say yes.`
     : waiting
       ? `${sent.length - waiting} of ${sent.length} answered. Agencies usually answer within two days.`
-      : listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))
+      : `${listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))}.${worth > 0 ? ` That saves ${moneyYear(worth)}.` : ""}`
 
   return (
     <Surface elevated className="overflow-hidden" data-tour="iris-negotiate">
@@ -196,40 +215,30 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
         </span>
       </div>
       <div className="flex items-center gap-3 border-t border-border/70 px-5 pt-2 pb-1 text-caption-1 text-faded">
-        <span className="flex-1">Agency and role</span>
-        <span className="w-16 text-right">Their bid</span>
-        <span className="w-16 text-right">Iris asks</span>
+        <span className="flex-1">Agency</span>
+        <span className="w-24 text-right">Their markup</span>
+        <span className="w-20 text-right">Iris asks</span>
         {sent.length > 0 && <span className="w-28 text-right">Answer</span>}
       </div>
       <ol className="flex flex-col">
-        {shown.map((r) => (
-          <li key={r.key} className="flex items-center gap-3 border-b border-border/60 px-5 py-2 text-body-3 last:border-0" data-tour="iris-counter" data-outcome={r.outcome}>
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-center gap-3 border-b border-border/60 px-5 py-2.5 text-body-3 last:border-0" data-tour="iris-counter" data-outcome={r.outcome}>
             <SupplierLogo supplierId={r.supplierId} size="sm" />
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium">{supplier(r.supplierId).shortName}</span>
-              <span className="text-faded"> · {lineName(ev, r.lineId)}</span>
-            </span>
-            <span className="w-16 text-right text-faded tabular">{money(r.from)}</span>
-            <span className="w-16 text-right font-semibold tabular">{money(r.ask)}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{supplier(r.supplierId).shortName}</span>
+            <span className="w-24 text-right text-faded tabular">{pct(r.from)}</span>
+            <span className="w-20 text-right font-semibold tabular">{pct(r.ask)}</span>
             {r.outcome && (
               <span className="flex w-28 justify-end">
                 <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
-                  {r.outcome === "down" ? `Down to ${money(r.now)}` : OUTCOME[r.outcome].label}
+                  {r.outcome === "down" ? `Down to ${pct(r.now)}` : OUTCOME[r.outcome].label}
                 </StatusBadge>
               </span>
             )}
           </li>
         ))}
       </ol>
-      <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
-        {rows.length > SHOWN ? (
-          <Button variant="ghost" size="sm" className="-ml-2 text-faded" onClick={() => setAll((a) => !a)}>
-            {all ? "Show less" : `Show all ${rows.length}`}
-          </Button>
-        ) : (
-          <span />
-        )}
-        {!sent.length && (
+      {!sent.length && (
+        <div className="flex items-center justify-end gap-3 border-t border-border/70 bg-page-faded/60 px-5 py-2.5">
           <Button
             className="h-9 gap-1.5 rounded-lg text-body-3 font-semibold"
             disabled={busy}
@@ -242,8 +251,8 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
           >
             <WandSparkles className="size-4" /> Send {plural(plan.length, "counter")}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </Surface>
   )
 }
@@ -418,29 +427,25 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const data = useData()
   const submit = useStore((s) => s.submitBid)
   const bid = latestBid(ev, supplierId)
-  const counters = openCounters(ev, supplierId)
+  const counter = openCounters(ev, supplierId).at(-1)
   const approvedAt = ev.approved[supplierId]
   const locked = !!approvedAt || ev.status === "awarded"
-  const [form, setForm] = useState<Record<string, { pay: string; markup: string }>>(() =>
+  const [pay, setPay] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       ev.lines.map((l) => {
         const v = bid?.lines[l.id] ?? activeCard(data.rateCards, supplierId, l.cityId, l.positionId)
-        return [l.id, { pay: v ? v.proRate.toFixed(2) : "", markup: v ? String(v.markupPct) : "" }]
+        return [l.id, v ? v.proRate.toFixed(2) : ""]
       }),
     ),
   )
+  const [markup, setMarkup] = useState(() => String(Math.round(bid?.markupPct ?? agencyValue(ev, data.rateCards, supplierId).markupPct)))
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
-  const set = (lineId: string, patch: Partial<{ pay: string; markup: string }>) => setForm((f) => ({ ...f, [lineId]: { ...f[lineId], ...patch } }))
   const markets = marketsOf(ev, supplierId)
   const mine = ev.lines.filter((l) => markets.includes(l.cityId))
+  const markupN = markup === "" ? NaN : Number(markup)
 
-  const priced = mine.flatMap((l) => {
-    const f = form[l.id]
-    const pay = Number(f?.pay)
-    const markup = Number(f?.markup)
-    return pay > 0 && f?.markup !== "" && markup >= 0 ? [{ line: l, pay, markup, bill: billFrom(pay, markup) }] : []
-  })
+  const priced = markupN >= 0 ? mine.flatMap((l) => (Number(pay[l.id]) > 0 ? [{ line: l, pay: Number(pay[l.id]), bill: billFrom(Number(pay[l.id]), markupN) }] : [])) : []
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
   const today = spendOf(ev, supplierId, true).baseline
   const round = (bid?.round ?? 0) + 1
@@ -448,11 +453,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
 
   const send = async () => {
     setBusy(true)
-    const n = await submit(
-      ev.id,
-      Object.fromEntries(priced.map((p) => [p.line.id, { proRate: p.pay, markupPct: p.markup }])),
-      note.trim() || undefined,
-    )
+    const n = await submit(ev.id, Object.fromEntries(priced.map((p) => [p.line.id, p.pay])), markupN, note.trim() || undefined)
     setBusy(false)
     if (!n) return
     setNote("")
@@ -469,86 +470,67 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
               See your rate cards
             </Link>
           </Banner>
-        ) : counters.length ? (
+        ) : counter && !locked ? (
           <Banner tone="warning" icon={MessageSquareText}>
-            Compass countered {counters.length === 1 ? "one of your rates" : `${counters.length} of your rates`}. Accept the ask or send your best, then send round {round}.
+            Compass asks for a {pct(counter.ask!)} markup on every role.
+            <button type="button" className="ml-2 font-semibold underline-offset-4 hover:underline" onClick={() => setMarkup(String(counter.ask))}>
+              Accept
+            </button>
+            <span className="text-faded"> Then send round {round}.</span>
           </Banner>
         ) : null}
         <Surface elevated className="overflow-hidden" data-tour="agency-bid">
           <SurfaceHeader
             title={bid ? `Your bid, round ${bid.round}` : "Your bid"}
             description={bid ? `Sent ${formatTimestamp(bid.at)}` : `Due ${formatDateShort(ev.closesOn)}`}
-            info="Hours are Compass's estimate for the year. Leave a role blank to skip it."
+            info="One markup goes on every role. Hours are Compass's estimate for the year. Leave a pay rate blank to skip a role."
+            actions={
+              <label className="flex items-center gap-2 text-body-3 font-medium">
+                Markup on every role
+                <NumberField suffix="%" value={markup} disabled={locked} invalid={!locked && !(markupN >= 0)} label="Markup on every role" onChange={setMarkup} />
+              </label>
+            }
           />
           <div className="overflow-x-auto px-2 pt-3 scrollbar-thin">
-            <table className="w-full min-w-[640px] text-body-3">
+            <table className="w-full min-w-[560px] text-body-3">
               <thead>
                 <tr className="text-caption-1 text-faded">
                   <th className="px-3 pb-2 text-left font-medium">Role</th>
                   <th className="px-3 pb-2 text-right font-medium">Hours a year</th>
                   <th className="px-3 pb-2 text-right font-medium">Today</th>
                   <th className="px-3 pb-2 text-right font-medium">Pay rate</th>
-                  <th className="px-3 pb-2 text-right font-medium">Markup</th>
                   <th className="px-3 pb-2 text-right font-medium">Bill rate</th>
                 </tr>
               </thead>
               <tbody>
                 {mine.map((l, i) => {
-                  const f = form[l.id]
-                  const pay = Number(f?.pay)
-                  const markup = Number(f?.markup)
-                  const bill = pay > 0 && f?.markup !== "" ? billFrom(pay, markup) : undefined
-                  const ask = locked ? undefined : counters.find((m) => m.lineId === l.id)
+                  const p = Number(pay[l.id])
+                  const bill = p > 0 && markupN >= 0 ? billFrom(p, markupN) : undefined
                   const was = l.baseline[supplierId]
                   const heading = ev.cityIds.length > 1 && mine[i - 1]?.cityId !== l.cityId
                   return (
                     <Fragment key={l.id}>
-                    {heading && (
-                      <tr className="border-t border-border/70 bg-page-faded/60">
-                        <td colSpan={6} className="px-3 py-1.5 text-caption-1 font-semibold">
-                          {city(l.cityId).name}, {city(l.cityId).state}
+                      {heading && (
+                        <tr className="border-t border-border/70 bg-page-faded/60">
+                          <td colSpan={5} className="px-3 py-1.5 text-caption-1 font-semibold">
+                            {city(l.cityId).name}, {city(l.cityId).state}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-t border-border/70">
+                        <td className="px-3 py-2 font-medium">{position(l.positionId).name}</td>
+                        <td className="px-3 py-2 text-right text-faded tabular">{l.hours.toLocaleString("en-US")}</td>
+                        <td className="px-3 py-2 text-right text-faded tabular">{was ? money(was) : "—"}</td>
+                        <td className="px-3 py-2 text-right">
+                          <NumberField prefix="$" value={pay[l.id] ?? ""} disabled={locked} label={`${lineName(ev, l.id)} pay rate`} onChange={(v) => setPay((f) => ({ ...f, [l.id]: v }))} />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <span className="flex flex-col items-end">
+                            <span className="font-semibold tabular">{bill ? money(bill) : "—"}</span>
+                            {bill && was ? <Change value={bill / was - 1} /> : null}
+                          </span>
                         </td>
                       </tr>
-                    )}
-                    <tr className={cn("border-t border-border/70", ask && "bg-warning-faded/50")}>
-                      <td className="px-3 py-2">
-                        <span className="flex flex-col">
-                          <span className="font-medium">{position(l.positionId).name}</span>
-                          {ask && (
-                            <span className="text-caption-1 text-warning-fg">
-                              Compass asks {money(ask.ask!)}
-                              <button
-                                type="button"
-                                className="ml-2 font-semibold underline-offset-4 hover:underline"
-                                onClick={() => pay > 0 && set(l.id, { markup: String(round2((ask.ask! / pay - 1) * 100)) })}
-                              >
-                                Accept
-                              </button>
-                            </span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-right text-faded tabular">{l.hours.toLocaleString("en-US")}</td>
-                      <td className="px-3 py-2 text-right text-faded tabular">{was ? money(was) : "—"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <NumberField prefix="$" value={f?.pay ?? ""} disabled={locked} label={`${lineName(ev, l.id)} pay rate`} onChange={(v) => set(l.id, { pay: v })} />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <NumberField
-                          suffix="%"
-                          value={f?.markup ?? ""}
-                          disabled={locked}
-                          label={`${lineName(ev, l.id)} markup`}
-                          onChange={(v) => set(l.id, { markup: v })}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <span className="flex flex-col items-end">
-                          <span className="font-semibold tabular">{bill ? money(bill) : "—"}</span>
-                          {bill && was ? <Change value={bill / was - 1} /> : null}
-                        </span>
-                      </td>
-                    </tr>
                     </Fragment>
                   )
                 })}

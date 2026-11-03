@@ -8,27 +8,27 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
-import { InfoTip, Tip } from "@/components/common/info-tip"
+import { Tip } from "@/components/common/info-tip"
 import { CitySelect } from "@/components/common/city-select"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { DollarBar, PARTS, SPLIT_INFO, hundred } from "@/components/procurement/dollar-split"
 import { termsLine } from "@/components/procurement/event-page"
-import { agencyStatus } from "@/components/procurement/sourcing-bits"
+import { agencyStatus, vsMarketLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { formatTimestamp } from "@/lib/dates"
-import { money, plural, round2 } from "@/lib/format"
-import { benchmark, type Benchmark } from "@/lib/market"
+import { money, plural } from "@/lib/format"
+import { marketPay } from "@/lib/market"
 import { city, position, supplier } from "@/lib/reference"
-import { bestOn, dollarSplit, latestBid, marketsOf, netOf, offeredTerms, openCounters, responded } from "@/lib/sourcing"
+import { agencyValue, bestMarkup, latestBid, marketsOf, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
-import type { SourcingEvent, SourcingLine } from "@/lib/types"
+import type { SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /**
- * One agency's bid on a renewal, full screen: where its dollar goes, then its rate card a market at a time, every role
- * counterable in place. Iris counters the whole event at once; this is for the ones Compass wants to push by hand.
+ * One agency's bid on a renewal, full screen: its markup, its pay against the market and its VA, then its rate card a
+ * market at a time. The markup is the one number to counter. Iris counters the whole event at once; this is for the
+ * agencies Compass wants to push by hand.
  */
 export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: string }) {
   const data = useData()
@@ -56,11 +56,10 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
   const s = supplier(supplierId)
   const bid = latestBid(ev, supplierId)
   const status = agencyStatus(ev, supplierId)
-  const split = dollarSplit(ev, data.rateCards, supplierId)
+  const value = agencyValue(ev, data.rateCards, supplierId)
   const q = query.trim().toLowerCase()
   const lines = ev.lines.filter((l) => l.cityId === market && bid?.lines[l.id] && position(l.positionId).name.toLowerCase().includes(q))
   const inMarket = ev.lines.filter((l) => l.cityId === market && bid?.lines[l.id]).length
-  const asked = openCounters(ev, supplierId).length
 
   return (
     <>
@@ -85,32 +84,25 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
         </header>
       </div>
 
-      <Surface elevated className="flex flex-col gap-4 px-5 py-5" data-tour="agency-dollar">
-        <span className="flex items-center gap-1.5 text-body-3 font-semibold">
-          Of every $100 you pay {s.shortName}
-          <InfoTip>{SPLIT_INFO}</InfoTip>
-        </span>
-        <DollarBar split={split} className="h-4" />
-        <dl className="grid grid-cols-3 gap-4">
-          {PARTS.map((p) => (
-            <div key={p.key} className="flex flex-col gap-0.5">
-              <dt className="flex items-center gap-1.5 text-caption-1 text-faded">
-                <span className={cn("size-2.5 rounded-full", p.swatch)} />
-                {p.label}
-              </dt>
-              <dd className={cn("text-[28px] leading-9 font-semibold tracking-[-0.03em] tabular", p.key === "worker" && "text-positive-fg")}>{hundred(split)[p.key]}</dd>
-              <dd className="text-caption-1 text-faded">
-                {p.key === "worker" ? "Their pay" : p.key === "agency" ? `${Math.round(split.markup)}% average markup, less VA` : `${split.vaPct}% VA at year end`}
-              </dd>
-            </div>
-          ))}
-        </dl>
+      <Surface elevated className="grid grid-cols-3 gap-6 px-5 py-5" data-tour="agency-terms">
+        <Stat label="Markup" note="On every role, in every market">
+          <span className="flex flex-wrap items-center gap-3">
+            {pct(Math.round(value.markupPct))}
+            {bid && <CounterMarkup ev={ev} supplierId={supplierId} />}
+          </span>
+        </Stat>
+        <Stat label="Worker pay vs market" note="Averaged over every role, by the hours you buy">
+          {vsMarketLabel(value.payVsMarket)}
+        </Stat>
+        <Stat label="VA" note="Back at year end">
+          {pct(value.vaPct)}
+        </Stat>
       </Surface>
 
       <Surface elevated className="overflow-hidden" data-tour="agency-rate-card">
         <SurfaceHeader
           title="Rate card"
-          description={bid ? `${plural(inMarket, "role")}${asked ? ` · ${plural(asked, "counter")} waiting on ${s.shortName}` : ""}` : `Nothing to counter until ${s.shortName} bids`}
+          description={bid ? plural(inMarket, "role") : `No rates until ${s.shortName} bids`}
           actions={
             <span className="flex items-center gap-2">
               {markets.length > 1 && (
@@ -120,17 +112,27 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
             </span>
           }
         />
-        <div className="grid grid-cols-[minmax(180px,1fr)_100px_90px_120px_150px] gap-4 border-t border-border/70 px-5 py-2 text-caption-1 text-faded">
+        <div className={cn(ROW, "border-t border-border/70 py-2 text-caption-1 text-faded")}>
           <span>Role</span>
           <span className="text-right">Worker pay</span>
-          <span className="text-right">Markup</span>
+          <span className="text-right">Market pay</span>
+          <span className="text-right">vs market</span>
           <span className="text-right">Rate</span>
-          <span />
         </div>
         <ol className="flex flex-col">
-          {lines.map((l) => (
-            <BidRow key={l.id} ev={ev} line={l} supplierId={supplierId} market={benchmark(l.cityId, l.positionId)} />
-          ))}
+          {lines.map((l) => {
+            const line = bid!.lines[l.id]
+            const market = marketPay(l.cityId, l.positionId)
+            return (
+              <li key={l.id} className={cn(ROW, "border-t border-border/70 py-3 text-body-3")} data-tour="bid-row" data-supplier={supplierId} data-position={l.positionId}>
+                <span className="truncate font-medium">{position(l.positionId).name}</span>
+                <span className="text-right tabular">{money(line.proRate)}</span>
+                <span className="text-right text-faded tabular">{money(market)}</span>
+                <span className="text-right text-faded">{vsMarketLabel(line.proRate / market - 1)}</span>
+                <span className="text-right text-body-2 font-semibold tabular">{money(line.billRate)}</span>
+              </li>
+            )
+          })}
         </ol>
         {bid && !lines.length && <p className="border-t border-border/70 px-5 py-4 text-body-3 text-faded">No roles match.</p>}
       </Surface>
@@ -138,95 +140,80 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
   )
 }
 
-/** One role on the agency's bid, with a counter right in the row. */
-function BidRow({ ev, line, supplierId, market }: { ev: SourcingEvent; line: SourcingLine; supplierId: string; market: Benchmark }) {
+const ROW = "grid grid-cols-[minmax(180px,1fr)_110px_110px_150px_110px] items-center gap-4 px-5"
+
+function Stat({ label, note, children }: { label: string; note: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-caption-1 text-faded">{label}</span>
+      <span className="text-[28px] leading-9 font-semibold tracking-[-0.03em] tabular">{children}</span>
+      <span className="text-caption-1 text-faded">{note}</span>
+    </div>
+  )
+}
+
+/** Compass asks the agency for a lower markup, on every role at once. */
+function CounterMarkup({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
   const counter = useStore((s) => s.counterBid)
-  const bid = latestBid(ev, supplierId)!.lines[line.id]
-  const asked = openCounters(ev, supplierId).find((m) => m.lineId === line.id)
-  const field = bestOn(ev, line.id)
-  const va = offeredTerms(ev, supplierId).vaPct
-  const net = netOf(ev, supplierId, bid.billRate)
+  const bid = latestBid(ev, supplierId)!
+  const asked = openCounters(ev, supplierId).at(-1)
   const locked = !!ev.approved[supplierId] || ev.status === "awarded"
-  const best = field?.supplierId === supplierId && responded(ev).length > 1
-  const high = bid.billRate > market.median
   const [ask, setAsk] = useState<string | null>(null)
   const askN = Number(ask)
-  const valid = askN > 0 && askN < bid.billRate
-  const tie = field && field.supplierId !== supplierId && field.net < net ? round2(field.net / (1 - va / 100)) : undefined
-  const suggest = () => round2(tie && tie < bid.billRate ? tie : Math.min(bid.billRate * 0.97, market.median))
+  const valid = ask !== "" && askN >= 0 && askN < bid.markupPct
+  const suggest = () => {
+    const best = responded(ev).length > 1 ? bestMarkup(ev) : 0
+    return Math.max(best, Math.ceil(bid.markupPct) - 3) < bid.markupPct ? Math.max(best, Math.ceil(bid.markupPct) - 3) : Math.max(0, Math.ceil(bid.markupPct) - 1)
+  }
   const send = () =>
-    void counter(ev.id, supplierId, line.id, askN).then((ok) => {
+    void counter(ev.id, supplierId, askN).then((ok) => {
       if (!ok) return
       setAsk(null)
-      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `${position(line.positionId).name} at ${money(askN)}/hr` })
+      toast.success(`Counter sent to ${supplier(supplierId).shortName}`, { description: `A ${pct(askN)} markup on every role` })
     })
+  if (locked)
+    return (
+      <span className="flex items-center gap-1 text-caption-1 font-medium text-positive-fg">
+        <CircleCheck className="size-3.5" /> Approved
+      </span>
+    )
+  if (asked)
+    return (
+      <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
+        <span className="text-caption-1 font-medium tracking-normal text-warning-fg">Asked {pct(asked.ask!)}</span>
+      </Tip>
+    )
+  if (ask === null)
+    return (
+      <Button variant="outline" size="sm" data-tour="counter" onClick={() => setAsk(String(suggest()))}>
+        Counter markup
+      </Button>
+    )
   return (
-    <li className="flex flex-col border-t border-border/70" data-tour="bid-row" data-supplier={supplierId} data-position={line.positionId}>
-      <div className="grid grid-cols-[minmax(180px,1fr)_100px_90px_120px_150px] items-center gap-4 px-5 py-3 text-body-3">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-medium">{position(line.positionId).name}</span>
-          {best ? (
-            <StatusBadge tone="positive" size="sm">
-              Best
-            </StatusBadge>
-          ) : high ? (
-            <Tip content={`The market is ${money(market.median)}`}>
-              <span>
-                <StatusBadge tone="warning" size="sm">
-                  Above market
-                </StatusBadge>
-              </span>
-            </Tip>
-          ) : null}
-        </span>
-        <span className="text-right tabular">{money(bid.proRate)}</span>
-        <span className="text-right text-faded tabular">{Math.round(bid.markupPct)}%</span>
-        <span className="text-right text-body-2 font-semibold tabular">{money(bid.billRate)}</span>
-        <span className="flex justify-end">
-          {locked ? (
-            <span className="flex items-center gap-1 text-caption-1 font-medium text-positive-fg">
-              <CircleCheck className="size-3.5" /> Approved
-            </span>
-          ) : asked ? (
-            <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
-              <span className="text-caption-1 font-medium text-warning-fg">Asked {money(asked.ask!)}</span>
-            </Tip>
-          ) : ask === null ? (
-            <Button variant="outline" size="sm" data-tour="counter" onClick={() => setAsk(suggest().toFixed(2))}>
-              Counter
-            </Button>
-          ) : null}
-        </span>
-      </div>
-      {ask !== null && !asked && !locked && (
-        <form
-          className="flex items-center gap-2 border-t border-border/70 bg-page-faded/60 px-5 py-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (valid) send()
-          }}
-        >
-          <span className="text-caption-1 font-medium text-faded">Counter at</span>
-          <span className="relative w-28">
-            <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">$</span>
-            <input
-              inputMode="decimal"
-              aria-label="Counter at"
-              value={ask}
-              autoFocus
-              onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
-              className="h-8 w-full rounded-lg border border-input bg-card pr-2 pl-6 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-            />
-          </span>
-          <span className="flex-1 truncate text-caption-1 text-faded">The market is {money(market.median)}</span>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setAsk(null)}>
-            Cancel
-          </Button>
-          <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
-            Send
-          </Button>
-        </form>
-      )}
-    </li>
+    <form
+      className="flex items-center gap-2 text-body-3 font-normal tracking-normal"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (valid) send()
+      }}
+    >
+      <span className="relative w-20">
+        <input
+          inputMode="decimal"
+          aria-label="Counter at"
+          value={ask}
+          autoFocus
+          onChange={(e) => setAsk(e.target.value.replace(/[^\d.]/g, ""))}
+          className="h-8 w-full rounded-lg border border-input bg-card pr-6 pl-2.5 text-right text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+        />
+        <span className="absolute top-1/2 right-2.5 -translate-y-1/2 text-faded">%</span>
+      </span>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setAsk(null)}>
+        Cancel
+      </Button>
+      <Button type="submit" size="sm" disabled={!valid} data-tour="send-counter">
+        Send
+      </Button>
+    </form>
   )
 }

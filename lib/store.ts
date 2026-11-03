@@ -83,8 +83,8 @@ interface StoreState {
   requestRateReview: (id: string, note?: string) => Promise<number>
   answerRateReview: (cardId: string, decision: "lower" | "keep", note?: string) => Promise<boolean>
   createSourcingEvent: (input: { cityIds: string[]; positionIds: string[]; supplierIds: string[]; closesOn: string; title?: string }) => Promise<string | undefined>
-  submitBid: (eventId: string, lines: Record<string, { proRate: number; markupPct: number }>, note?: string) => Promise<number | undefined>
-  counterBid: (eventId: string, supplierId: string, lineId: string, ask: number, note?: string) => Promise<boolean>
+  submitBid: (eventId: string, pay: Record<string, number>, markupPct: number, note?: string) => Promise<number | undefined>
+  counterBid: (eventId: string, supplierId: string, ask: number, note?: string) => Promise<boolean>
   approveBids: (eventId: string, supplierIds: string[]) => Promise<number>
   negotiateBids: (eventId: string) => Promise<number>
   /** Sends lines billed above Iris's clock back to the agency for a credit, or accepts them as billed. */
@@ -402,8 +402,8 @@ export const useStore = create<StoreState>()((set, get) => {
     requestRateReview: async (id, note) => (await send("requestRateReview", { id, note })) ?? 0,
     answerRateReview: async (cardId, decision, note) => (await send("answerRateReview", { id: cardId, decision, note })) !== undefined,
     createSourcingEvent: async (input) => send("createSourcingEvent", input),
-    submitBid: async (eventId, lines, note) => send("submitBid", { eventId, lines, note }),
-    counterBid: async (eventId, supplierId, lineId, ask, note) => (await send("counterBid", { eventId, supplierId, lineId, ask, note })) !== undefined,
+    submitBid: async (eventId, pay, markupPct, note) => send("submitBid", { eventId, pay, markupPct, note }),
+    counterBid: async (eventId, supplierId, ask, note) => (await send("counterBid", { eventId, supplierId, ask, note })) !== undefined,
     approveBids: async (eventId, supplierIds) => (await send("approveBids", { eventId, supplierIds })) ?? 0,
     negotiateBids: async (eventId) => (await send("negotiateBids", { eventId })) ?? 0,
     decideBilling: async (id, decision, note) => (await send("decideBilling", { id, decision, note })) !== undefined,

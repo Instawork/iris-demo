@@ -6,7 +6,6 @@ import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-sto
 import { compose } from "@/components/agent/agent-thread"
 import { enteringExpenses } from "@/components/agent/enter-expenses"
 import { enteringTips } from "@/components/agent/enter-tips"
-import { of100 } from "@/components/procurement/dollar-split"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import { STOPPED, cursorStopped, haltCursor, point, press, restCursor, sleep, type, until } from "@/components/tour/cursor"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
@@ -20,7 +19,7 @@ import { filledCount, groupPhase, isOpenTo } from "@/lib/metrics"
 import { standingOf } from "@/lib/pro-profile"
 import { toCsv } from "@/lib/csv"
 import { buyer, location, position, supplier } from "@/lib/reference"
-import { dollarSplit, irisCounters, responded } from "@/lib/sourcing"
+import { agencyValue, irisCounters, responded } from "@/lib/sourcing"
 import { timesheetChecks, tippable } from "@/lib/timesheets"
 import { SAMPLE_UNIT_SHEET } from "@/lib/unit-sheet"
 import type { DemoData, Pro, RequirementId, Timesheet } from "@/lib/types"
@@ -235,13 +234,13 @@ const approvedSince = (ctx: TourContext) => Object.values(event(ctx)?.approved ?
 const approveDialog = () => [...document.querySelectorAll('[role="dialog"]')].find((d) => d.querySelector("h2")?.textContent?.trim() === "Approve bids")
 const approveButton = () => [...(approveDialog()?.querySelectorAll("button") ?? [])].find((b) => /^Approve \d/.test(b.textContent?.trim() ?? ""))
 
-/** The agencies that get the most and the least of each dollar to the worker, among those that bid. */
+/** The best and the worst value after VA, among the agencies that bid. */
 const valueEnds = (ctx: TourContext) => {
   const ev = event(ctx)
   if (!ev) return []
   const rows = responded(ev)
-    .map((s) => ({ name: supplier(s).shortName, ...dollarSplit(ev, ctx.data.rateCards, s) }))
-    .sort((a, b) => b.worker - a.worker)
+    .map((s) => ({ name: supplier(s).shortName, ...agencyValue(ev, ctx.data.rateCards, s) }))
+    .sort((a, b) => a.cost - b.cost)
   return rows.length > 1 ? [rows[0], rows.at(-1)!] : []
 }
 
@@ -637,22 +636,22 @@ export const SCRIPT: TourItem[] = [
     title: "Rate cards and supplier sourcing",
     wsId: COMPASS,
     href: "/procurement",
-    shows: "Next year's renewal: which agency gets the most of your dollar to the worker, and Iris negotiating the rest.",
+    shows: "Next year's renewal: every agency's markup, pay and VA side by side, and Iris negotiating the markups down.",
   },
   {
     kind: "step",
     id: "value",
     chapter: "rates",
-    label: "Who pays workers the most",
+    label: "Compare agencies",
     wsId: COMPASS,
     path: new RegExp(`^/procurement(/${EVENT})?$`),
     href: () => "/procurement",
-    title: "Every agency, out of $100",
+    title: "One markup per agency",
     body: (ctx) => {
       const [best, worst] = valueEnds(ctx)
       return best && worst
-        ? `Of every $100, ${best.name} puts ${of100(best.worker)} in the worker's pocket and gives ${of100(best.back)} back. ${worst.name}: ${of100(worst.worker)} and ${of100(worst.back)}.`
-        : "Of every $100 you pay, what reaches the worker, what the agency keeps, and what comes back to you."
+        ? `${best.name} marks up ${Math.round(best.markupPct)}% and gives ${best.vaPct}% back. ${worst.name} marks up ${Math.round(worst.markupPct)}% and gives ${worst.vaPct}% back.`
+        : "Each agency's markup, what it pays workers against the market, and the VA it gives back."
     },
     targets: () => [one('[data-tour="bid-matrix"]')],
     placement: "bottom",
@@ -662,11 +661,11 @@ export const SCRIPT: TourItem[] = [
     kind: "step",
     id: "negotiate",
     chapter: "rates",
-    label: "Negotiate every bid",
+    label: "Negotiate the markups",
     wsId: COMPASS,
     path: new RegExp(`^/procurement($|/${EVENT})`),
     href: () => "/procurement",
-    title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every bid above the market, countered at once"),
+    title: (ctx) => (irisSent(ctx).length ? "Answers take a day or two" : "Every markup above the lowest, countered at once"),
     action: (ctx) => (irisSent(ctx).length ? "Watch the answers come in" : `Click ${one('[data-tour="negotiate"]')?.textContent?.trim() || "Send counters"}`),
     targets: () => [one('[data-tour="iris-negotiate"]')],
     clicks: () => one('[data-tour="negotiate"]'),

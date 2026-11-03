@@ -35,3 +35,6 @@ export function benchmark(cityId: string, positionId: string): Benchmark {
 
 /** How far a rate sits from the market median, as a ratio: -0.03 is 3% under. */
 export const vsMarket = (rate: number, b: Benchmark) => rate / b.median - 1
+
+/** What the market pays the worker in a role: its median bill rate less the market's markup. */
+export const marketPay = (cityId: string, positionId: string) => round2(benchmark(cityId, positionId).median / MARKET_MARKUP)
