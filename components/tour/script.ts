@@ -1093,7 +1093,12 @@ export const SCRIPT: TourItem[] = [
       const t = parkingSheet(ctx.data)
       return [t && one(`tr[data-row-id="${t.id}"]`)]
     },
-    clicks: () => (one(EXPENSE_FORM) ? inside(EXPENSE_FORM, '[data-tour="expense-save"]') : one('[data-tour="expense-add"]')),
+    clicks: (ctx) => {
+      if (one(EXPENSE_FORM)) return inside(EXPENSE_FORM, '[data-tour="expense-save"]')
+      if (one(SHEET)) return one('[data-tour="expense-add"]')
+      const t = parkingSheet(ctx.data)
+      return t && one(`tr[data-row-id="${t.id}"]`)
+    },
     // The button sits in the sheet's bottom bar, so a card beside it lands on top of the click.
     placement: "top",
     done: (ctx) => !!expenseSince(ctx),

@@ -113,10 +113,14 @@ const topModal = () => {
 /** Resolves once the browser is on this page, or after a few seconds if the navigation never lands. */
 const arrivedAt = (href: string) =>
   new Promise<void>((resolve) => {
-    const target = new URL(href, window.location.origin).pathname
+    const target = new URL(href, window.location.origin)
+    const here = () => `${window.location.pathname}${window.location.search}`
+    const from = here()
     const started = performance.now()
+    // Same page, other query: wait for the query too, or the step starts before it lands. A page may tidy the query once there.
     const check = () => {
-      if (window.location.pathname === target || performance.now() - started > 4000) resolve()
+      const now = here()
+      if (now === `${target.pathname}${target.search}` || (window.location.pathname === target.pathname && now !== from) || performance.now() - started > 4000) resolve()
       else window.setTimeout(check, 50)
     }
     check()
