@@ -11,7 +11,7 @@ import { PageHeader, SectionTitle } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
-import { DollarBar, cents } from "@/components/procurement/dollar-split"
+import { DollarBar, hundred } from "@/components/procurement/dollar-split"
 import { NewEventDialog } from "@/components/procurement/new-event-dialog"
 import { Change, StageBadge, agencyStatus, moneyYear } from "@/components/procurement/sourcing-bits"
 import { RatesPage } from "@/components/rates/rates-page"
@@ -213,7 +213,7 @@ function Renewal({ ev }: { ev: SourcingEvent }) {
             <SupplierLogo supplierId={best.s} size="sm" />
             <span className="text-body-3">
               <span className="font-semibold">{supplier(best.s).shortName}</span> is the best value so far:{" "}
-              <span className="font-semibold text-positive-fg">{cents(best.split.worker)}</span> of every $1 to the worker, {cents(best.split.back)} back to you
+              <span className="font-semibold text-positive-fg">{hundred(best.split).worker}</span> of every $100 to the worker, {hundred(best.split).back} back to you
             </span>
           </span>
           <DollarBar split={best.split} className="ml-auto h-2.5 w-64" />

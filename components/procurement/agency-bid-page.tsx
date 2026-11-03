@@ -8,11 +8,11 @@ import { toast } from "sonner"
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { EmptyState } from "@/components/common/empty-state"
 import { SearchInput } from "@/components/common/filters"
-import { Tip } from "@/components/common/info-tip"
+import { InfoTip, Tip } from "@/components/common/info-tip"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { DollarBar, PARTS, cents } from "@/components/procurement/dollar-split"
+import { DollarBar, PARTS, SPLIT_INFO, hundred } from "@/components/procurement/dollar-split"
 import { termsLine } from "@/components/procurement/event-page"
 import { agencyStatus } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
@@ -86,7 +86,10 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
       </div>
 
       <Surface elevated className="flex flex-col gap-4 px-5 py-5" data-tour="agency-dollar">
-        <span className="text-body-3 font-semibold">Of every $1 you pay {s.shortName}</span>
+        <span className="flex items-center gap-1.5 text-body-3 font-semibold">
+          Of every $100 you pay {s.shortName}
+          <InfoTip>{SPLIT_INFO}</InfoTip>
+        </span>
         <DollarBar split={split} className="h-4" />
         <dl className="grid grid-cols-3 gap-4">
           {PARTS.map((p) => (
@@ -95,9 +98,9 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
                 <span className={cn("size-2.5 rounded-full", p.swatch)} />
                 {p.label}
               </dt>
-              <dd className={cn("text-[28px] leading-9 font-semibold tracking-[-0.03em] tabular", p.key === "worker" && "text-positive-fg")}>{cents(split[p.key])}</dd>
+              <dd className={cn("text-[28px] leading-9 font-semibold tracking-[-0.03em] tabular", p.key === "worker" && "text-positive-fg")}>{hundred(split)[p.key]}</dd>
               <dd className="text-caption-1 text-faded">
-                {p.key === "worker" ? "Their pay" : p.key === "agency" ? `${Math.round(split.markup * 10) / 10}% markup, less VA` : `${split.vaPct}% VA at year end`}
+                {p.key === "worker" ? "Their pay" : p.key === "agency" ? `${Math.round(split.markup * 10) / 10}% average markup, less VA` : `${split.vaPct}% VA at year end`}
               </dd>
             </div>
           ))}

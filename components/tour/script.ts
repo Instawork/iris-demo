@@ -6,7 +6,7 @@ import { useAgentThreads, type AgentMessage } from "@/components/agent/agent-sto
 import { compose } from "@/components/agent/agent-thread"
 import { enteringExpenses } from "@/components/agent/enter-expenses"
 import { enteringTips } from "@/components/agent/enter-tips"
-import { cents } from "@/components/procurement/dollar-split"
+import { of100 } from "@/components/procurement/dollar-split"
 import { COMPOSER_ID } from "@/components/home/agent-home"
 import { STOPPED, cursorStopped, haltCursor, point, press, restCursor, sleep, type, until } from "@/components/tour/cursor"
 import type { TourBase, TourPicks } from "@/hooks/use-tour"
@@ -647,12 +647,12 @@ export const SCRIPT: TourItem[] = [
     wsId: COMPASS,
     path: new RegExp(`^/procurement/${EVENT}$`),
     href: () => `/procurement/${EVENT}`,
-    title: "Every agency, one dollar",
+    title: "Every agency, out of $100",
     body: (ctx) => {
       const [best, worst] = valueEnds(ctx)
       return best && worst
-        ? `Of every $1, ${best.name} puts ${cents(best.worker)} in the worker's pocket and gives ${cents(best.back)} back. ${worst.name}: ${cents(worst.worker)} and ${cents(worst.back)}.`
-        : "Of every $1 you pay, what reaches the worker, what the agency keeps, and what comes back to you."
+        ? `Of every $100, ${best.name} puts ${of100(best.worker)} in the worker's pocket and gives ${of100(best.back)} back. ${worst.name}: ${of100(worst.worker)} and ${of100(worst.back)}.`
+        : "Of every $100 you pay, what reaches the worker, what the agency keeps, and what comes back to you."
     },
     targets: () => [one('[data-tour="bid-matrix"]')],
     placement: "bottom",

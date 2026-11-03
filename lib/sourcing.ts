@@ -89,15 +89,26 @@ export function markupOf(ev: SourcingEvent, cards: RateCard[], supplierId: strin
 }
 
 /**
- * Of every dollar Compass pays an agency on its latest bid: what reaches the worker as pay, what the agency keeps of its
- * markup after VA, and what comes back to Compass as VA. The three add up to one.
+ * Of what Compass pays an agency on its latest bid, across all its roles and markets at the hours Compass buys from it:
+ * what reaches the worker as pay, what the agency keeps of its markup after VA, and what comes back to Compass as VA.
+ * The three add up to one. Roles it hasn't bid on count at today's rate card.
  */
 export function dollarSplit(ev: SourcingEvent, cards: RateCard[], supplierId: string) {
-  const markup = markupOf(ev, cards, supplierId).bid
+  const latest = latestBid(ev, supplierId)
+  let pay = 0
+  let bill = 0
+  for (const line of ev.lines) {
+    if (line.baseline[supplierId] === undefined) continue
+    const rate = latest?.lines[line.id] ?? activeCard(cards, supplierId, line.cityId, line.positionId)
+    if (!rate) continue
+    const hours = line.hours * (line.share[supplierId] ?? 0)
+    pay += hours * rate.proRate
+    bill += hours * rate.billRate
+  }
   const vaPct = offeredTerms(ev, supplierId).vaPct
-  const worker = 1 / (1 + markup / 100)
+  const worker = bill ? pay / bill : 0
   const back = vaPct / 100
-  return { worker, agency: Math.max(0, 1 - worker - back), back, markup, vaPct }
+  return { worker, agency: Math.max(0, 1 - worker - back), back, markup: pay ? (bill / pay - 1) * 100 : 0, vaPct }
 }
 
 /** What an agency bills Compass in a year on its rate cards today, at its share of each market's hours. */
