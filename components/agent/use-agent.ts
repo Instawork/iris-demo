@@ -106,7 +106,23 @@ export function useAgent() {
         const data = useStore.getState().data
         if (asksToExpense(text)) {
           const onScreen = /^\/shifts\/(?!new$)([^/]+)$/.exec(window.location.pathname)?.[1] ?? (window.location.pathname === "/timesheets" ? (new URLSearchParams(window.location.search).get("shift") ?? undefined) : undefined)
-          add({ from: "agent", ...expenseReply(data, ws.supplierId, text, todayISO(), onScreen) })
+          const answer = expenseReply(data, ws.supplierId, text, todayISO(), onScreen)
+          const plan = answer.actions.find((a) => a.kind === "add-expenses")
+          if (!plan || plan.kind !== "add-expenses") {
+            add({ from: "agent", ...answer })
+            return
+          }
+          void (async () => {
+            const n = await enterExpenses(
+              plan.ids.map((id) => ({ timesheetId: id, kind: plan.expense, amount: plan.amount, ...(plan.note ? { note: plan.note } : {}) })),
+              router.push,
+            )
+            if (!n) return
+            add({
+              from: "agent",
+              text: `Added ${money(plan.amount)} ${EXPENSE_LABEL[plan.expense].toLowerCase()} to ${n} timesheet${n === 1 ? "" : "s"}, ${money(round2(plan.amount * n))} at cost. They bill with the hours.\n\nDifferent amounts for each worker? Attach a sheet and I'll enter it the same way.`,
+            })
+          })()
           return
         }
         if (asksToSubmit(text)) {
@@ -190,7 +206,7 @@ export function useAgent() {
         text: `I can ${ws.kind === "buyer" ? "create a shift from one sentence, " : ""}build a report from a question like “spend by agency last month”, give you the right CSV template, or check an attachment before anything is saved. Try one of the suggestions, or describe what you need.`,
       })
     },
-    [add, proposeShift, ws],
+    [add, proposeShift, router, ws],
   )
 
   const attach = useCallback(

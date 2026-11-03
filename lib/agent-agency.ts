@@ -110,13 +110,14 @@ export function submittedLine(rows: Timesheet[]) {
 /* -------------------------------- Expenses --------------------------------- */
 
 /** The shift a crew expense is for: the one open on screen, or else the agency's latest shift that's been worked. */
-export function crewShift(data: DemoData, supplierId: string, today: string, groupId?: string) {
+export function crewShift(data: DemoData, supplierId: string, today: string, groupId?: string, minCrew = 1) {
   const worked = (id: string) => data.timesheets.filter((t) => t.groupId === id && t.supplierId === supplierId && t.status !== "removed" && !!t.clockIn && !!t.clockOut)
   const open = groupId ? data.groups.find((g) => g.id === groupId) : undefined
-  if (open && worked(open.id).length) return { group: open, sheets: worked(open.id) }
-  const latest = data.groups
+  if (open && worked(open.id).length >= minCrew) return { group: open, sheets: worked(open.id) }
+  const recent = data.groups
     .filter((g) => g.date <= today && worked(g.id).some(canEditBilled))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.end.localeCompare(a.end))[0]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.end.localeCompare(a.end))
+  const latest = recent.find((g) => worked(g.id).filter(canEditBilled).length >= minCrew) ?? recent[0]
   return latest ? { group: latest, sheets: worked(latest.id) } : undefined
 }
 
