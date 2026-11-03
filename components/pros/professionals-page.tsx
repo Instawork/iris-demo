@@ -101,7 +101,7 @@ export function ProfessionalsPage() {
   const matching = useMemo(() => {
     const q = query.trim().toLowerCase()
     return rows.filter(({ pro }) => {
-      if (q && !`${fullName(pro)} ${pro.code}`.toLowerCase().includes(q)) return false
+      if (q && !`${fullName(pro)} ${pro.code} ${pro.email}`.toLowerCase().includes(q)) return false
       if (suppliers.length && !suppliers.includes(pro.supplierId)) return false
       if (positions.length && !pro.positionIds.some((id) => positions.includes(id))) return false
       return true
@@ -142,6 +142,8 @@ export function ProfessionalsPage() {
           pro_id: pro.code,
           first_name: pro.firstName,
           last_name: pro.lastName,
+          email: pro.email,
+          phone: pro.phone,
           supplier: supplier(pro.supplierId).name,
           city: cityLabel(pro.cityId),
           positions: pro.positionIds.map((id) => position(id).name).join(";"),
@@ -150,7 +152,7 @@ export function ProfessionalsPage() {
           rating: pro.rating ? pro.rating.toFixed(1) : "",
           shifts,
         })),
-        ["pro_id", "first_name", "last_name", "supplier", "city", "positions", "onboarding", "compliance", "rating", "shifts"],
+        ["pro_id", "first_name", "last_name", "email", "phone", "supplier", "city", "positions", "onboarding", "compliance", "rating", "shifts"],
       ),
     )
 
@@ -175,6 +177,12 @@ export function ProfessionalsPage() {
           </span>
         </button>
       ),
+    },
+    {
+      id: "email",
+      header: "Email",
+      sortValue: (r) => r.pro.email,
+      cell: (r) => <span className="text-faded">{r.pro.email}</span>,
     },
     ...(showSupplier
       ? [
@@ -265,7 +273,7 @@ export function ProfessionalsPage() {
             items={FILTERS.filter((f) => !(buyerId && f.value === "onboarding")).map((f) => ({ value: f.value, label: f.label, tooltip: f.tooltip, count: counts[f.value] }))}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <SearchInput value={query} onChange={setQuery} placeholder="Name or worker ID" className="w-52" />
+            <SearchInput value={query} onChange={setQuery} placeholder="Name, email or worker ID" className="w-60" />
             {showSupplier && (
               <MultiSelectFilter
                 label="Agencies"

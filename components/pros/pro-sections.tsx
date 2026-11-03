@@ -14,7 +14,7 @@ import { useWorkspace } from "@/hooks/use-app"
 import { requirementRows, type RequirementRow } from "@/lib/compliance"
 import { dateOf, daysFromToday, formatDateFull, formatDay, todayISO } from "@/lib/dates"
 import { plural, rate } from "@/lib/format"
-import { standingOf, type ProInterview, type ProOffer, type ProResume } from "@/lib/pro-profile"
+import { fieldglassUsername, standingOf, type ProInterview, type ProOffer, type ProResume } from "@/lib/pro-profile"
 import { REQUIREMENTS, buyer, cityLabel, location, position, supplier } from "@/lib/reference"
 import { CHECKS, readDocument } from "@/lib/verification"
 import { useStore } from "@/lib/store"
@@ -30,6 +30,15 @@ function Block({ title, info, children }: { title: string; info?: React.ReactNod
       </h4>
       {children}
     </section>
+  )
+}
+
+function Detail({ label, mono, children }: { label: string; mono?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="text-caption-1 text-faded">{label}</dt>
+      <dd className={cn("truncate font-medium", mono && "font-mono text-caption-1")}>{children}</dd>
+    </div>
   )
 }
 
@@ -54,6 +63,19 @@ export function ResumeSection({ pro, resume }: { pro: Pro; resume: ProResume }) 
           {cityLabel(pro.cityId)} · With {supplier(pro.supplierId).shortName} since {monthYear(pro.joinedOn)}
         </p>
       </div>
+      <Block title="Details" info="What Fieldglass keeps on the worker's job seeker record.">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-body-3">
+          <Detail label="Email">{pro.email}</Detail>
+          <Detail label="Phone">{pro.phone}</Detail>
+          <Detail label="Worker ID" mono>
+            {pro.code}
+          </Detail>
+          <Detail label="Fieldglass username" mono>
+            {fieldglassUsername(pro)}
+          </Detail>
+          <Detail label="Work authorization">No visa needed</Detail>
+        </dl>
+      </Block>
       <Block title="Positions" info="Positions this worker is approved to work on Iris.">
         <div className="flex flex-wrap gap-1.5">
           {pro.positionIds.map((id) => (

@@ -14,7 +14,7 @@ import { MultiSelectFilter, ResetFilters, SearchInput } from "@/components/commo
 import { PageHeader } from "@/components/common/page-header"
 import { PillTabs } from "@/components/common/pill-tabs"
 import { AccrualTable } from "@/components/invoices/accrual-table"
-import { AnomalyFlag, DeltaText, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
+import { AnomalyFlag, InvoiceStatusBadge } from "@/components/invoices/invoice-bits"
 import { WeeklyTable } from "@/components/invoices/weekly-table"
 import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
@@ -204,14 +204,6 @@ export function InvoicesPage() {
         )
       },
     },
-    ...when<Invoice>(isCompass, {
-      id: "vs",
-      header: "vs. others",
-      info: "This invoice's labor compared with what the other agencies would have charged for the same hours, weighted by their rating.",
-      align: "right",
-      sortValue: (i) => invoiceBenchmark(data, i.id).deltaPct,
-      cell: (i) => <DeltaText delta={invoiceBenchmark(data, i.id).deltaPct} />,
-    }),
     { id: "status", header: "Status", sortValue: (i) => invoiceStatus(i), cell: (i) => <InvoiceStatusBadge invoice={i} /> },
     {
       id: "due",
@@ -249,7 +241,7 @@ export function InvoicesPage() {
             amount: invoiceTotal(i).toFixed(2),
             balance: invoiceBalance(i).toFixed(2),
             ...(isCompass
-              ? { benchmark: b.fair.toFixed(2), vs_others_pct: (b.deltaPct * 100).toFixed(1), flagged: b.anomalous ? "yes" : "no", review: i.review?.status ?? "" }
+              ? { flagged: b.anomalous ? "yes" : "no", review: i.review?.status ?? "" }
               : {}),
           }
         }),

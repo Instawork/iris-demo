@@ -11,7 +11,7 @@ import { SearchInput } from "@/components/common/filters"
 import { InfoTip, Tip } from "@/components/common/info-tip"
 import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
-import { Change, StageBadge, agencyStatus, moneyYear, termLabel, vsMarketLabel } from "@/components/procurement/sourcing-bits"
+import { Change, StageBadge, agencyStatus, moneyYear, termLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -78,11 +78,11 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
   )
 }
 
-const BOARD = "grid grid-cols-[minmax(220px,1.4fr)_1fr_1fr_1fr_16px] items-center gap-6 px-5"
+const BOARD = "grid grid-cols-[minmax(220px,1.4fr)_1fr_1.4fr_1fr_16px] items-center gap-6 px-5"
 
 /**
  * Every agency's bid in three numbers: its markup, what it pays workers against the market, and the VA it gives back.
- * Best value after VA first, and the best number in each column is tinted, so the comparison reads at a glance.
+ * Best value after VA first, and the lowest markup and the most VA are tinted, so the comparison reads at a glance.
  */
 function ValueBoard({ ev }: { ev: SourcingEvent }) {
   const data = useData()
@@ -92,49 +92,32 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
     .sort((a, b) => Number(b.bidding) - Number(a.bidding) || a.cost - b.cost)
   const bidding = rows.filter((r) => r.bidding)
   const compare = bidding.length > 1
-  const top = {
-    markup: Math.min(...bidding.map((r) => r.markupPct)),
-    pay: Math.max(...bidding.map((r) => Math.round(r.payVsMarket * 100))),
-    va: Math.max(...bidding.map((r) => r.vaPct)),
-  }
-  const best = compare ? bidding[0] : undefined
-  const wins = best ? [best.markupPct === top.markup && "the lowest markup", best.vaPct === top.va && "the most VA"].filter((x): x is string => !!x) : []
-  const takeaway = best
-    ? `${supplier(best.s).shortName} is the best value${wins.length ? `, with ${listOf(wins)}` : ""}. It pays workers ${vsMarketLabel(best.payVsMarket).toLowerCase()}.`
-    : "Each agency's markup, pay and VA"
+  const top = { markup: Math.min(...bidding.map((r) => r.markupPct)), va: Math.max(...bidding.map((r) => r.vaPct)) }
+  const span = Math.max(0.05, ...rows.map((r) => Math.abs(r.payVsMarket) * 1.25))
   const shown = rows.filter((r) => supplier(r.s).name.toLowerCase().includes(query.trim().toLowerCase()))
   return (
     <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
       <SurfaceHeader
         title="Compare agencies"
-        description={takeaway}
-        info="Best value is what you pay for each dollar of worker pay, after the VA comes back. Pay is averaged over every role and market, weighted by the hours you buy."
+        info="Pay is averaged over every role and market, weighted by the hours you buy. The dot is where each agency's pay sits against the market, the line in the middle."
         actions={ev.invited.length > 8 ? <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-52" /> : undefined}
       />
       <div className={cn(BOARD, "mt-3 border-t border-border/70 py-2 text-caption-1")}>
         <span className="text-faded">Agency</span>
-        <Heading label="Markup" hint="Lower is better" />
-        <Heading label="Worker pay vs market" hint="Higher is better" />
-        <Heading label="VA" hint="Higher is better" />
+        <span className="font-medium text-foreground">Markup</span>
+        <span className="font-medium text-foreground">Worker pay vs market</span>
+        <span className="font-medium text-foreground">VA</span>
         <span />
       </div>
       <ol className="flex flex-col">
         {shown.map((r) => {
-          const pay = Math.round(r.payVsMarket * 100)
           return (
             <li key={r.s} className="border-t border-border/70">
               <Link href={`/procurement/${ev.id}/${r.s}`} data-supplier={r.s} className={cn(BOARD, "group py-3.5 transition-colors hover:bg-hover/50")}>
                 <span className="flex min-w-0 items-center gap-3">
                   <SupplierLogo supplierId={r.s} size="md" />
                   <span className="flex min-w-0 flex-col">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
-                      {r.s === best?.s && (
-                        <StatusBadge tone="positive" size="sm">
-                          Best value
-                        </StatusBadge>
-                      )}
-                    </span>
+                    <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
                     <span className={cn("text-caption-1", r.status.tone === "neutral" || r.status.tone === "primary" ? "text-faded" : toneText[r.status.tone])}>
                       {r.bidding ? r.status.label : "No bid yet, today's rates"}
                     </span>
@@ -143,7 +126,7 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
                 <Cell best={compare && r.bidding && r.markupPct === top.markup}>{pct(Math.round(r.markupPct))}</Cell>
                 <Tip content={`Pays ${money(1 + r.payVsMarket)} for every $1.00 the market pays`}>
                   <span className="w-fit">
-                    <Cell best={compare && r.bidding && pay === top.pay}>{vsMarketLabel(r.payVsMarket)}</Cell>
+                    <PayDot value={r.payVsMarket} span={span} />
                   </span>
                 </Tip>
                 <Cell best={compare && r.bidding && r.vaPct === top.va}>{pct(r.vaPct)}</Cell>
@@ -157,11 +140,26 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
   )
 }
 
-function Heading({ label, hint }: { label: string; hint: string }) {
+/** Where an agency's pay sits against the market: the tick is the market, the dot green above it and red below. */
+function PayDot({ value, span }: { value: number; span: number }) {
+  const n = Math.round(value * 100)
+  const tone = n > 0 ? "positive" : n < 0 ? "critical" : "neutral"
   return (
-    <span className="flex flex-col">
-      <span className="font-medium text-foreground">{label}</span>
-      <span className="text-subtle">{hint}</span>
+    <span className="flex items-center gap-3">
+      <span className="relative block h-4 w-28" aria-hidden>
+        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/10" />
+        <span className="absolute top-1/2 left-1/2 h-3 w-px -translate-y-1/2 bg-foreground/50" />
+        <span
+          className={cn(
+            "absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card",
+            tone === "positive" ? "bg-positive" : tone === "critical" ? "bg-critical" : "bg-foreground/55",
+          )}
+          style={{ left: `${50 + (Math.max(-span, Math.min(span, value)) / span) * 50}%` }}
+        />
+      </span>
+      <span className={cn("text-body-3 font-medium tabular", tone === "positive" ? "text-positive-fg" : tone === "critical" ? "text-critical-fg" : "text-faded")}>
+        {n === 0 ? "At market" : `${Math.abs(n)}% ${n > 0 ? "above" : "below"}`}
+      </span>
     </span>
   )
 }

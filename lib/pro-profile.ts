@@ -260,3 +260,12 @@ export function proProfile(pro: Pro, rateCards: RateCard[], today = todayISO()):
     offers,
   }
 }
+
+/* -------------------------------- Fieldglass ------------------------------- */
+
+/** The worker's Fieldglass login, built the way Fieldglass builds a Security ID: first initial, last name and birthday. */
+export function fieldglassUsername(pro: Pro) {
+  const h = hashString(`fg:${pro.id}`)
+  const birthday = `${String((h % 12) + 1).padStart(2, "0")}${String(((h >>> 4) % 28) + 1).padStart(2, "0")}`
+  return `${pro.firstName[0]}${pro.lastName}${birthday}`.toLowerCase().replace(/[^a-z0-9]/g, "")
+}

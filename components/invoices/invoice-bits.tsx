@@ -7,7 +7,6 @@ import { StatusBadge, type Tone } from "@/components/common/status-badge"
 import { useData } from "@/hooks/use-app"
 import { money, plural } from "@/lib/format"
 import {
-  ANOMALY_THRESHOLD,
   billingFindings,
   creditDue,
   invoiceBalance,
@@ -40,10 +39,6 @@ export const formatDelta = (delta: number) => {
 }
 
 export const anomalyNote = (delta: number) => `${Math.trunc(delta * 100)}% above what other agencies would have charged, weighted by rating`
-
-export function DeltaText({ delta }: { delta: number }) {
-  return <span className={cn("tabular", delta >= ANOMALY_THRESHOLD ? "font-semibold text-critical-fg" : "text-faded")}>{formatDelta(delta)}</span>
-}
 
 /** Where Compass's decision on hours billed above Iris's clock stands. */
 export function billingState(invoice: Invoice) {

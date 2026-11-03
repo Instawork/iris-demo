@@ -6,14 +6,13 @@ import { useMemo } from "react"
 import { EmptyState } from "@/components/common/empty-state"
 import { Surface } from "@/components/common/surface"
 import { Breakdown, type BreakdownColumn } from "@/components/invoices/breakdown"
-import { ACCRUAL_STAGE, ACCRUAL_STAGES, stageOf, type Accruals } from "@/lib/accruals"
+import { ACCRUAL_STAGE, stageOf, type Accruals } from "@/lib/accruals"
 import { timesheetAmount } from "@/lib/timesheets"
 
 const COLUMNS: BreakdownColumn[] = [
   { header: "Approved", info: ACCRUAL_STAGE.approved },
-  { header: "Pending", info: ACCRUAL_STAGE.approval },
-  { header: "With agency", info: ACCRUAL_STAGE.agency },
-  { header: "To accrue" },
+  { header: "Pending", info: "Not approved yet: with the agency or waiting for approval" },
+  { header: "Total" },
 ]
 
 /** What to accrue, laid out like the weekly invoice, down to each cost center. */
@@ -22,8 +21,8 @@ export function AccrualTable({ accruals }: { accruals: Accruals }) {
     () =>
       accruals.timesheets.map((t) => {
         const amount = timesheetAmount(t)
-        const stage = stageOf(t)
-        return { ...t, amounts: [...ACCRUAL_STAGES.map((s) => (s === stage ? amount : 0)), amount] }
+        const approved = stageOf(t) === "approved"
+        return { ...t, amounts: [approved ? amount : 0, approved ? 0 : amount, amount] }
       }),
     [accruals.timesheets],
   )
