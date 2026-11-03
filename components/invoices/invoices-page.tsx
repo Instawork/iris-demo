@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
 import { DataTable, type Column } from "@/components/common/data-table"
+import { DateRangeFilter, overlaps, periodPresets, type IsoRange } from "@/components/common/date-range-filter"
 import { EmptyState } from "@/components/common/empty-state"
 import { MultiSelectFilter, ResetFilters, SearchInput } from "@/components/common/filters"
 import { PageHeader } from "@/components/common/page-header"
@@ -51,7 +52,7 @@ const QUICK: Record<PersonaKind, Quick[]> = {
 
 const QUICK_LABEL: Record<Quick, string> = { all: "All", flagged: "Flagged", open: "This week", outstanding: "Outstanding", paid: "Paid", accrue: "Not invoiced yet" }
 
-const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "partial", "overdue"]
+const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "overdue"]
 
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
@@ -83,6 +84,7 @@ export function InvoicesPage() {
   const [query, setQuery] = useState("")
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [buyers, setBuyers] = useState<string[]>([])
+  const [dates, setDates] = useState<IsoRange>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const isCompass = ws.kind === "compass"
@@ -96,10 +98,11 @@ export function InvoicesPage() {
     return mine.filter((i) => {
       if (suppliers.length && !suppliers.includes(i.supplierId)) return false
       if (buyers.length && !buyers.includes(i.buyerId)) return false
+      if (!overlaps(dates, i.periodStart, i.periodEnd)) return false
       if (q && !`${i.number} ${supplier(i.supplierId).name} ${buyer(i.buyerId).name}`.toLowerCase().includes(q)) return false
       return true
     })
-  }, [mine, suppliers, buyers, query])
+  }, [mine, suppliers, buyers, dates, query])
   const matches = useMemo<Record<Quick, (i: Invoice) => boolean>>(
     () => ({
       all: () => true,
@@ -126,16 +129,18 @@ export function InvoicesPage() {
       (t) =>
         (!suppliers.length || suppliers.includes(t.supplierId)) &&
         (!buyers.length || buyers.includes(t.buyerId)) &&
+        overlaps(dates, t.date) &&
         (!q || `${location(t.locationId).name} ${costCenterOf(t.locationId, t.departmentId, t.positionId)}`.toLowerCase().includes(q)),
     )
     return accruals(sheets, scope, todayISO())
-  }, [accruing, data.timesheets, scope, suppliers, buyers, query])
+  }, [accruing, data.timesheets, scope, suppliers, buyers, dates, query])
 
-  const hasFilters = !!query || suppliers.length + buyers.length > 0
+  const hasFilters = !!query || !!dates.from || suppliers.length + buyers.length > 0
   const resetFilters = () => {
     setQuery("")
     setSuppliers([])
     setBuyers([])
+    setDates({})
   }
   const billed = rows.reduce((s, i) => s + invoiceTotal(i), 0)
   const open = rows.reduce((s, i) => s + invoiceBalance(i), 0)
@@ -321,6 +326,7 @@ export function InvoicesPage() {
       <motion.div key={accruing ? "accrue" : byWeek ? "weeks" : "invoices"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput value={query} onChange={setQuery} placeholder={accruing ? "Search units" : "Search invoices"} className="w-52" />
+          <DateRangeFilter label={accruing ? "Worked" : "Period"} value={dates} onChange={setDates} presets={periodPresets(todayISO())} />
           {ws.kind !== "supplier" && (
             <MultiSelectFilter
               label="Agencies"

@@ -25,7 +25,6 @@ export const INVOICE_STATUS: Record<InvoiceDisplayStatus, { label: string; tone:
   open: { label: "Open", tone: "neutral" },
   unpaid: { label: "Unpaid", tone: "primary" },
   paid: { label: "Paid", tone: "positive" },
-  partial: { label: "Partially paid", tone: "warning" },
   in_process: { label: "In process", tone: "neutral" },
   overdue: { label: "Overdue", tone: "critical" },
 }
@@ -105,11 +104,9 @@ export function groupTotals(group: InvoiceGroup, invoices: Invoice[]) {
     ? "open"
     : statuses.every((s) => s === "paid")
       ? "paid"
-      : statuses.some((s) => s === "overdue")
-        ? "overdue"
-        : statuses.some((s) => s === "paid" || s === "partial")
-          ? "partial"
-          : statuses.every((s) => s === "in_process")
+        : statuses.some((s) => s === "overdue")
+          ? "overdue"
+          : statuses.every((s) => s === "paid" || s === "in_process")
             ? "in_process"
             : "unpaid"
   const dates = members.flatMap((m) => [m.periodStart, m.periodEnd]).sort()

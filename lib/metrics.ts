@@ -112,12 +112,13 @@ export const invoiceTotal = (inv: Invoice) => round2(invoiceSubtotal(inv) + invo
 export const invoiceBalance = (inv: Invoice) => round2(Math.max(0, invoiceTotal(inv) - inv.paidAmount))
 export const invoiceHours = (inv: Invoice) => round2(inv.lines.reduce((s, l) => s + l.hours, 0) - (inv.credits ?? []).reduce((s, c) => s + c.hours, 0))
 
-export type InvoiceDisplayStatus = "open" | "paid" | "unpaid" | "partial" | "in_process" | "overdue"
+export type InvoiceDisplayStatus = "open" | "paid" | "unpaid" | "in_process" | "overdue"
 
+/** Each week is paid as one invoice, so nothing shows as part paid: a balance left is still unpaid. */
 export function invoiceStatus(inv: Invoice): InvoiceDisplayStatus {
   if (inv.status === "paid") return "paid"
   if ((inv.status === "unpaid" || inv.status === "partial") && inv.dueOn < todayISO()) return "overdue"
-  return inv.status
+  return inv.status === "partial" ? "unpaid" : inv.status
 }
 
 /** An open invoice can't be paid until Iris issues it, and a paid or paying one can't take a credit. */
@@ -365,7 +366,7 @@ export function agencyPerformance(data: DemoData, supplierId: string, buyerId?: 
     grade,
     parts: [
       { label: "Fill rate", value: `${Math.round(m.fillRate * 100)}%` },
-      { label: "No-shows", value: `${(m.noShowRate * 100).toFixed(1)}%` },
+      { label: "No-shows", value: `${Math.round(m.noShowRate * 100)}%` },
       { label: "Cost", value: vs === 0 ? "At market" : `${Math.abs(vs)}% ${vs < 0 ? "under" : "over"} market` },
       { label: "Compliance", value: compliance.active ? `${compliance.score}%` : "No workers yet" },
       { label: "Time to fill", value: formatTimeToFill(m.hoursToFill) },

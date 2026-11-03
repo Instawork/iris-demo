@@ -211,9 +211,10 @@ function makeCompliance(r: Random, supplierId: string, positionIds: string[], jo
     compliance[id] = { status: "complete", completedOn, expiresOn }
   }
   if (!onboarding && r.chance(EXPIRED_RATE[supplierId] ?? 0)) {
-    const renewable = required.filter((id) => id !== "i9" && id !== "orientation")
+    const renewable = required.filter((id) => id === "foodHandler" || id === "alcohol")
     const target = r.pick(renewable)
-    compliance[target] = { status: "complete", completedOn, expiresOn: addDaysISO(today, -r.int(3, 40)) }
+    const lapsedOn = addDaysISO(today, -r.int(3, 40))
+    if (target) compliance[target] = { status: "complete", completedOn, expiresOn: lapsedOn }
   }
   return compliance
 }
@@ -386,6 +387,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   const counters = emptyCounters()
   const pros = generatePros(r, counters, today)
   plantExpiredCert(pros, today)
+  plantComplianceCases(pros, today)
   const rateCards = generateRateCards(r, counters, today)
   const rateLog = seedRateLog(rateCards, counters, today)
   const groups: ShiftGroup[] = []
@@ -619,6 +621,22 @@ function plantExpiredCert(pros: Pro[], today: string) {
     .sort((a, b) => b.rating - a.rating)[0]
   if (!pro) return
   pro.compliance = { ...pro.compliance, alcohol: { status: "complete", completedOn: addDaysISO(today, -3 * 365 - 3), expiresOn: addDaysISO(today, -3) } }
+}
+
+/**
+ * Two of Metro's Chicago regulars kept off shifts, one for each way Iris clears a document: a work authorization that
+ * lapsed, which Metro attests, and a certification that lapsed, which Iris checks with the issuer.
+ */
+function plantComplianceCases(pros: Pro[], today: string) {
+  const clear = (p: Pro) => Object.values(p.compliance).every((c) => c?.status === "complete" && (!c.expiresOn || c.expiresOn > addDaysISO(today, 30)))
+  const regulars = pros
+    .filter((p) => p.supplierId === "metro" && p.cityId === "chi" && p.status === "active" && clear(p))
+    .sort((a, b) => b.rating - a.rating || a.id.localeCompare(b.id))
+  const authorized = regulars[0]
+  if (authorized?.compliance.i9) authorized.compliance = { ...authorized.compliance, i9: { ...authorized.compliance.i9, expiresOn: addDaysISO(today, -4) } }
+  const certified = regulars.find((p) => p !== authorized && (p.compliance.foodHandler || p.compliance.alcohol))
+  const cert = certified?.compliance.foodHandler ? "foodHandler" : "alcohol"
+  if (certified?.compliance[cert]) certified.compliance = { ...certified.compliance, [cert]: { ...certified.compliance[cert], expiresOn: addDaysISO(today, -6) } }
 }
 
 function plantStoryGroups(groups: ShiftGroup[], today: string) {
@@ -964,9 +982,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
         const id = `inv-${counters.inv}`
         const number = `INV-${counters.inv++}`
         const lines = rows.map((t) => lineOf(t, proMap))
-        let status: Invoice["status"] = weeksAgo > 3 ? "paid" : "unpaid"
-        if (weeksAgo === 3) status = s.id === "metro" ? "unpaid" : s.id === "crewline" && buyerId === "levy-chi" ? "partial" : "paid"
-        if (weeksAgo === 2) status = s.id === "instawork" ? "in_process" : s.id === "crewline" ? "paid" : "unpaid"
+        const status: Invoice["status"] = weeksAgo > 2 ? "paid" : weeksAgo === 2 ? "in_process" : "unpaid"
         const invoice: Invoice = {
           id,
           number,
@@ -982,7 +998,7 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
           source: "auto",
         }
         const total = invoiceTotalRaw(invoice)
-        invoice.paidAmount = status === "paid" ? total : status === "partial" ? round2(total * 0.5) : 0
+        invoice.paidAmount = status === "paid" ? total : 0
         rows.forEach((t) => {
           t.invoiceId = id
           t.status = "invoiced"
@@ -991,11 +1007,6 @@ function generateInvoices(counters: Counters, timesheets: Timesheet[], pros: Pro
       }
     }
   }
-
-  const oldestMetro = invoices
-    .filter((i) => i.supplierId === "metro" && i.status === "unpaid")
-    .sort((a, b) => a.periodStart.localeCompare(b.periodStart))[0]
-  if (oldestMetro) oldestMetro.dueOn = addDaysISO(today, -3)
 
   return { invoices, invoiceGroups: weeklyGroups(invoices) }
 }
