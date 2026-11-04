@@ -18,6 +18,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { addDaysISO, formatClock, formatDateLong, formatDateShort, timeAgo, todayISO, weekEndISO } from "@/lib/dates"
 import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
+import { groupPhase } from "@/lib/metrics"
 import { location, position, supplier } from "@/lib/reference"
 import { useStore, type TimesInput } from "@/lib/store"
 import {
@@ -30,6 +31,7 @@ import {
   hoursFor,
   laborAmount,
   primaryProposal,
+  rateOpen,
   scheduledHours,
   timesheetAmount,
   weekClosed,
@@ -38,7 +40,7 @@ import {
 import type { ExpenseKind, Timesheet } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-type Mode = "idle" | "reject" | "as_billed" | "correct" | "edit" | "remove" | "expense"
+type Mode = "idle" | "reject" | "as_billed" | "correct" | "edit" | "remove" | "expense" | "rate"
 
 const REJECT_REASONS = ["Hours above the clock", "Hours above the schedule", "Missing or wrong punch", "Didn't work this shift", "Wrong worker", "Other"]
 const AS_BILLED_REASONS = ["Asked to stay by the supervisor", "The clock missed a punch", "Overtime was approved", "Other"]
@@ -92,7 +94,7 @@ function Panel({ title, children, className, tour }: { title?: string; children:
 function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const data = useData()
   const { ws } = useWorkspace()
-  const { approveTimesheets, correctTimesheet, rejectTimesheets, submitTimesheets, withdrawTimesheets, editTimesheet, removeTimesheet, addExpense, removeExpense } = useStore.getState()
+  const { approveTimesheets, correctTimesheet, rejectTimesheets, submitTimesheets, withdrawTimesheets, editTimesheet, removeTimesheet, addExpense, removeExpense, setTimesheetRate } = useStore.getState()
   const kind = ws.kind
   const pro = data.pros.find((p) => p.id === t.proId)
   const loc = location(t.locationId)
@@ -110,6 +112,7 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
   const [expense, setExpense] = useState<{ kind: ExpenseKind; amount: string }>({ kind: "parking", amount: "" })
+  const [rate, setRate] = useState("")
   const [times, setTimes] = useState<TimesInput>(() => ({
     clockIn: snapTime(t.clockIn ?? t.clock?.in, t.scheduledStart),
     clockOut: snapTime(t.clockOut ?? t.clock?.out, t.scheduledEnd),
@@ -118,6 +121,8 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
 
   const isBuyer = kind === "buyer" && ws.buyerId === t.buyerId
   const isAgency = kind === "supplier" && ws.supplierId === t.supplierId
+  const canRate = rateOpen(data, t) && (isAgency || (isBuyer && !!group && groupPhase(group) === "past"))
+  const rateN = round2(Number(rate) || 0)
   const weekEnd = weekEndISO(t.date)
   const closesOn = addDaysISO(weekEnd, 1)
   const closed = weekClosed(t.date, todayISO())
@@ -185,6 +190,12 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
       toast("Withdrawn to Draft", { description: "Change the times, then submit it again." })
     })
   const expenseAmount = round2(Number(expense.amount) || 0)
+  const saveRate = () =>
+    run(async () => {
+      if (!(await setTimesheetRate(t.id, rateN))) return
+      toast.success(`Rate changed to ${money(rateN)}/hr`)
+      setMode("idle")
+    })
   const saveExpense = () =>
     run(async () => {
       if (!(await addExpense(t.id, expense.kind, expenseAmount, note.trim() || undefined))) return
@@ -297,6 +308,11 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
                 </>
               ) : (
                 <>Billed at {money(t.billRate)}/hr</>
+              )}
+              {canRate && mode !== "rate" && (
+                <button type="button" className="ml-2 text-caption-1 font-medium text-faded underline-offset-4 hover:text-foreground hover:underline" onClick={() => (setRate(t.billRate.toFixed(2)), open("rate"))}>
+                  Change
+                </button>
               )}
             </span>
             <span className="text-body-2 font-semibold tabular">{money(labor)}</span>
@@ -470,6 +486,31 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             <div className="flex gap-2">
               <Button className="h-9 rounded-lg" disabled={busy || draftHours <= 0 || (mode === "correct" && reason === "Other" && !note.trim())} onClick={mode === "correct" ? correct : save}>
                 {mode === "correct" ? `Approve at ${draftHours.toFixed(2)} hrs` : "Save times"}
+              </Button>
+              <Button variant="ghost" className="h-9 rounded-lg" onClick={() => setMode("idle")}>
+                Cancel
+              </Button>
+            </div>
+          </Panel>
+        )}
+
+        {mode === "rate" && (
+          <Panel title="Change the rate">
+            <span className="relative w-28">
+              <span className="absolute top-1/2 left-3 -translate-y-1/2 text-body-3 text-faded">$</span>
+              <input
+                inputMode="decimal"
+                value={rate}
+                autoFocus
+                onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))}
+                className="h-9 w-full rounded-lg border border-input bg-background pr-9 pl-7 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+                aria-label="Bill rate"
+              />
+              <span className="absolute top-1/2 right-2.5 -translate-y-1/2 text-caption-1 text-faded">/hr</span>
+            </span>
+            <div className="flex gap-2">
+              <Button className="h-9 rounded-lg" disabled={busy || !(rateN >= 7.25 && rateN <= 500) || rateN === t.billRate} onClick={saveRate}>
+                Save
               </Button>
               <Button variant="ghost" className="h-9 rounded-lg" onClick={() => setMode("idle")}>
                 Cancel

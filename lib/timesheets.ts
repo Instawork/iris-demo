@@ -91,6 +91,12 @@ export const tippable = (data: Pick<DemoData, "invoices">, t: Timesheet) =>
 /** Hours a venue can add a cost to, like the crew's parking: the same ones it can tip on. */
 export const canExpense = tippable
 
+/** A bill rate can still change: the timesheet isn't removed, and it isn't on an invoice that has already been issued. */
+export const rateOpen = (data: Pick<DemoData, "invoices">, t: Timesheet) =>
+  t.status !== "removed" &&
+  t.status !== "invoiced" &&
+  (!t.invoiceId || data.invoices.some((i) => i.id === t.invoiceId && i.status === "open" && !(i.credits ?? []).some((c) => c.lineId === `${t.id}-l`)))
+
 /** A work week closes the day after it ends; its approved hours then go on the agency's invoice for that week. */
 export const weekClosed = (date: string, today: string) => weekEndISO(date) < today
 

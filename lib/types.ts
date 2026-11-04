@@ -465,7 +465,7 @@ export interface BilledTimes {
   hours: number
 }
 
-export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "moved" | "approved" | "rejected" | "removed" | "invoiced" | "credited"
+export type TimesheetAction = "created" | "submitted" | "withdrawn" | "edited" | "corrected" | "moved" | "rated" | "approved" | "rejected" | "removed" | "invoiced" | "credited"
 
 export interface TimesheetChange {
   at: string

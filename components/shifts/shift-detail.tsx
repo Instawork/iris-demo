@@ -92,12 +92,14 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
   const data = useData()
   const { ws } = useWorkspace()
   const router = useRouter()
-  const { cancelGroup, setHeadcount, releasePro, markNoShow, setRoster } = useStore.getState()
+  const { cancelGroup, setHeadcount, releasePro, markNoShow, setRoster, setShiftRate } = useStore.getState()
   const [proId, setProId] = useState<string>()
   const [assignOpen, setAssignOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [headcountOpen, setHeadcountOpen] = useState(false)
   const [moving, setMoving] = useState<string>()
+  const [rateEdit, setRateEdit] = useState(false)
+  const [rate, setRate] = useState("")
 
   const pos = position(group.positionId)
   const loc = location(group.locationId)
@@ -533,9 +535,56 @@ function ShiftDetailBody({ group }: { group: ShiftGroup }) {
                 )
               })}
             </ul>
-            <div className="flex items-end justify-between border-t border-border px-5 py-4">
-              <span className="flex items-center gap-1 text-caption-1 text-faded">
-                Estimated total <InfoTip>At {supplier(group.supplierId).shortName}&apos;s {money(group.billRate)}/hr bill rate for {total} Workers.</InfoTip>
+            <div className="flex items-end justify-between gap-4 border-t border-border px-5 py-4">
+              <span className="flex min-w-0 flex-col gap-1.5">
+                <span className="flex flex-wrap items-center gap-2 text-body-3">
+                  <span className="text-faded">Bill rate</span>
+                  <span className="font-semibold tabular">{money(group.billRate)}/hr</span>
+                  {isSupplier && ws.supplierId === group.supplierId && !group.cancelledAt && !rateEdit && (
+                    <button type="button" className="text-caption-1 font-medium text-faded underline-offset-4 hover:text-foreground hover:underline" onClick={() => (setRate(group.billRate.toFixed(2)), setRateEdit(true))}>
+                      Change
+                    </button>
+                  )}
+                </span>
+                {rateEdit && (
+                  <span className="flex items-center gap-2">
+                    <span className="relative w-28">
+                      <span className="absolute top-1/2 left-2.5 -translate-y-1/2 text-body-3 text-faded">$</span>
+                      <input
+                        inputMode="decimal"
+                        aria-label="Bill rate"
+                        value={rate}
+                        autoFocus
+                        onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))}
+                        className="h-8 w-full rounded-lg border border-input bg-card pr-2.5 pl-6 text-body-3 font-semibold tabular outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+                      />
+                    </span>
+                    <Button
+                      size="sm"
+                      className="h-8 rounded-lg"
+                      onClick={() => {
+                        const n = round2(Number(rate))
+                        if (!(n >= group.proRate && n <= 500)) {
+                          toast.error(`The bill rate has to be at least the ${money(group.proRate)} pay rate.`)
+                          return
+                        }
+                        void setShiftRate(group.id, n).then((count) => {
+                          if (count === undefined) return
+                          toast.success(`Rate changed to ${money(n)}/hr`, { description: count ? `Updated on ${plural(count, "timesheet")}.` : undefined })
+                          setRateEdit(false)
+                        })
+                      }}
+                    >
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-8 rounded-lg" onClick={() => setRateEdit(false)}>
+                      Cancel
+                    </Button>
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-caption-1 text-faded">
+                  Estimated total <InfoTip>At {supplier(group.supplierId).shortName}&apos;s bill rate for {total} workers. Pay stays {money(group.proRate)}/hr.</InfoTip>
+                </span>
               </span>
               <span className="text-body-2 font-bold tabular">{money(groupEstimate(group))}</span>
             </div>

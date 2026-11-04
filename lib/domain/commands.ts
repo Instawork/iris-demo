@@ -5,7 +5,7 @@ import { budgetCheck, releasePlan } from "@/lib/domain/budget"
 import { eligiblePros, event, joinNames, merge, notifiedSuppliers, offerKey, placeRequested, type BookingInput, type Patch, type RateCardInput } from "@/lib/domain/core"
 import { creditSentBack, invoiceApproved, issueOpen, rebuildLines, withTips } from "@/lib/domain/invoicing"
 import { releaseSummary } from "@/lib/domain/order"
-import { billFrom, fullName, money, round2 } from "@/lib/format"
+import { billFrom, fullName, markupFrom, money, round2 } from "@/lib/format"
 import { ANOMALY_THRESHOLD, awaitingApproval, billingFindings, canCredit, groupPhase, invoiceBenchmark, isOpenTo } from "@/lib/metrics"
 import {
   BUYERS,
@@ -33,7 +33,7 @@ import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
 import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, decided, eventLines, fiscalYear, latestBid, nextNumber, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
-import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
+import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, rateOpen, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
 import type {
   ApprovalRequest,
@@ -357,6 +357,26 @@ function setHeadcount(data: DemoData, ctx: CommandContext, input: { groupId: str
   })
 }
 
+/** The agency changes the bill rate on its shift. Timesheets for that role that aren't invoiced yet follow it. Pay stays put, so the markup moves with the bill rate. */
+function setShiftRate(data: DemoData, ctx: CommandContext, input: { groupId: string; billRate: number }): Outcome<number> {
+  const g = groupOf(data, input?.groupId)
+  if (!isSupplier(ctx.ws, g.supplierId)) forbid("Only the agency changes this shift's rate.")
+  if (g.cancelledAt) fail("This shift is cancelled.")
+  const billRate = round2(Number(input?.billRate))
+  if (!(billRate >= g.proRate && billRate <= 500)) fail(`The bill rate has to sit between the ${money(g.proRate)} pay rate and $500.`)
+  if (billRate === g.billRate) return done(data, 0)
+  const next = data.timesheets
+    .filter((t) => t.groupId === g.id && t.supplierId === g.supplierId && t.positionId === g.positionId && rateOpen(data, t) && t.billRate !== billRate)
+    .map((t) => rated(t, ctx, billRate))
+  return {
+    ...done(data, next.length, {
+      groups: data.groups.map((x) => (x.id === g.id ? { ...x, billRate, markupPct: markupFrom(g.proRate, billRate) } : x)),
+      ...withRates(data, next),
+    }),
+    notices: [{ text: `${supplier(g.supplierId).shortName} changed the rate on ${g.code} to ${money(billRate)}/hr`, tone: "info", buyerId: g.buyerId }],
+  }
+}
+
 function assignPros(data: DemoData, ctx: CommandContext, input: { groupId: string; proIds: string[] }): Outcome<number> {
   const g = groupOf(data, input?.groupId)
   const supplierId = ctx.ws.supplierId
@@ -593,6 +613,20 @@ const sheetsOf = (data: DemoData, ids: unknown) => {
 
 const buysSheet = (ws: Workspace, t: Timesheet) => ws.kind === "buyer" && ws.buyerId === t.buyerId
 
+const rated = (t: Timesheet, ctx: CommandContext, billRate: number): Timesheet => ({
+  ...t,
+  billRate,
+  history: [...t.history, change(ctx.now, actorName(ctx), "rated", { note: `${money(t.billRate)} → ${money(billRate)}/hr` })],
+})
+
+/** A new bill rate on these timesheets, with any open invoice they sit on rebilled to match. */
+function withRates(data: DemoData, next: Timesheet[]) {
+  if (!next.length) return {}
+  const timesheets = replaceSheets(data, next)
+  const touched = new Set(next.flatMap((t) => (t.invoiceId ? [t.invoiceId] : [])))
+  return { timesheets, invoices: rebuildLines(data.invoices, timesheets, touched, new Map(data.pros.map((p) => [p.id, p]))) }
+}
+
 /** Puts changed timesheets back in place and recomputes overtime for the weeks they touch. */
 function replaceSheets(data: DemoData, changed: Timesheet[]): Timesheet[] {
   const byId = new Map(changed.map((t) => [t.id, t]))
@@ -820,6 +854,28 @@ function editTimesheet(
     history: [...t.history, change(ctx.now, actorName(ctx), "edited", { from: billedOf(t), to: { ...times, hours }, note: optStr(input.note, 500) })],
   }
   return done(data, null, { timesheets: replaceSheets(data, [edited]) })
+}
+
+/** The agency changes a timesheet's bill rate any time before it's invoiced. The buyer can, once the shift is over. */
+function setTimesheetRate(data: DemoData, ctx: CommandContext, input: { id: string; billRate: number }): Outcome<null> {
+  const t = timesheetOf(data, input?.id)
+  const agency = isSupplier(ctx.ws, t.supplierId)
+  if (!agency && !buysSheet(ctx.ws, t)) forbid("Only the agency or the buyer changes this rate.")
+  if (!agency) {
+    const g = data.groups.find((x) => x.id === t.groupId)
+    if (!g || groupPhase(g) !== "past") fail("The buyer changes the rate after the shift.")
+  }
+  if (!rateOpen(data, t)) fail("This timesheet is already invoiced.")
+  const billRate = round2(Number(input?.billRate))
+  if (!(billRate >= 7.25 && billRate <= 500)) fail("The bill rate has to sit between $7.25 and $500.")
+  if (billRate === t.billRate) return done(data, null)
+  const pro = data.pros.find((p) => p.id === t.proId)
+  const name = pro ? fullName(pro) : "a worker"
+  const who = agency ? supplier(t.supplierId).shortName : actorName(ctx)
+  return {
+    ...done(data, null, withRates(data, [rated(t, ctx, billRate)])),
+    notices: [{ text: `${who} changed the ${position(t.positionId).name} rate for ${name} to ${money(billRate)}/hr`, tone: "info", ...(agency ? { buyerId: t.buyerId } : { supplierId: t.supplierId }) }],
+  }
 }
 
 /** Takes a timesheet out of billing: a shift the worker didn't work, or a duplicate. The record stays, at zero hours. */
@@ -1892,6 +1948,7 @@ export const COMMANDS = {
   releaseNextTier,
   cancelGroup,
   setHeadcount,
+  setShiftRate,
   assignPros,
   releasePro,
   markNoShow,
@@ -1905,6 +1962,7 @@ export const COMMANDS = {
   submitTimesheets,
   withdrawTimesheets,
   editTimesheet,
+  setTimesheetRate,
   removeTimesheet,
   addExpense,
   addExpenses,

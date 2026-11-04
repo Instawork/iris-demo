@@ -173,6 +173,7 @@ const ACTION: Record<TimesheetAction, string> = {
   edited: "Edited",
   corrected: "Corrected",
   moved: "Moved to another role",
+  rated: "Changed the rate",
   approved: "Approved",
   rejected: "Rejected",
   removed: "Removed",

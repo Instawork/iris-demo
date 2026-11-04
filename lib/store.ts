@@ -50,6 +50,8 @@ interface StoreState {
   releaseNextTier: (groupId: string) => Promise<string | null>
   cancelGroup: (groupId: string) => Promise<void>
   setHeadcount: (groupId: string, headcount: number) => Promise<void>
+  /** The agency changes the bill rate on its shift. Resolves to how many timesheets followed it. */
+  setShiftRate: (groupId: string, billRate: number) => Promise<number | undefined>
   setSupplierApproval: (buyerId: string, supplierId: string, approved: boolean) => Promise<void>
   /** Picks the agency that sees a role's new shifts first in a market. `null` goes back to lowest rate first. */
   pickOffer: (buyerId: string, cityId: string, positionId: string, supplierId: string | null) => Promise<void>
@@ -68,6 +70,8 @@ interface StoreState {
   submitTimesheets: (ids: string[]) => Promise<number>
   withdrawTimesheets: (ids: string[]) => Promise<number>
   editTimesheet: (id: string, times: TimesInput, note?: string) => Promise<boolean>
+  /** Changes one timesheet's bill rate. The agency can until it's invoiced; the buyer can after the shift. */
+  setTimesheetRate: (id: string, billRate: number) => Promise<boolean>
   removeTimesheet: (id: string, reason: string) => Promise<boolean>
   addExpense: (timesheetId: string, kind: ExpenseKind, amount: number, note?: string) => Promise<boolean>
   addExpenses: (timesheetIds: string[], kind: ExpenseKind, amount: number, note?: string) => Promise<number>
@@ -377,6 +381,7 @@ export const useStore = create<StoreState>()((set, get) => {
     releaseNextTier: async (groupId) => (await send("releaseNextTier", { groupId })) ?? null,
     cancelGroup: async (groupId) => void (await send("cancelGroup", { groupId })),
     setHeadcount: async (groupId, headcount) => void (await send("setHeadcount", { groupId, headcount })),
+    setShiftRate: async (groupId, billRate) => send("setShiftRate", { groupId, billRate }),
     setSupplierApproval: async (buyerId, supplierId, approved) => void (await send("setSupplierApproval", { buyerId, supplierId, approved })),
     pickOffer: async (buyerId, cityId, positionId, supplierId) => void (await send("pickOffer", { buyerId, cityId, positionId, supplierId })),
     assignPros: async (groupId, proIds) => (await send("assignPros", { groupId, proIds })) ?? 0,
@@ -390,6 +395,7 @@ export const useStore = create<StoreState>()((set, get) => {
     submitTimesheets: async (ids) => (await send("submitTimesheets", { ids })) ?? 0,
     withdrawTimesheets: async (ids) => (await send("withdrawTimesheets", { ids })) ?? 0,
     editTimesheet: async (id, times, note) => (await send("editTimesheet", { id, ...times, note })) !== undefined,
+    setTimesheetRate: async (id, billRate) => (await send("setTimesheetRate", { id, billRate })) !== undefined,
     removeTimesheet: async (id, reason) => (await send("removeTimesheet", { id, reason })) !== undefined,
     addExpense: async (timesheetId, kind, amount, note) => (await send("addExpense", { timesheetId, kind, amount, note })) !== undefined,
     addExpenses: async (timesheetIds, kind, amount, note) => (await send("addExpenses", { timesheetIds, kind, amount, note })) ?? 0,
