@@ -79,9 +79,15 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
   )
 }
 
-const TURN_ORDER = ["Our turn", "Their turn", "Accepted", "Rejected", "No bid"]
+const DOT: Record<Tone, string> = {
+  neutral: "bg-foreground/30",
+  primary: "bg-primary",
+  positive: "bg-positive",
+  warning: "bg-warning",
+  critical: "bg-critical",
+}
 
-/** Every agency on one sortable table: where its bid stands, how much of the renewal it covers, and its markup and VA. */
+/** Every agency on one sortable table: how much of the renewal it covers, and its markup and VA. Its status sits under its name. */
 function ValueBoard({ ev }: { ev: SourcingEvent }) {
   const data = useData()
   const router = useRouter()
@@ -93,39 +99,39 @@ function ValueBoard({ ev }: { ev: SourcingEvent }) {
     positions: rolesOf(ev, s).length,
   }))
   type Row = (typeof rows)[number]
+  const num = (id: string, header: string, value: (r: Row) => number, show: (r: Row) => string, strong = false): Column<Row> => ({
+    id,
+    header,
+    align: "right",
+    headerClassName: "w-32 pr-6",
+    className: "pr-6",
+    sortValue: value,
+    cell: (r) => <span className={cn("text-body-2 tabular", strong && "font-semibold", strong && !r.bidding && "text-faded")}>{show(r)}</span>,
+  })
   const columns: Column<Row>[] = [
     {
       id: "agency",
       header: "Agency",
+      headerClassName: "pl-5",
+      className: "pl-5 py-3",
       sortValue: (r) => supplier(r.s).name,
       cell: (r) => (
         <span className="flex min-w-0 items-center gap-3">
           <SupplierLogo supplierId={r.s} size="md" />
-          <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
+            <span className="flex items-center gap-1.5 text-caption-1 text-faded">
+              <span className={cn("size-1.5 rounded-full", DOT[r.status.tone])} />
+              {r.status.label}
+            </span>
+          </span>
         </span>
       ),
     },
-    {
-      id: "status",
-      header: "Status",
-      sortValue: (r) => TURN_ORDER.indexOf(r.status.label),
-      cell: (r) => (
-        <StatusBadge tone={r.status.tone} size="sm" dot>
-          {r.status.label}
-        </StatusBadge>
-      ),
-    },
-    { id: "markets", header: "Markets", align: "right", sortValue: (r) => r.markets, cell: (r) => <span className="tabular">{r.markets}</span> },
-    { id: "positions", header: "Positions", align: "right", sortValue: (r) => r.positions, cell: (r) => <span className="tabular">{r.positions}</span> },
-    {
-      id: "markup",
-      header: "Markup",
-      align: "right",
-      info: "On every role. Until an agency bids, it's the markup on today's rate cards.",
-      sortValue: (r) => r.markupPct,
-      cell: (r) => <span className={cn("font-semibold tabular", !r.bidding && "text-faded")}>{pct(Math.round(r.markupPct))}</span>,
-    },
-    { id: "va", header: "VA", align: "right", sortValue: (r) => r.vaPct, cell: (r) => <span className={cn("font-semibold tabular", !r.bidding && "text-faded")}>{pct(r.vaPct)}</span> },
+    num("markets", "Markets", (r) => r.markets, (r) => String(r.markets)),
+    num("positions", "Positions", (r) => r.positions, (r) => String(r.positions)),
+    num("markup", "Markup", (r) => r.markupPct, (r) => pct(Math.round(r.markupPct)), true),
+    num("va", "VA", (r) => r.vaPct, (r) => pct(r.vaPct), true),
   ]
   return (
     <section className="flex flex-col gap-3" data-tour="bid-matrix">

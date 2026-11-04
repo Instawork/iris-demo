@@ -13,7 +13,7 @@ import { CitySelect } from "@/components/common/city-select"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { termsLine } from "@/components/procurement/event-page"
-import { agencyStatus, vsMarketLabel } from "@/components/procurement/sourcing-bits"
+import { agencyStatus } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useData, useWorkspace } from "@/hooks/use-app"
@@ -91,12 +91,9 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
         </header>
       </div>
 
-      <Surface elevated className="grid grid-cols-3 gap-6 px-5 py-5" data-tour="agency-terms">
+      <Surface elevated className="grid grid-cols-2 gap-6 px-5 py-5" data-tour="agency-terms">
         <Stat label="Markup" note="On every role, in every market">
           {pct(Math.round(value.markupPct))}
-        </Stat>
-        <Stat label="Worker pay vs market" note="Averaged over every role, by the hours you buy">
-          {vsMarketLabel(value.payVsMarket)}
         </Stat>
         <Stat label="VA" note="Back at year end">
           {pct(value.vaPct)}
@@ -120,7 +117,6 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
           <span>Role</span>
           <span className="text-right">Worker pay</span>
           <span className="text-right">Market pay</span>
-          <span className="text-right">vs market</span>
           <span className="text-right">Rate</span>
         </div>
         <ol className="flex flex-col">
@@ -132,7 +128,6 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
                 <span className="truncate font-medium">{position(l.positionId).name}</span>
                 <span className="text-right tabular">{money(line.proRate)}</span>
                 <span className="text-right text-faded tabular">{money(market)}</span>
-                <span className="text-right text-faded">{vsMarketLabel(line.proRate / market - 1)}</span>
                 <span className="text-right text-body-2 font-semibold tabular">{money(line.billRate)}</span>
               </li>
             )
@@ -144,7 +139,7 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
   )
 }
 
-const ROW = "grid grid-cols-[minmax(180px,1fr)_110px_110px_150px_110px] items-center gap-4 px-5"
+const ROW = "grid grid-cols-[minmax(180px,1fr)_128px_128px_128px] items-center gap-4 px-5"
 
 function Stat({ label, note, children }: { label: string; note: string; children: React.ReactNode }) {
   return (

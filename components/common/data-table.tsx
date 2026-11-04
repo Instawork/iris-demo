@@ -125,7 +125,7 @@ export function DataTable<T>({
                           onClick={() =>
                             setSort(active && sort.dir === "desc" ? { id: c.id, dir: "asc" } : { id: c.id, dir: "desc" })
                           }
-                          className={cn("group/sort inline-flex items-center gap-1 transition-colors hover:text-foreground", active && "text-foreground")}
+                          className={cn("group/sort inline-flex items-center gap-1 transition-colors hover:text-foreground", c.align === "right" && "flex-row-reverse", active && "text-foreground")}
                         >
                           {c.header}
                           <SortIcon className={cn("size-3", !active && "opacity-0 transition-opacity group-hover/sort:opacity-60")} />
