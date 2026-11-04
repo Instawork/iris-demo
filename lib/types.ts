@@ -343,6 +343,8 @@ export interface SourcingEvent {
   messages: SourcingMessage[]
   /** Agency id to when Compass approved its bid. */
   approved: Record<string, string>
+  /** Agency id to when Compass rejected its bid. */
+  rejected?: Record<string, string>
   awardedAt?: string
 }
 

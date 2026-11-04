@@ -40,7 +40,7 @@ const timesheetsBadge = (data: DemoData, ws: Workspace) => {
 }
 
 const invitationsBadge = (data: DemoData, ws: Workspace) =>
-  (data.sourcing ?? []).filter((e) => e.status === "open" && e.invited.includes(ws.supplierId!) && !e.approved[ws.supplierId!] && (!latestBid(e, ws.supplierId!) || openCounters(e, ws.supplierId).length)).length
+  (data.sourcing ?? []).filter((e) => e.status === "open" && e.invited.includes(ws.supplierId!) && !e.approved[ws.supplierId!] && !e.rejected?.[ws.supplierId!] && (!latestBid(e, ws.supplierId!) || openCounters(e, ws.supplierId).length)).length
 
 /** The same pages for everyone. Each page shows that persona's data and actions. */
 export function navFor(ws: Workspace): NavItem[] {

@@ -137,7 +137,7 @@ function Past({ events, title, supplierId }: { events: SourcingEvent[]; title: s
 function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
   const spend = spendOf(ev, supplierId, !!supplierId)
   const days = daysFromToday(ev.closesOn)
-  const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
+  const mine = supplierId ? agencyStatus(ev, supplierId, true) : undefined
   const bids = responded(ev).length
   const facts = [
     supplierId
@@ -158,7 +158,7 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
         </div>
         {mine ? (
           <StatusBadge tone={mine.tone} size="sm" dot>
-            {mine.label === "Invited" ? "Not bid yet" : mine.label}
+            {mine.label}
           </StatusBadge>
         ) : (
           <StageBadge ev={ev} size="sm" />
@@ -179,7 +179,7 @@ function EventCard({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string 
 
 function ClosedRow({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
   const spend = spendOf(ev, supplierId, !!supplierId)
-  const mine = supplierId ? agencyStatus(ev, supplierId) : undefined
+  const mine = supplierId ? agencyStatus(ev, supplierId, true) : undefined
   return (
     <Link href={`/procurement/${ev.id}`} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-hover/60">
       <span className="flex min-w-0 flex-1 items-baseline gap-3">

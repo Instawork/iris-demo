@@ -130,6 +130,9 @@ export const bidsOf = (ev: SourcingEvent, supplierId: string) => ev.bids.filter(
 
 export const responded = (ev: SourcingEvent) => ev.invited.filter((s) => latestBid(ev, s))
 
+/** Compass has decided on this agency's bid: approved or rejected. */
+export const decided = (ev: SourcingEvent, supplierId: string) => !!ev.approved[supplierId] || !!ev.rejected?.[supplierId]
+
 /** The terms an agency offers on this event: its latest bid's, else the ones it has now. */
 export const offeredTerms = (ev: SourcingEvent, supplierId: string): ContractTerms => latestBid(ev, supplierId)?.terms ?? termsOf(supplierId)
 
@@ -221,7 +224,7 @@ export function counterPlan(ev: SourcingEvent): PlannedCounter[] {
   const plan: PlannedCounter[] = []
   for (const s of responded(ev)) {
     const from = latestBid(ev, s)!.markupPct
-    if (ev.approved[s] || from <= best) continue
+    if (decided(ev, s) || from <= best) continue
     if (ev.messages.some((m) => m.from === "compass" && m.supplierId === s && (m.open || m.by === IRIS))) continue
     const ask = Math.max(best, Math.ceil(from) - STEP)
     if (ask >= from) continue
@@ -411,7 +414,7 @@ export function seedSourcing(data: Pick<DemoData, "rateCards">, today: string): 
         by: "Devon Brooks",
         supplierId: "crewline",
         from: "agency",
-        text: "Done. 31% on every role, round 2 is in.",
+        text: "Done. 31% on every role.",
       },
     ],
     approved: {},

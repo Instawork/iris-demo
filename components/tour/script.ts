@@ -651,7 +651,7 @@ export const SCRIPT: TourItem[] = [
       const [best, worst] = valueEnds(ctx)
       return best && worst
         ? `${best.name} marks up ${Math.round(best.markupPct)}% and gives ${best.vaPct}% back. ${worst.name} marks up ${Math.round(worst.markupPct)}% and gives ${worst.vaPct}% back.`
-        : "Each agency's markup, what it pays workers against the market, and the VA it gives back."
+        : "Each agency's markup and the VA it gives back."
     },
     targets: () => [one('[data-tour="bid-matrix"]')],
     placement: "bottom",

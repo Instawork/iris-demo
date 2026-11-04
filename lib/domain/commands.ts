@@ -31,7 +31,7 @@ import {
 } from "@/lib/reference"
 import { rateChanges } from "@/lib/rate-log"
 import { cleanSpec } from "@/lib/reports"
-import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, eventLines, fiscalYear, latestBid, nextNumber, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
+import { CATEGORY, IRIS, activeCard, bidLine, counterPlan, decided, eventLines, fiscalYear, latestBid, nextNumber, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
 import { generateDemoData, importedRoster } from "@/lib/seed"
 import { EXPENSE_KINDS, EXPENSE_LABEL, EXPENSE_MAX, billedOf, canEditBilled, canExpense, change, duringShift, hoursFor, overtimeKey, partAt, nextExpenseId, splitForMove, timesheetChecks, withAgency, withOvertime } from "@/lib/timesheets"
 import { checkDocument, expiryFor } from "@/lib/verification"
@@ -1251,6 +1251,7 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
   const supplierId = ctx.ws.supplierId
   if (ctx.ws.kind !== "supplier" || !supplierId || !ev.invited.includes(supplierId)) forbid("Only an invited agency can bid on this event.")
   if (ev.status === "awarded" || ev.approved[supplierId!]) fail("Your rates on this event are already approved.")
+  if (ev.rejected?.[supplierId!]) fail("Compass rejected your bid on this event.")
   const sent = input.pay && typeof input.pay === "object" ? input.pay : fail("Price at least one role.")
   const markupPct = round2(num(input.markupPct, "Markup", 0, 200))
   const terms = input.vaPct === undefined ? latestBid(ev, supplierId!)?.terms : { ...offeredTerms(ev, supplierId!), vaPct: round2(num(input.vaPct, "VA", 0, 50)) }
@@ -1267,12 +1268,12 @@ function submitBid(data: DemoData, ctx: CommandContext, input: { eventId: string
   const note = optStr(input.note, 1000)
   const sup = supplier(supplierId!).shortName
   const answered = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
-  const text = note ?? (round > 1 ? `Round ${round} is in.` : undefined)
+  const text = note ?? (round > 1 ? "Here's our updated bid." : undefined)
   const message: SourcingMessage[] = text ? [{ id: `${ev.id}-m${ev.messages.length + 1}`, at: ctx.now, by, supplierId: supplierId!, from: "agency", text }] : []
   const next: SourcingEvent = { ...ev, bids: [...ev.bids, { supplierId: supplierId!, round, at: ctx.now, by, markupPct, lines, note, ...(terms ? { terms } : {}) }], messages: [...answered, ...message] }
   return {
-    ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
-    notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : `round ${round}`} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],
+    ...done(data, round, withSourcing(data, next), event(data, { text: `${sup} sent ${round === 1 ? "its bid" : "an updated bid"} on ${ev.number}`, actor: by, tone: "primary", supplierId: supplierId! }, ctx.now)),
+    notices: [{ text: `${sup} sent ${round === 1 ? "its bid" : "an updated bid"} on ${ev.title}`, tone: "info", workspaceIds: ["ws-compass"] }],
   }
 }
 
@@ -1284,6 +1285,7 @@ function counterBid(data: DemoData, ctx: CommandContext, input: { eventId: strin
   const supplierId = str(input.supplierId, "Agency")
   const current = need(latestBid(ev, supplierId), "That agency hasn't bid yet.")
   if (ev.approved[supplierId]) fail("This agency's rates are already approved.")
+  if (ev.rejected?.[supplierId]) fail("You rejected this agency's bid.")
   const va = offeredTerms(ev, supplierId).vaPct
   const ask = input.ask === undefined || input.ask === null ? undefined : round2(num(input.ask, "Markup", 0, 200))
   const askVa = input.askVa === undefined || input.askVa === null ? undefined : round2(num(input.askVa, "VA", 0, 50))
@@ -1324,12 +1326,31 @@ function negotiateBids(data: DemoData, ctx: CommandContext, input: { eventId: st
   }
 }
 
+/** Compass rejects an agency's bid. It's out of the renewal, and its rate cards stay as they are. */
+function rejectBid(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierId: string }): Outcome<null> {
+  if (!isCompass(ctx.ws)) forbid("Only Compass rejects bids.")
+  const ev = sourcingEvent(data, input?.eventId)
+  if (ev.status === "awarded") fail("This event is closed.")
+  const supplierId = str(input.supplierId, "Agency")
+  if (!latestBid(ev, supplierId)) fail("That agency hasn't bid yet.")
+  if (decided(ev, supplierId)) fail("You already decided on this agency's bid.")
+  const rejected = { ...ev.rejected, [supplierId]: ctx.now }
+  const messages = ev.messages.map((m) => (m.open && m.supplierId === supplierId ? { ...m, open: false } : m))
+  const closed = responded(ev).every((s) => ev.approved[s] || rejected[s])
+  const next: SourcingEvent = { ...ev, rejected, messages, ...(closed ? { status: "awarded" as const, awardedAt: ctx.now } : {}) }
+  const by = actorName(ctx)
+  return {
+    ...done(data, null, withSourcing(data, next), event(data, { text: `${by} rejected ${supplier(supplierId).shortName} on ${ev.number}`, actor: by, tone: "critical" }, ctx.now)),
+    notices: [{ text: `Compass rejected your bid on ${ev.title}`, tone: "warning", supplierId }],
+  }
+}
+
 /** Compass approves agencies' latest bids. Their prices go live on their rate cards, and the event closes once every bid is approved. */
 function approveBids(data: DemoData, ctx: CommandContext, input: { eventId: string; supplierIds: string[] }): Outcome<number> {
   if (!isCompass(ctx.ws)) forbid("Only Compass approves bids.")
   const ev = sourcingEvent(data, input?.eventId)
   if (ev.status === "awarded") fail("This event is already approved.")
-  const ids = [...new Set(strList(input.supplierIds, "Agencies", 50))].filter((s) => latestBid(ev, s) && !ev.approved[s])
+  const ids = [...new Set(strList(input.supplierIds, "Agencies", 50))].filter((s) => latestBid(ev, s) && !decided(ev, s))
   if (!ids.length) fail("There's no bid to approve.")
   const waiting = ids.filter((s) => openCounters(ev, s).length)
   if (waiting.length) fail(`${joinNames(waiting.map((s) => supplier(s).shortName))} still owes you an answer on a counter.`)
@@ -1349,7 +1370,7 @@ function approveBids(data: DemoData, ctx: CommandContext, input: { eventId: stri
     }
   }
   const approved = { ...ev.approved, ...Object.fromEntries(ids.map((s) => [s, ctx.now])) }
-  const closed = responded(ev).every((s) => approved[s])
+  const closed = responded(ev).every((s) => approved[s] || ev.rejected?.[s])
   const next: SourcingEvent = { ...ev, approved, ...(closed ? { status: "awarded" as const, awardedAt: ctx.now } : {}) }
   const by = actorName(ctx)
   const names = joinNames(ids.map((s) => supplier(s).shortName))
@@ -1906,6 +1927,7 @@ export const COMMANDS = {
   counterBid,
   negotiateBids,
   approveBids,
+  rejectBid,
   completeRequirement,
   verifyRequirement,
   reviewDocument,

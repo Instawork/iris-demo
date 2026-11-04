@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft, CircleCheck, FileSearch } from "lucide-react"
+import { ArrowLeft, FileSearch } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -21,7 +21,7 @@ import { formatTimestamp } from "@/lib/dates"
 import { money, plural } from "@/lib/format"
 import { marketPay } from "@/lib/market"
 import { city, position, supplier } from "@/lib/reference"
-import { agencyValue, bestMarkup, latestBid, marketsOf, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
+import { agencyValue, bestMarkup, decided, latestBid, marketsOf, offeredTerms, openCounters, pct, responded } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
 import type { SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -74,16 +74,17 @@ export function AgencyBidPage({ id, supplierId }: { id: string; supplierId: stri
             <h1 className="flex flex-wrap items-center gap-3 text-featured-1 font-semibold">
               {s.name}
               <StatusBadge tone={status.tone} size="sm" dot>
-                {status.label === "Invited" ? "No bid yet" : status.label}
+                {status.label}
               </StatusBadge>
             </h1>
             <span className="text-body-3 text-faded">
               {termsLine(offeredTerms(ev, supplierId))}
-              {bid ? ` · round ${bid.round}, sent ${formatTimestamp(bid.at)}` : ""}
+              {bid ? ` · sent ${formatTimestamp(bid.at)}` : ""}
             </span>
           </span>
-          {bid && (
-            <span className="ml-auto">
+          {bid && ev.status === "open" && !decided(ev, supplierId) && (
+            <span className="ml-auto flex items-center gap-2">
+              <RejectBid ev={ev} supplierId={supplierId} />
               <CounterBid ev={ev} supplierId={supplierId} />
             </span>
           )}
@@ -161,7 +162,6 @@ function CounterBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const bid = latestBid(ev, supplierId)!
   const va = offeredTerms(ev, supplierId).vaPct
   const asked = openCounters(ev, supplierId).at(-1)
-  const locked = !!ev.approved[supplierId] || ev.status === "awarded"
   const [open, setOpen] = useState(false)
   const [markup, setMarkup] = useState("")
   const [vaAsk, setVaAsk] = useState("")
@@ -183,12 +183,6 @@ function CounterBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
       setOpen(false)
       toast.success(`Counter sent to ${supplier(supplierId).shortName}`)
     })
-  if (locked)
-    return (
-      <span className="flex items-center gap-1 text-body-3 font-medium text-positive-fg">
-        <CircleCheck className="size-4" /> Approved
-      </span>
-    )
   if (asked)
     return (
       <Tip content={`Waiting on ${supplier(supplierId).contactName.split(" ")[0]}`}>
@@ -224,6 +218,40 @@ function CounterBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             </Button>
           </div>
         </form>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** Compass turns the agency's bid down. It's out of this renewal, and its rate cards stay as they are. */
+function RejectBid({ ev, supplierId }: { ev: SourcingEvent; supplierId: string }) {
+  const reject = useStore((s) => s.rejectBid)
+  const [open, setOpen] = useState(false)
+  const name = supplier(supplierId).shortName
+  const go = () =>
+    void reject(ev.id, supplierId).then((ok) => {
+      if (!ok) return
+      setOpen(false)
+      toast.success(`${name}'s bid is rejected`)
+    })
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" className="h-9 rounded-lg text-body-3 text-faded hover:text-critical-fg">
+          Reject
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 gap-3 p-4">
+        <span className="text-body-3 font-semibold">Reject {name}&apos;s bid?</span>
+        <span className="text-body-3 text-faded">Their rate cards stay as they are today.</span>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" size="sm" onClick={go}>
+            Reject
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   )

@@ -270,7 +270,7 @@ function answerCounters(data: DemoData, { now, simulated, paused }: AdvanceOptio
     const iris = irisCounters(next)
     if (irisWasWaiting && !iris.some((c) => c.outcome === "waiting")) {
       const count = (o: string) => iris.filter((c) => c.outcome === o).length
-      const parts = [count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter(Boolean)
+      const parts = [count("met") && `${count("met")} accepted`, count("down") && `${count("down")} offered less`, count("held") && `${count("held")} rejected`].filter(Boolean)
       notices.push({ text: `Iris finished negotiating ${ev.title}: ${joinNames(parts as string[])}`, tone: "success", workspaceIds: ["ws-compass"] })
     }
     return next

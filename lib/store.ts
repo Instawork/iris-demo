@@ -86,6 +86,7 @@ interface StoreState {
   submitBid: (eventId: string, pay: Record<string, number>, markupPct: number, vaPct?: number, note?: string) => Promise<number | undefined>
   counterBid: (eventId: string, supplierId: string, ask: { markupPct?: number; vaPct?: number }, note?: string) => Promise<boolean>
   approveBids: (eventId: string, supplierIds: string[]) => Promise<number>
+  rejectBid: (eventId: string, supplierId: string) => Promise<boolean>
   negotiateBids: (eventId: string) => Promise<number>
   /** Sends lines billed above Iris's clock back to the agency for a credit, or accepts them as billed. */
   decideBilling: (id: string, decision: "send_back" | "accept", note?: string) => Promise<boolean>
@@ -405,6 +406,7 @@ export const useStore = create<StoreState>()((set, get) => {
     submitBid: async (eventId, pay, markupPct, vaPct, note) => send("submitBid", { eventId, pay, markupPct, vaPct, note }),
     counterBid: async (eventId, supplierId, ask, note) => (await send("counterBid", { eventId, supplierId, ask: ask.markupPct, askVa: ask.vaPct, note })) !== undefined,
     approveBids: async (eventId, supplierIds) => (await send("approveBids", { eventId, supplierIds })) ?? 0,
+    rejectBid: async (eventId, supplierId) => (await send("rejectBid", { eventId, supplierId })) !== undefined,
     negotiateBids: async (eventId) => (await send("negotiateBids", { eventId })) ?? 0,
     decideBilling: async (id, decision, note) => (await send("decideBilling", { id, decision, note })) !== undefined,
     creditInvoice: async (id) => send("creditInvoice", { id }),

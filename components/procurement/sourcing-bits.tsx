@@ -20,13 +20,18 @@ export function StageBadge({ ev, size = "md" }: { ev: SourcingEvent; size?: "sm"
   )
 }
 
-/** Where an agency stands on an event, in a word or two. */
-export function agencyStatus(ev: SourcingEvent, supplierId: string): { label: string; tone: Tone } {
-  if (ev.approved[supplierId]) return { label: "Approved", tone: "positive" }
+/**
+ * Whose move it is on an agency's bid: Compass's when the agency has answered, the agency's when it hasn't bid or owes an
+ * answer to a counter, and then Accepted or Rejected. Read from Compass's side, or the agency's with `asAgency`.
+ */
+export function agencyStatus(ev: SourcingEvent, supplierId: string, asAgency = false): { label: string; tone: Tone } {
+  if (ev.approved[supplierId]) return { label: "Accepted", tone: "positive" }
+  if (ev.rejected?.[supplierId]) return { label: "Rejected", tone: "critical" }
   const bid = latestBid(ev, supplierId)
-  if (!bid) return { label: ev.status === "awarded" ? "No bid" : "Invited", tone: "neutral" }
-  if (openCounters(ev, supplierId).length) return { label: "Countered", tone: "warning" }
-  return { label: bid.round > 1 ? `Round ${bid.round}` : "Bid in", tone: "primary" }
+  if (!bid && ev.status === "awarded") return { label: "No bid", tone: "neutral" }
+  const theirs = !bid || openCounters(ev, supplierId).length > 0
+  if (asAgency) return theirs ? { label: "Your turn", tone: "warning" } : { label: "Compass's turn", tone: "neutral" }
+  return theirs ? { label: "Their turn", tone: "neutral" } : { label: "Our turn", tone: "warning" }
 }
 
 interface Step {

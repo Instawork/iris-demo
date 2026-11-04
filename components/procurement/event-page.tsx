@@ -1,15 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { Check, ChevronRight, CircleCheck, FileSearch, MessageSquareText, WandSparkles } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Check, CircleCheck, FileSearch, MessageSquareText, WandSparkles } from "lucide-react"
 import { Fragment, useState } from "react"
 import { toast } from "sonner"
 
 import { SupplierLogo } from "@/components/brand/org-avatar"
+import { DataTable, type Column } from "@/components/common/data-table"
 import { EmptyState } from "@/components/common/empty-state"
-import { SearchInput } from "@/components/common/filters"
-import { InfoTip, Tip } from "@/components/common/info-tip"
-import { StatusBadge, toneText, type Tone } from "@/components/common/status-badge"
+import { InfoTip } from "@/components/common/info-tip"
+import { StatusBadge, type Tone } from "@/components/common/status-badge"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { Change, StageBadge, agencyStatus, moneyYear, termLabel } from "@/components/procurement/sourcing-bits"
 import { Button } from "@/components/ui/button"
@@ -20,7 +21,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { dateOf, formatDateFull, formatDateShort, formatTimestamp, timeAgo, todayISO } from "@/lib/dates"
 import { billFrom, money, plural } from "@/lib/format"
 import { city, position, supplier } from "@/lib/reference"
-import { activeCard, agencyValue, bestMarkup, counterPlan, irisCounters, latestBid, lineName, marketName, marketsOf, offeredTerms, openCounters, pct, responded, spendOf, type CounterOutcome } from "@/lib/sourcing"
+import { activeCard, agencyValue, bestMarkup, counterPlan, decided, irisCounters, latestBid, lineName, marketName, marketsOf, offeredTerms, openCounters, pct, responded, rolesOf, spendOf, type CounterOutcome } from "@/lib/sourcing"
 import { useStore } from "@/lib/store"
 import type { ContractTerms, SourcingEvent } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -78,99 +79,73 @@ function CompassView({ ev }: { ev: SourcingEvent }) {
   )
 }
 
-const BOARD = "grid grid-cols-[minmax(240px,1fr)_120px_220px_120px_20px] items-center gap-x-8 px-6"
+const TURN_ORDER = ["Our turn", "Their turn", "Accepted", "Rejected", "No bid"]
 
-/**
- * Every agency's bid in three numbers: its markup, what it pays workers against the market, and the VA it gives back.
- * Best value after VA first.
- */
+/** Every agency on one sortable table: where its bid stands, how much of the renewal it covers, and its markup and VA. */
 function ValueBoard({ ev }: { ev: SourcingEvent }) {
   const data = useData()
-  const [query, setQuery] = useState("")
-  const rows = ev.invited
-    .map((s) => ({ s, ...agencyValue(ev, data.rateCards, s), status: agencyStatus(ev, s) }))
-    .sort((a, b) => Number(b.bidding) - Number(a.bidding) || a.cost - b.cost)
-  const span = Math.max(0.05, ...rows.map((r) => Math.abs(r.payVsMarket) * 1.25))
-  const shown = rows.filter((r) => supplier(r.s).name.toLowerCase().includes(query.trim().toLowerCase()))
+  const router = useRouter()
+  const rows = ev.invited.map((s) => ({
+    s,
+    ...agencyValue(ev, data.rateCards, s),
+    status: agencyStatus(ev, s),
+    markets: marketsOf(ev, s).length,
+    positions: rolesOf(ev, s).length,
+  }))
+  type Row = (typeof rows)[number]
+  const columns: Column<Row>[] = [
+    {
+      id: "agency",
+      header: "Agency",
+      sortValue: (r) => supplier(r.s).name,
+      cell: (r) => (
+        <span className="flex min-w-0 items-center gap-3">
+          <SupplierLogo supplierId={r.s} size="md" />
+          <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortValue: (r) => TURN_ORDER.indexOf(r.status.label),
+      cell: (r) => (
+        <StatusBadge tone={r.status.tone} size="sm" dot>
+          {r.status.label}
+        </StatusBadge>
+      ),
+    },
+    { id: "markets", header: "Markets", align: "right", sortValue: (r) => r.markets, cell: (r) => <span className="tabular">{r.markets}</span> },
+    { id: "positions", header: "Positions", align: "right", sortValue: (r) => r.positions, cell: (r) => <span className="tabular">{r.positions}</span> },
+    {
+      id: "markup",
+      header: "Markup",
+      align: "right",
+      info: "On every role. Until an agency bids, it's the markup on today's rate cards.",
+      sortValue: (r) => r.markupPct,
+      cell: (r) => <span className={cn("font-semibold tabular", !r.bidding && "text-faded")}>{pct(Math.round(r.markupPct))}</span>,
+    },
+    { id: "va", header: "VA", align: "right", sortValue: (r) => r.vaPct, cell: (r) => <span className={cn("font-semibold tabular", !r.bidding && "text-faded")}>{pct(r.vaPct)}</span> },
+  ]
   return (
-    <Surface elevated className="overflow-hidden" data-tour="bid-matrix">
-      <SurfaceHeader
-        title="Compare agencies"
-        info="vs Market is what each agency pays workers against the market, averaged over every role and market by the hours you buy. The line in the middle is the market."
-        actions={ev.invited.length > 8 ? <SearchInput value={query} onChange={setQuery} placeholder="Search agencies" className="w-52" /> : undefined}
+    <section className="flex flex-col gap-3" data-tour="bid-matrix">
+      <h2 className="text-featured-3 font-semibold">Compare agencies</h2>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        getRowId={(r) => r.s}
+        onRowClick={(r) => router.push(`/procurement/${ev.id}/${r.s}`)}
+        initialSort={{ id: "markup", dir: "asc" }}
       />
-      <div className={cn(BOARD, "mt-3 border-y border-border/70 bg-page-faded/60 py-2.5 text-caption-1 font-medium text-faded")}>
-        <span>Agency</span>
-        <span className="text-center">Markup</span>
-        <span className="text-center">vs Market</span>
-        <span className="text-center">VA</span>
-        <span />
-      </div>
-      <ol className="flex flex-col divide-y divide-border/70">
-        {shown.map((r) => (
-          <li key={r.s}>
-            <Link href={`/procurement/${ev.id}/${r.s}`} data-supplier={r.s} className={cn(BOARD, "group py-4 transition-colors hover:bg-hover/50")}>
-              <span className="flex min-w-0 items-center gap-3">
-                <SupplierLogo supplierId={r.s} size="md" />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-body-2 font-semibold">{supplier(r.s).name}</span>
-                  <span className={cn("text-caption-1", r.status.tone === "neutral" || r.status.tone === "primary" ? "text-faded" : toneText[r.status.tone])}>
-                    {r.bidding ? r.status.label : "No bid yet, today's rates"}
-                  </span>
-                </span>
-              </span>
-              <span className="text-center text-body-1 font-semibold tabular">{pct(Math.round(r.markupPct))}</span>
-              <Tip content={`Pays ${money(1 + r.payVsMarket)} for every $1.00 the market pays`}>
-                <span className="flex justify-center">
-                  <PayDot value={r.payVsMarket} span={span} />
-                </span>
-              </Tip>
-              <span className="text-center text-body-1 font-semibold tabular">{pct(r.vaPct)}</span>
-              <ChevronRight className="size-4 text-subtle transition-transform duration-100 group-hover:translate-x-0.5" />
-            </Link>
-          </li>
-        ))}
-      </ol>
-    </Surface>
-  )
-}
-
-/** Where an agency's pay sits against the market: the tick is the market, and the bar runs to a dot, green above and red below. */
-function PayDot({ value, span }: { value: number; span: number }) {
-  const n = Math.round(value * 100)
-  const tone = n > 0 ? "positive" : n < 0 ? "critical" : "neutral"
-  const at = 50 + (Math.max(-span, Math.min(span, value)) / span) * 50
-  return (
-    <span className="flex items-center gap-3">
-      <span className="w-9" aria-hidden />
-      <span className="relative block h-4 w-32" aria-hidden>
-        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/[0.07]" />
-        <span
-          className={cn("absolute top-1/2 h-1 -translate-y-1/2 rounded-full", tone === "positive" ? "bg-positive/35" : "bg-critical/35")}
-          style={{ left: `${Math.min(50, at)}%`, width: `${Math.abs(at - 50)}%` }}
-        />
-        <span className="absolute top-1/2 left-1/2 h-3.5 w-px -translate-y-1/2 bg-foreground/40" />
-        <span
-          className={cn(
-            "absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card",
-            tone === "positive" ? "bg-positive" : tone === "critical" ? "bg-critical" : "bg-foreground/50",
-          )}
-          style={{ left: `${at}%` }}
-        />
-      </span>
-      <span className={cn("w-9 text-right text-body-3 font-semibold tabular", tone === "positive" ? "text-positive-fg" : tone === "critical" ? "text-critical-fg" : "text-faded")}>
-        {n > 0 ? "+" : n < 0 ? "−" : ""}
-        {Math.abs(n)}%
-      </span>
-    </span>
+    </section>
   )
 }
 
 const OUTCOME: Record<CounterOutcome, { label: string; tone: Tone }> = {
-  waiting: { label: "Waiting", tone: "neutral" },
-  met: { label: "Met it", tone: "positive" },
-  down: { label: "Came down", tone: "primary" },
-  held: { label: "Held", tone: "neutral" },
+  waiting: { label: "Their turn", tone: "neutral" },
+  met: { label: "Accepted", tone: "positive" },
+  down: { label: "Offered", tone: "primary" },
+  held: { label: "Rejected", tone: "neutral" },
 }
 
 /**
@@ -195,7 +170,7 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
     ? `Iris asks each to come down toward ${pct(bestMarkup(ev))}. Worth ${moneyYear(worth)} if they all say yes.`
     : waiting
       ? `${sent.length - waiting} of ${sent.length} answered. Agencies usually answer within two days.`
-      : `${listOf([count("met") && `${count("met")} met the ask`, count("down") && `${count("down")} came down`, count("held") && `${count("held")} held`].filter((x): x is string => !!x))}.${worth > 0 ? ` That saves ${moneyYear(worth)}.` : ""}`
+      : `${listOf([count("met") && `${count("met")} accepted`, count("down") && `${count("down")} offered less`, count("held") && `${count("held")} rejected`].filter((x): x is string => !!x))}.${worth > 0 ? ` That saves ${moneyYear(worth)}.` : ""}`
 
   return (
     <Surface elevated className="overflow-hidden" data-tour="iris-negotiate">
@@ -226,7 +201,7 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
             {r.outcome && (
               <span className="flex w-28 justify-end">
                 <StatusBadge tone={OUTCOME[r.outcome].tone} size="sm" dot={r.outcome === "waiting"}>
-                  {r.outcome === "down" ? `Down to ${pct(r.now)}` : OUTCOME[r.outcome].label}
+                  {r.outcome === "down" ? `Offered ${pct(r.now)}` : OUTCOME[r.outcome].label}
                 </StatusBadge>
               </span>
             )}
@@ -256,7 +231,7 @@ function IrisNegotiates({ ev }: { ev: SourcingEvent }) {
 function ApproveBids({ ev }: { ev: SourcingEvent }) {
   const approve = useStore((s) => s.approveBids)
   const [open, setOpen] = useState(false)
-  const pending = responded(ev).filter((s) => !ev.approved[s])
+  const pending = responded(ev).filter((s) => !decided(ev, s))
   const ready = pending.filter((s) => !openCounters(ev, s).length)
   const [picked, setPicked] = useState<string[]>([])
   const chosen = picked.filter((s) => ready.includes(s))
@@ -302,7 +277,7 @@ function ApproveBids({ ev }: { ev: SourcingEvent }) {
                     <SupplierLogo supplierId={s} size="sm" />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate font-medium">{supplier(s).name}</span>
-                      <span className="text-caption-1 text-faded">{waiting ? "Waiting on an answer to your counter" : `Round ${latestBid(ev, s)!.round}`}</span>
+                      <span className="text-caption-1 text-faded">{waiting ? "Waiting on an answer to your counter" : `Sent ${formatDateShort(dateOf(latestBid(ev, s)!.at))}`}</span>
                     </span>
                     <span className="flex flex-col items-end">
                       <span className="text-body-3 font-semibold tabular">{moneyYear(spend.proposed)}</span>
@@ -365,7 +340,10 @@ function entriesOf(ev: SourcingEvent, supplierId?: string): Entry[] {
     org: "Compass",
     text: supplierId ? "Approved your bid. The rates are live." : `Approved ${listOf(ids.map((s) => supplier(s).shortName))}. The rates are live.`,
   }))
-  return [...messages, ...bids, ...approvals].sort((a, b) => b.at.localeCompare(a.at))
+  const rejections: Entry[] = Object.entries(ev.rejected ?? {})
+    .filter(([s]) => !supplierId || s === supplierId)
+    .map(([s, at]) => ({ key: `${s}-no`, at, who: ev.createdBy, org: "Compass", text: supplierId ? "Rejected your bid." : `Rejected ${supplier(s).shortName}'s bid.` }))
+  return [...messages, ...bids, ...approvals, ...rejections].sort((a, b) => b.at.localeCompare(a.at))
 }
 
 function Activity({ ev, supplierId }: { ev: SourcingEvent; supplierId?: string }) {
@@ -425,7 +403,8 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const bid = latestBid(ev, supplierId)
   const counter = openCounters(ev, supplierId).at(-1)
   const approvedAt = ev.approved[supplierId]
-  const locked = !!approvedAt || ev.status === "awarded"
+  const rejectedAt = ev.rejected?.[supplierId]
+  const locked = !!approvedAt || !!rejectedAt || ev.status === "awarded"
   const [pay, setPay] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       ev.lines.map((l) => {
@@ -446,8 +425,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   const priced = markupN >= 0 ? mine.flatMap((l) => (Number(pay[l.id]) > 0 ? [{ line: l, pay: Number(pay[l.id]), bill: billFrom(Number(pay[l.id]), markupN) }] : [])) : []
   const billings = priced.reduce((sum, p) => sum + p.line.hours * (p.line.share[supplierId] ?? 0) * p.bill, 0)
   const today = spendOf(ev, supplierId, true).baseline
-  const round = (bid?.round ?? 0) + 1
-  const status = agencyStatus(ev, supplierId)
+  const status = agencyStatus(ev, supplierId, true)
 
   const send = async () => {
     setBusy(true)
@@ -455,7 +433,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
     setBusy(false)
     if (!n) return
     setNote("")
-    toast.success(n === 1 ? "Bid sent to Compass" : `Round ${n} sent to Compass`, { description: "Compass's answer shows up here." })
+    toast.success(n === 1 ? "Bid sent to Compass" : "Updated bid sent to Compass", { description: "Compass's answer shows up here." })
   }
 
   return (
@@ -467,6 +445,10 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             <Link href="/procurement?tab=rates" className="font-medium underline underline-offset-4">
               See your rate cards
             </Link>
+          </Banner>
+        ) : rejectedAt ? (
+          <Banner tone="critical" icon={MessageSquareText}>
+            Compass rejected your bid on {formatDateFull(dateOf(rejectedAt))}. Your rate cards stay as they are.
           </Banner>
         ) : counter && !locked ? (
           <Banner tone="warning" icon={MessageSquareText}>
@@ -481,12 +463,12 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             >
               Accept
             </button>
-            <span className="text-faded"> Then send round {round}.</span>
+            <span className="text-faded"> Then send your updated bid.</span>
           </Banner>
         ) : null}
         <Surface elevated className="overflow-hidden" data-tour="agency-bid">
           <SurfaceHeader
-            title={bid ? `Your bid, round ${bid.round}` : "Your bid"}
+            title="Your bid"
             description={bid ? `Sent ${formatTimestamp(bid.at)}` : `Due ${formatDateShort(ev.closesOn)}`}
             info="One markup goes on every role, and VA comes back at year end. Hours are Compass's estimate for the year. Leave a pay rate blank to skip a role."
             actions={
@@ -552,7 +534,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
             <div className="flex flex-wrap items-center gap-3 border-t border-border bg-page-faded/60 px-5 py-3">
               <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to Compass (optional)" className="h-9 min-w-56 flex-1 rounded-lg bg-card" />
               <Button className="h-9" disabled={busy || !priced.length || !(vaN >= 0 && vaN <= 50)} onClick={send} data-tour="submit-bid">
-                {bid ? `Send round ${round}` : "Submit bid"}
+                {bid ? "Send updated bid" : "Submit bid"}
               </Button>
             </div>
           )}
@@ -563,7 +545,7 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
           <div className="flex items-center justify-between gap-2">
             <span className="text-body-3 text-faded">Your bid</span>
             <StatusBadge tone={status.tone} size="sm" dot>
-              {status.label === "Invited" ? "Not sent yet" : status.label}
+              {status.label}
             </StatusBadge>
           </div>
           <div className="flex flex-col gap-0.5">
@@ -597,15 +579,15 @@ function AgencyView({ ev, supplierId }: { ev: SourcingEvent; supplierId: string 
   )
 }
 
-function Banner({ tone, icon: Icon, children }: { tone: "positive" | "warning"; icon: typeof CircleCheck; children: React.ReactNode }) {
+function Banner({ tone, icon: Icon, children }: { tone: "positive" | "warning" | "critical"; icon: typeof CircleCheck; children: React.ReactNode }) {
   return (
     <div
       className={cn(
         "flex items-start gap-3 rounded-xl border px-4 py-3 text-body-3",
-        tone === "positive" ? "border-positive-border/80 bg-positive-faded" : "border-warning-border/80 bg-warning-faded",
+        tone === "positive" ? "border-positive-border/80 bg-positive-faded" : tone === "critical" ? "border-critical-border/80 bg-critical-faded" : "border-warning-border/80 bg-warning-faded",
       )}
     >
-      <Icon className={cn("mt-0.5 size-4 shrink-0", tone === "positive" ? "text-positive-fg" : "text-warning-fg")} />
+      <Icon className={cn("mt-0.5 size-4 shrink-0", tone === "positive" ? "text-positive-fg" : tone === "critical" ? "text-critical-fg" : "text-warning-fg")} />
       <span>{children}</span>
     </div>
   )
