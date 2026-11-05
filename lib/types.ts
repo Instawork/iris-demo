@@ -705,7 +705,7 @@ export interface ActivityEvent {
   invoiceId?: string
 }
 
-export type ReportMeasure = "spend" | "hours" | "workers" | "costPerHour" | "aboveClock" | "shifts" | "spots" | "fillRate" | "noShowRate" | "timeToFill"
+export type ReportMeasure = "spend" | "hours" | "workers" | "costPerHour" | "aboveClock" | "overCard" | "shifts" | "spots" | "fillRate" | "noShowRate" | "timeToFill"
 
 export type ReportDimension = "week" | "month" | "buyer" | "location" | "market" | "agency" | "position"
 

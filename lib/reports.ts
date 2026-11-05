@@ -2,7 +2,7 @@ import { differenceInCalendarDays, format } from "date-fns"
 
 import { addDaysISO, formatDateShort, instantAt, parseDate, todayISO, wallClock, weekStartISO } from "@/lib/dates"
 import { hours as formatHours, money, moneyCompact, moneyWhole, pct } from "@/lib/format"
-import { formatTimeToFill, groupPhase, inScope } from "@/lib/metrics"
+import { formatTimeToFill, groupPhase, inScope, overCardAmount, rateCardOf } from "@/lib/metrics"
 import { BUYERS, WORKSPACES, buyer, city, findCity, findLocation, findPosition, findSupplier, location, orgOf, position, supplier } from "@/lib/reference"
 import { hoursAboveClock, timesheetAmount } from "@/lib/timesheets"
 import type { DemoData, ReportDimension, ReportFilterKey, ReportMeasure, ReportPeriod, ReportSchedule, ReportSpec, ReportView, SavedReport, Scope, Workspace } from "@/lib/types"
@@ -39,6 +39,14 @@ export const MEASURES: MeasureInfo[] = [
     additive: true,
     goodWhen: "down",
     info: "Billed hours past Iris's own clock, at the agency's bill rate. Iris flags each one before it's approved.",
+  },
+  {
+    id: "overCard",
+    label: "Non-compliant spend",
+    kind: "money",
+    additive: true,
+    goodWhen: "down",
+    info: "Dollars billed above the agency's rate card for that role and market.",
   },
   { id: "shifts", label: "Shifts", kind: "count", additive: true, info: "Shifts posted, not counting cancelled ones." },
   { id: "spots", label: "Spots", kind: "count", additive: true, info: "Workers requested on those shifts." },
@@ -195,6 +203,7 @@ interface Acc {
   hours: number
   workers: Set<string>
   above: number
+  overCard: number
   shifts: number
   spots: number
   ended: number
@@ -203,7 +212,7 @@ interface Acc {
   fills: number[]
 }
 
-const blank = (): Acc => ({ facts: 0, spend: 0, hours: 0, workers: new Set(), above: 0, shifts: 0, spots: 0, ended: 0, filled: 0, noShows: 0, fills: [] })
+const blank = (): Acc => ({ facts: 0, spend: 0, hours: 0, workers: new Set(), above: 0, overCard: 0, shifts: 0, spots: 0, ended: 0, filled: 0, noShows: 0, fills: [] })
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -221,6 +230,7 @@ function valuesOf(acc: Acc): MeasureValues {
     workers: acc.workers.size,
     costPerHour: acc.hours ? round(acc.spend / acc.hours) : null,
     aboveClock: round(acc.above),
+    overCard: round(acc.overCard),
     shifts: acc.shifts,
     spots: acc.spots,
     fillRate: acc.ended ? acc.filled / acc.ended : null,
@@ -306,10 +316,12 @@ export function runReport(data: DemoData, spec: ReportSpec, scope: Scope, today 
     if (!at || !inScope(scope, t) || !pass(t)) continue
     const amount = timesheetAmount(t)
     const above = hoursAboveClock(t) * t.billRate
+    const over = overCardAmount(rateCardOf(data, t.supplierId, t.locationId, t.positionId)?.billRate, t.billRate, t.hours, t.otHours)
     for (const acc of at === "now" ? target(t) : [priorTotal]) {
       acc.facts += 1
       acc.spend += amount
       acc.above += above
+      acc.overCard += over
       if (t.status === "removed") continue
       acc.hours += t.hours
       acc.workers.add(t.proId)
@@ -645,7 +657,7 @@ export function reportPages(kind: Workspace["kind"]): ReportPage[] {
       id: "spend",
       label: agency ? "Billed by buyer" : "Spend by agency",
       info: agency ? "What you billed each week, and each buyer's share." : "What each agency billed each week, and its share of the total.",
-      table: spec(["spend", "hours", "costPerHour"], who, "last_90"),
+      table: spec(["spend", "hours", "costPerHour", "overCard"], who, "last_90"),
       trend: spec(["spend"], "week", "last_90", { splitBy: who }),
       share: true,
       labels,

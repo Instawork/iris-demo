@@ -28,6 +28,7 @@ import {
   invoiceBalance,
   invoiceBenchmark,
   invoiceHours,
+  invoiceOverCard,
   invoiceStatus,
   invoiceSubtotal,
   invoiceExpenses,
@@ -56,7 +57,7 @@ const OUTSTANDING: InvoiceDisplayStatus[] = ["unpaid", "overdue"]
 
 const DESCRIPTION: Record<PersonaKind, string> = {
   compass:
-    "Every invoice in the program, built from approved hours at each agency's rates. Iris flags hours billed above its clock, which go back to the agency for a credit, and invoices priced well above what other agencies charge.",
+    "Every invoice in the program, built from approved hours at each agency's rates. Iris flags hours billed above its clock, invoices priced well above other agencies, and hours billed above the rate card.",
   buyer: "Each agency's invoice for the week fills as you approve hours, and Iris issues it on Saturday in one consolidated invoice. Nothing to upload.",
   supplier: "What you're owed. Your invoice for the week fills as the buyer approves your hours, and Iris issues it on Saturday.",
 }
@@ -204,6 +205,17 @@ export function InvoicesPage() {
         )
       },
     },
+    ...when<Invoice>(isCompass, {
+      id: "over",
+      header: "Above card",
+      align: "right",
+      info: "Billed above the agency's rate card for that role and market.",
+      sortValue: (i) => invoiceOverCard(data, i),
+      cell: (i) => {
+        const n = invoiceOverCard(data, i)
+        return n > 0 ? <span className="font-semibold tabular text-critical-fg">{money(n)}</span> : <span className="text-faded">—</span>
+      },
+    }),
     { id: "status", header: "Status", sortValue: (i) => invoiceStatus(i), cell: (i) => <InvoiceStatusBadge invoice={i} /> },
     {
       id: "due",
@@ -241,7 +253,7 @@ export function InvoicesPage() {
             amount: invoiceTotal(i).toFixed(2),
             balance: invoiceBalance(i).toFixed(2),
             ...(isCompass
-              ? { flagged: b.anomalous ? "yes" : "no", review: i.review?.status ?? "" }
+              ? { flagged: b.anomalous ? "yes" : "no", above_card: invoiceOverCard(data, i).toFixed(2), review: i.review?.status ?? "" }
               : {}),
           }
         }),

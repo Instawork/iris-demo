@@ -18,7 +18,7 @@ import { useData, useWorkspace } from "@/hooks/use-app"
 import { addDaysISO, formatClock, formatDateLong, formatDateShort, timeAgo, todayISO, weekEndISO } from "@/lib/dates"
 import type { ApproveResult } from "@/lib/domain/commands"
 import { fullName, money, plural, round2 } from "@/lib/format"
-import { groupPhase } from "@/lib/metrics"
+import { groupPhase, overCardAmount, rateCardOf } from "@/lib/metrics"
 import { location, position, supplier } from "@/lib/reference"
 import { useStore, type TimesInput } from "@/lib/store"
 import {
@@ -238,6 +238,8 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
 
   const st = round2(t.hours - t.otHours)
   const labor = laborAmount(t)
+  const cardRate = rateCardOf(data, t.supplierId, t.locationId, t.positionId)?.billRate
+  const overCard = overCardAmount(cardRate, t.billRate, t.hours, t.otHours)
 
   return (
     <>
@@ -317,6 +319,9 @@ function Body({ t, onDone }: { t: Timesheet; onDone: () => void }) {
             </span>
             <span className="text-body-2 font-semibold tabular">{money(labor)}</span>
           </div>
+          {overCard > 0 && cardRate !== undefined && (
+            <span className="text-caption-1 font-medium text-critical-fg">{money(round2(t.billRate - cardRate))}/hr above the {money(cardRate)}/hr rate card</span>
+          )}
           {t.tips > 0 && (
             <div className="flex items-baseline justify-between text-body-3 text-faded">
               <span>Tips, passed through with no markup</span>

@@ -4,7 +4,7 @@ import { formatDateShort } from "@/lib/dates"
 import { money, plural, round2 } from "@/lib/format"
 import { benchmark, vsMarket } from "@/lib/market"
 import { SUPPLIERS, location, supplier } from "@/lib/reference"
-import { expensesOf, readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
+import { OVERTIME_RATE, expensesOf, readyToSubmit, timesheetAmount, timesheetChecks, withAgency, type Proposal } from "@/lib/timesheets"
 import type { DemoData, Invoice, InvoiceLine, Pro, Scope, ShiftGroup, Timesheet, Workspace } from "@/lib/types"
 
 export const scopeOf = (ws: Workspace): Scope => ({ kind: ws.kind, buyerId: ws.buyerId, supplierId: ws.supplierId })
@@ -123,6 +123,23 @@ export function invoiceStatus(inv: Invoice): InvoiceDisplayStatus {
 
 /** An open invoice can't be paid until Iris issues it, and a paid or paying one can't take a credit. */
 export const canCredit = (inv: Invoice) => inv.status === "open" || inv.status === "unpaid" || inv.status === "partial"
+
+/** The agency's rate card for this role in this market. */
+export function rateCardOf(data: Pick<DemoData, "rateCards">, supplierId: string, locationId: string, positionId: string) {
+  const cityId = location(locationId).cityId
+  return data.rateCards.find((c) => c.supplierId === supplierId && c.cityId === cityId && c.positionId === positionId && c.status === "active")
+}
+
+/** Dollars billed above the rate card. Zero when the rate is at or under the card. */
+export function overCardAmount(cardRate: number | undefined, billRate: number, hours: number, otHours = 0) {
+  if (cardRate === undefined || !(billRate > cardRate + 0.009)) return 0
+  const extra = billRate - cardRate
+  return round2((hours - otHours) * extra + otHours * extra * OVERTIME_RATE)
+}
+
+/** What an invoice bills above its agencies' rate cards. */
+export const invoiceOverCard = (data: Pick<DemoData, "rateCards">, inv: Invoice) =>
+  round2(inv.lines.reduce((sum, l) => sum + overCardAmount(rateCardOf(data, inv.supplierId, l.locationId, l.positionId)?.billRate, l.billRate, l.hours, l.otHours ?? 0), 0))
 
 /** An invoice is anomalous when it costs this much more than other suppliers would have charged for the same hours, weighted by rating. */
 export const ANOMALY_THRESHOLD = 0.15

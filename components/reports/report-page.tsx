@@ -241,7 +241,7 @@ function ResultTable({ page, result, canOpenAgency, onOpenAgency }: { page: Repo
         info: measureInfo(m).info,
         align: m === "hours" ? "center" : "right",
         sortValue: (g) => g.values[m] ?? -Infinity,
-        cell: (g) => <span className={cn("tabular", i === 0 && "font-semibold")}>{formatValue(m, g.values[m])}</span>,
+        cell: (g) => <span className={cn("tabular", i === 0 && "font-semibold", m === "overCard" && (g.values[m] ?? 0) > 0 && "font-semibold text-critical-fg")}>{formatValue(m, g.values[m])}</span>,
       }
       if (i > 0 || !page.share) return [column]
       return [

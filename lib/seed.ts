@@ -29,7 +29,7 @@ import type {
   Upload,
 } from "@/lib/types"
 
-export const DATA_VERSION = 27
+export const DATA_VERSION = 29
 
 const FIRST_NAMES = [
   "Aaliyah", "Andre", "Ana", "Brianna", "Carlos", "Chen", "Dario", "Deja", "Elena", "Emeka", "Fatima", "Gabriel",
@@ -583,6 +583,7 @@ export function generateDemoData(today = todayISO()): DemoData {
   const sheets = withOvertime(timesheets)
   const { invoices, invoiceGroups } = generateInvoices(counters, sheets, pros, today)
   plantBillingError(sheets, invoices, today)
+  plantOverCard(sheets, invoices, rateCards, today)
   const uploads = generateUploads(counters, today)
   const roster = generateRoster(r, sheets, pros, today)
   const reviews = generateReviews(r, counters, sheets, pros)
@@ -1231,6 +1232,28 @@ function plantBillingError(timesheets: Timesheet[], invoices: Invoice[], today: 
     change(isoAt(inv.issuedOn, "06:00"), "Iris", "invoiced", { note: inv.number }),
   ]
   Object.assign(line, { clockIn: t.clockIn, clockOut: t.clockOut, hours: t.hours, amount: laborAmount(t) })
+}
+
+/** Harbor's Chicago hours for the last two weeks are billed $3/hr above Harbor's rate card. */
+function plantOverCard(timesheets: Timesheet[], invoices: Invoice[], rateCards: RateCard[], today: string) {
+  const since = addDaysISO(weekStartISO(today), -14)
+  const cardFor = (positionId: string) => rateCards.find((c) => c.supplierId === "harbor" && c.cityId === "chi" && c.positionId === positionId && c.status === "active")
+  const bumped = new Set<string>()
+  for (const t of timesheets) {
+    const card = cardFor(t.positionId)
+    if (!card || t.supplierId !== "harbor" || t.date < since || location(t.locationId).cityId !== "chi") continue
+    t.billRate = round2(card.billRate + 3)
+    bumped.add(t.id)
+  }
+  const byId = new Map(timesheets.map((t) => [t.id, t]))
+  for (const inv of invoices) {
+    for (const line of inv.lines) {
+      const t = line.timesheetId ? byId.get(line.timesheetId) : undefined
+      if (!t || !bumped.has(t.id)) continue
+      line.billRate = t.billRate
+      line.amount = laborAmount(t)
+    }
+  }
 }
 
 function invoiceTotalRaw(inv: Invoice) {

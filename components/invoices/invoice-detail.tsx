@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import { useData, useWorkspace } from "@/hooks/use-app"
 import { downloadCsv, exportName, toCsv } from "@/lib/csv"
 import { formatClockShort, formatDateFull, formatDateShort, formatWeek } from "@/lib/dates"
-import { hours, money, plural, rate } from "@/lib/format"
+import { hours, money, plural, rate, round2 } from "@/lib/format"
 import {
   ANOMALY_THRESHOLD,
   billingFindings,
@@ -39,10 +39,13 @@ import {
   invoiceExpenseRows,
   invoiceExpenses,
   invoiceHours,
+  invoiceOverCard,
   invoiceStatus,
   invoiceSubtotal,
   invoiceTips,
   invoiceTotal,
+  overCardAmount,
+  rateCardOf,
   venueTips,
 } from "@/lib/metrics"
 import { buyer, costCenterOf, location, position, supplier, termsOf } from "@/lib/reference"
@@ -76,6 +79,8 @@ export function InvoiceDetail({ id }: { id: string }) {
   const costCenters = [...new Set(inv.lines.map((l) => costCenterOf(l.locationId, l.departmentId, l.positionId)))]
   const byDate = [...inv.lines].sort((a, b) => a.date.localeCompare(b.date) || a.proName.localeCompare(b.proName))
   const found = new Set(billingFindings(data, inv.id).map((f) => f.lineId))
+  const overTotal = invoiceOverCard(data, inv)
+  const overOf = (line: (typeof inv.lines)[number]) => overCardAmount(rateCardOf(data, inv.supplierId, line.locationId, line.positionId)?.billRate, line.billRate, line.hours, line.otHours ?? 0)
   const credits = inv.credits ?? []
   const lines = [...byDate].sort((a, b) => Number(found.has(b.id)) - Number(found.has(a.id)) || Number(isHigh(b.id)) - Number(isHigh(a.id)))
   const tips = venueTips(byDate)
@@ -179,7 +184,10 @@ export function InvoiceDetail({ id }: { id: string }) {
           {isCompass && benchmark.anomalous && <PeerComparison invoice={inv} />}
 
           <Surface elevated>
-            <SurfaceHeader title="Line items" description={`${plural(inv.lines.length, "line")} · ${hours(invoiceHours(inv))}`} />
+            <SurfaceHeader
+              title="Line items"
+              description={`${plural(inv.lines.length, "line")} · ${hours(invoiceHours(inv))}${overTotal > 0 ? ` · ${money(overTotal)} above the rate card` : ""}`}
+            />
             <div className="overflow-x-auto px-2 pt-3 pb-2 scrollbar-thin">
               <table className="w-full text-left text-body-3">
                 <thead>
@@ -198,6 +206,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                     const delta = deltaOf(l.id)
                     const high = delta >= ANOMALY_THRESHOLD
                     const billed = found.has(l.id)
+                    const card = rateCardOf(data, inv.supplierId, l.locationId, l.positionId)?.billRate
                     return (
                       <tr
                         key={l.id}
@@ -239,7 +248,11 @@ export function InvoiceDetail({ id }: { id: string }) {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular">
-                          {high ? (
+                          {overOf(l) > 0 ? (
+                            <Tip content={`Rate card is ${rate(card!)}. Billed ${rate(round2(l.billRate - card!))} above it.`}>
+                              <span className="font-semibold text-critical-fg">{money(l.billRate)}</span>
+                            </Tip>
+                          ) : high ? (
                             <Tip content={`${formatDelta(delta)} vs. other agencies' rating-weighted rate for this role, ${rate(l.billRate / (1 + delta))}`}>
                               <span className="font-semibold text-critical-fg">{money(l.billRate)}</span>
                             </Tip>

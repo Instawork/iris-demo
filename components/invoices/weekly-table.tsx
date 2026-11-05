@@ -110,6 +110,10 @@ export function WeeklyTable({
             <span className="text-faded">{plural(m.members.length, "invoice")}</span>
           </span>
         )
+      case "over": {
+        const n = m.members.reduce((sum, inv) => sum + Number(c.sortValue?.(inv) ?? 0), 0)
+        return n > 0 ? <span className="font-semibold tabular text-critical-fg">{money(n)}</span> : null
+      }
       case "amount":
         return (
           <span className="flex flex-col items-end">

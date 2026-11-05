@@ -12,7 +12,7 @@ import type { DemoData, ReportDimension, ReportFilterKey, ReportMeasure, ReportS
  * and hands over the full report for the rest.
  */
 
-const CUE = /\b(report|show me|how much|how many|how fast|how quickly|what did|spend|spent|spending|cost per hour|hourly cost|fill rate|no.?shows?|time to fill|break ?down|trend|compare|chart|above the clock|overbill\w*|per agency|by (agenc\w+|suppliers?|vendors?|locations?|venues?|units?|markets?|cit(y|ies)|positions?|roles?|weeks?|months?|buyers?|operators?))\b/
+const CUE = /\b(report|show me|how much|how many|how fast|how quickly|what did|spend|spent|spending|cost per hour|hourly cost|fill rate|no.?shows?|time to fill|break ?down|trend|compare|chart|above the clock|non-?compliant|rate card|overbill\w*|per agency|by (agenc\w+|suppliers?|vendors?|locations?|venues?|units?|markets?|cit(y|ies)|positions?|roles?|weeks?|months?|buyers?|operators?))\b/
 
 /** Asking Iris to do something, or about shifts still to come, isn't a question for a report. */
 const NOT_A_REPORT = /\b(create|book|post|order|cancel|approve|reject|assign|upload|template|submit|open shifts|unfilled|upcoming|tomorrow|next (week|month)|this weekend)\b/
@@ -20,6 +20,7 @@ const NOT_A_REPORT = /\b(create|book|post|order|cancel|approve|reject|assign|upl
 const MEASURE_WORDS: [ReportMeasure, RegExp][] = [
   ["costPerHour", /\b(cost per hour|hourly cost|per hour|bill rates?|hourly rates?)\b/],
   ["aboveClock", /\b((above|past|over) the clock|overbill\w*|padded)\b/],
+  ["overCard", /\b(non-?compliant|above the (rate )?card)\b/],
   ["fillRate", /\b(fill rates?|filled|fill)\b/],
   ["noShowRate", /\bno.?shows?\b/],
   ["timeToFill", /\b(time to fill|how (fast|quickly))\b/],
