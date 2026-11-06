@@ -112,7 +112,7 @@ export function WeeklyTable({
         )
       case "over": {
         const n = m.members.reduce((sum, inv) => sum + Number(c.sortValue?.(inv) ?? 0), 0)
-        return n > 0 ? <span className="font-semibold tabular text-critical-fg">{money(n)}</span> : null
+        return n > 0 ? <span data-tour="above-card" className="font-semibold tabular text-critical-fg">{money(n)}</span> : null
       }
       case "amount":
         return (

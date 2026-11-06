@@ -1218,7 +1218,25 @@ export const SCRIPT: TourItem[] = [
     title: "Invoicing and accruals",
     wsId: COMPASS,
     href: "/invoices",
-    shows: "One invoice a week for all of Compass, tips by venue, and what to accrue before it lands.",
+    shows: "One invoice a week for all of Compass, hours billed above the rate card, and what to accrue before it lands.",
+  },
+  {
+    kind: "step",
+    id: "above-card",
+    chapter: "invoicing",
+    label: "Spend above the rate card",
+    wsId: COMPASS,
+    path: /^\/invoices$/,
+    href: () => "/invoices",
+    title: "Billed above the rate card",
+    body: "Harbor's Chicago hours are $3/hr over its card. Above card is those extra dollars.",
+    targets: () => [one('[data-tour="above-card"]')],
+    clicks: () => null,
+    placement: "left",
+    skip: async (_, api) => {
+      api.push("/invoices")
+      await until(() => one('[data-tour="above-card"]'), 8000)
+    },
   },
   {
     kind: "step",
@@ -1293,7 +1311,7 @@ export const SCRIPT: TourItem[] = [
     title: "Reporting",
     wsId: COMPASS,
     href: "/",
-    shows: "Any number, in a sentence. Then what Iris expects next.",
+    shows: "Spend above the rate card, any number in a sentence, then what Iris expects next.",
   },
   {
     kind: "step",
@@ -1337,6 +1355,24 @@ export const SCRIPT: TourItem[] = [
       useAgentThreads.getState().clear(COMPASS)
       api.push("/")
       await until(() => one(PREDICTIONS), 8000)
+    },
+  },
+  {
+    kind: "step",
+    id: "noncompliant",
+    chapter: "reporting",
+    label: "Non-compliant spend",
+    wsId: COMPASS,
+    path: /^\/reports\/spend$/,
+    href: () => "/reports/spend",
+    title: "The same dollars, by agency",
+    body: "Every hour billed above that agency's rate card, for the last 90 days. Harbor is the one over it.",
+    targets: () => [one('[data-tour="over-card"]')],
+    clicks: () => null,
+    placement: "left",
+    skip: async (_, api) => {
+      api.push("/reports/spend")
+      await until(() => one('[data-tour="over-card"]'), 8000)
     },
   },
 
